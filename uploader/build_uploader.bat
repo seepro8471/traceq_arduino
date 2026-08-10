@@ -1,10 +1,13 @@
 @echo off
-rem TraceQ 펌웨어 업로더 exe 빌드 (개발 PC 전용)
-rem 1) pio run 으로 firmware.hex 를 먼저 빌드해 둘 것
-rem 2) 이 bat 실행 -> uploader\dist\TraceQ_FW_Upload.exe 생성
+rem TraceQ ?�웨???�로??exe 빌드 (개발 PC ?�용)
+rem 1) pio run ?�로 firmware.hex �?먼�? 빌드????�?rem 2) ??bat ?�행 -> uploader\dist\TraceQ_FW_Upload.exe ?�성
 cd /d "%~dp0"
 
 copy /y "..\.pio\build\megaatmega2560\firmware.hex" firmware.hex
+if errorlevel 1 goto :fail
+
+rem version.hpp ?�서 버전 문자???�동 추출 -> fw_version.txt (?�기 갱신 ?�락 방�?)
+py gen_version.py
 if errorlevel 1 goto :fail
 
 py -m PyInstaller --onefile --console --clean --name TraceQ_FW_Upload ^
@@ -12,6 +15,7 @@ py -m PyInstaller --onefile --console --clean --name TraceQ_FW_Upload ^
   --add-data "C:\Users\alu5\.platformio\packages\tool-avrdude\avrdude.conf;avrdude" ^
   --add-data "C:\Users\alu5\.platformio\packages\tool-avrdude\libusb0.dll;avrdude" ^
   --add-data "firmware.hex;." ^
+  --add-data "fw_version.txt;." ^
   traceq_fw_upload.py
 if errorlevel 1 goto :fail
 
