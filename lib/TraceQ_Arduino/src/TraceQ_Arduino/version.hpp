@@ -20,11 +20,15 @@
  *         빌드 도장(컴파일 시각 해시, 주소 4088) 불일치 = 새 펌웨어 첫 부팅
  *         → 전체 소거+기본값. 1.0의 DATA_NEEDS_INIT(4095) 방식은 구버전이
  *         깔려 있던 기기에서 초기화를 건너뛰어 이중 업로드가 필요했다.
+ * 2.2.4 — 초기화 시 액교환일(ClearDateTime) 기본값 = 현재로부터 1개월 전
+ *         (사용자 확정). 비어 있으면 소독 기록마다 현재시각이 교환일로
+ *         찍혀 통계 주기가 흩어지던 것 방지 — 클리어 태그 등록 전까지
+ *         안정된 기준일 제공.
  */
 #define TRACEQ_VERSION_MAJOR 2
 #define TRACEQ_VERSION_MINOR 2
-#define TRACEQ_VERSION_PATCH 3
-#define TRACEQ_VERSION_STRING "2.2.3"
+#define TRACEQ_VERSION_PATCH 4
+#define TRACEQ_VERSION_STRING "2.2.4"
 
 // 1.0 UI가 사용하던 매크로 이름 — 호환을 위해 별칭 유지.
 #define TRACEQ_ARDUINO_VERSION TRACEQ_VERSION_STRING

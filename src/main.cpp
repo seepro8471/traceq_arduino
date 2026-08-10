@@ -41,6 +41,37 @@ static uint32_t firmware_build_stamp()
     return h;
 }
 
+// 액교환일 기본값 = 현재로부터 1개월 전 (2.2.4, 사용자 확정).
+// 초기화 직후 액교환일이 비어 있으면 소독 기록마다 현재시각이 교환일로
+// 찍혀 통계 주기가 기록 건건이 흩어진다 — 클리어 태그로 실제 교환을
+// 등록하기 전까지 안정된 기준일을 제공한다. (말일이 짧은 달로 넘어가면
+// 그 달의 말일로 보정: 3/31 → 2/28)
+static LocalDateTime default_clear_datetime(DefaultRtc &rtcRef)
+{
+    LocalDateTime t = rtcRef.GetCurrentLocalDateTime();
+    uint16_t year = t.Date.Year;
+    uint8_t month = t.Date.Month;
+    if (month <= 1)
+    {
+        month = 12;
+        year -= 1;
+    }
+    else
+    {
+        month -= 1;
+    }
+    static const uint8_t kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    uint8_t maxDay = (month >= 1 && month <= 12) ? kDays[month - 1] : 28;
+    if (month == 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)))
+    {
+        maxDay = 29;
+    }
+    if (t.Date.Day > maxDay) t.Date.Day = maxDay;
+    t.Date.Year  = year;
+    t.Date.Month = month;
+    return t;
+}
+
 // 설정된 기기 타입.
 char deviceType{};
 
@@ -110,6 +141,9 @@ void setup()
         disinfectionOption.Upload();
         managerOption.Upload();
         recordOption.Upload();
+        // 액교환일 기본값 = 1개월 전 (소독 모드에서 사용 — 타입과 무관하게
+        // 기록해 두면 나중에 D 타입으로 바꿔도 유효).
+        disinfectionOption.SetClearDateTime(default_clear_datetime(rtc));
         EEPROM.put(FIRMWARE_STAMP_ADDR, currentStamp);
     }
 
