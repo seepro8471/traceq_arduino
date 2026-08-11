@@ -24,6 +24,10 @@
  *         (사용자 확정). 비어 있으면 소독 기록마다 현재시각이 교환일로
  *         찍혀 통계 주기가 흩어지던 것 방지 — 클리어 태그 등록 전까지
  *         안정된 기준일 제공.
+ * 2.2.6 — 게이트웨이 본체번호를 PC(SeePro)가 G1 으로 내려준 값으로 기록.
+ *         G1 이 0(=`0000`)이거나 미수신이면 기기 자체 번호를 쓴다(사용자 확정).
+ *         1.0 은 G1 구간을 읽지 않고 항상 기기 번호를 썼다. 홈 화면 우하단은
+ *         **실제 기록될 번호**를 표시한다.
  * 2.2.5 — 전체 로직 감사 반영. 핵심:
  *         · 세션 도중 StopCrypto1 금지 규칙을 Read 실패·태그 발급 경로까지
  *           확대(암호화 상태를 mCryptoOn 으로 분리 추적). 서버 덤프가 1회
@@ -42,8 +46,8 @@
  */
 #define TRACEQ_VERSION_MAJOR 2
 #define TRACEQ_VERSION_MINOR 2
-#define TRACEQ_VERSION_PATCH 5
-#define TRACEQ_VERSION_STRING "2.2.5"
+#define TRACEQ_VERSION_PATCH 6
+#define TRACEQ_VERSION_STRING "2.2.6"
 
 // 1.0 UI가 사용하던 매크로 이름 — 호환을 위해 별칭 유지.
 #define TRACEQ_ARDUINO_VERSION TRACEQ_VERSION_STRING

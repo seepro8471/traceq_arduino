@@ -11,6 +11,23 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
     mDateTime = LocalDateTime{};
 
     char string[64]{};
+
+    // G1 = 본체번호 (2.2.6, 사용자 확정). `G1{gate};G2…` 형식.
+    // 0(=`0000`)이면 "지정 없음"으로 보고 기기 자체 번호를 쓴다(effective_number).
+    // TraceQ_Python 변형(`G1G2…`)처럼 값 자체가 없으면 직전 수신값을 유지한다.
+    // 1.0 은 이 구간을 아예 읽지 않고 항상 기기 자체 번호를 썼다.
+    if (find_string(buffer, string, sizeof(string), "G1", "G2"))
+    {
+        const size_t sep = str_index_of(string, ';');
+        if (sep != static_cast<size_t>(-1))
+        {
+            char gateText[8]{};
+            str_substring_safe(string, gateText, sizeof(gateText), 0, sep);
+            const int parsed = str_atoi(gateText);   // "0002" → 2, 비숫자면 -1
+            if (parsed >= 0) mGateNumber = static_cast<int16_t>(parsed);
+        }
+    }
+    memset(string, 0, sizeof(string));
     if (!find_string(buffer, string, sizeof(string), "G3", "G4")) return;
 
     mHasPatientInformation = substring_for_patient(string);
@@ -33,7 +50,8 @@ void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
 {
     if (!is_valid(printer)) return;
 
-    Gateway gateway{deviceNumber, mDateTime};
+    // 본체번호는 PC 가 G1 로 준 값 (기기 설정은 미수신 시 폴백일 뿐).
+    Gateway gateway{effective_number(deviceNumber), mDateTime};
     if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return;
     if (mScanner.Write(SECTOR2_PATIENT_KEY,  mPatientKey,  16) != RfidResult::Ok) return;
     if (mScanner.Write(SECTOR2_PATIENT_NAME, mPatientName, 16) != RfidResult::Ok) return;
@@ -76,7 +94,7 @@ void GatewayProcessor::GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc,
     mCachedProcess.Status = 0;
 
     const auto dateTime = rtc.GetCurrentDateTime();
-    Gateway gateway{deviceNumber, DefaultRtc::ToLocalDateTime(dateTime)};
+    Gateway gateway{effective_number(deviceNumber), DefaultRtc::ToLocalDateTime(dateTime)};
     char format[16]{"YYYYMMDD:hhmmss"};
     const auto stringDateTime = dateTime.toString(format);
 

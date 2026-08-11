@@ -2,11 +2,14 @@
 
 void UserInterface::UserInterfaceInitialize(const char deviceType)
 {
+    mType = deviceType;
+
     // general option
+    // 게이트웨이도 번호 메뉴를 유지한다 — PC 가 `0000`(지정 없음)을 주면
+    // 이 기기 번호가 태그에 기록되기 때문 (2.2.6 규칙).
     mOptionSlot1.AddLine(mDeviceNumber);
     mOptionSlot1.AddLine(mDeviceType);
 
-    mType = deviceType;
     switch (mType)
     {
     case WASHING_TYPE_DEVICE:

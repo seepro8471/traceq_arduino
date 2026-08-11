@@ -172,7 +172,16 @@ void setup()
 
 void loop()
 {
-    ui.DisplayHome(rtc, deviceOption.GetNumber());
+#ifndef READER_MODE
+    // 게이트웨이는 PC 가 준 본체번호를 태그에 기록하므로, 화면에도 **실제로
+    // 기록될 번호**를 보여준다(미수신이면 기기 설정값). 2.2.6.
+    const int homeNumber = (deviceType == GATEWAY_TYPE_DEVICE)
+        ? gatewayProcessor.effective_number(deviceOption.GetNumber())
+        : deviceOption.GetNumber();
+#else
+    const int homeNumber = deviceOption.GetNumber();
+#endif
+    ui.DisplayHome(rtc, homeNumber);
 
     // 1.0과 달리 매번 Rc522Initialize() 호출하지 않음. 죽었을 때만 재초기화.
     if (rfid.IsAlive())
