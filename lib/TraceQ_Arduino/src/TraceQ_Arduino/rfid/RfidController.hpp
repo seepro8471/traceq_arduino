@@ -128,9 +128,28 @@ public:
     /// 디버그용: 마지막 MFRC522 상태 코드.
     MFRC522::StatusCode LastStatus() const { return mLastStatus; }
 
+    /// 진단용 레지스터 읽기 (examples/RegisterProbe 전용 — 운영 경로 미사용).
+    uint8_t ReadReg(MFRC522::PCD_Register reg) { return mMfrc522.PCD_ReadRegister(reg); }
+
 private:
     bool ensureAuthenticated(uint8_t block);   // 섹터 캐시 활용 인증
-    void invalidateAuthCache();
+
+    /**
+     * 인증 캐시만 무효화 (StopCrypto1 하지 않음) — **세션 내부** 복구용.
+     *
+     * MIFARE 카드는 인증 후 암호화 상태를 유지하므로, 세션 도중 리더만
+     * StopCrypto1 로 평문화하면 이후 모든 인증이 실패한다(실기 확인).
+     * 섹터 전환·읽기/쓰기 실패 재시도는 반드시 이것을 쓴다.
+     */
+    void dropAuthCache();
+
+    /**
+     * 리더의 암호화 상태 해제 — **세션 경계** 전용.
+     * (EndSession 의 HaltA 뒤, 태그 이탈/교체 감지, 인증 실패, 초기화)
+     * 리더가 암호화 상태로 굳으면 이후 REQA 가 전부 실패하므로 무조건 호출한다.
+     */
+    void stopCrypto();
+
     void pcdSoftReset();
     RfidResult writeOnce(uint8_t block, const uint8_t buffer[16]);
     bool verifyBlock(uint8_t block, const uint8_t expected[16]);
@@ -144,6 +163,11 @@ private:
     uint8_t mAuthSector{0xFF};
     uint8_t mAuthUid[10]{};
     uint8_t mAuthUidSize{0};
+
+    // 리더가 실제로 암호화(Crypto1) 상태인지 — 캐시 유효성과 별개로 추적한다.
+    // 캐시를 버려도(dropAuthCache) 리더는 암호화 상태로 남아 있어야 nested
+    // authentication 이 성립하고, 세션을 끝낼 때는 반드시 해제해야 한다.
+    bool    mCryptoOn{false};
 
     // 태그 상태 추적
     bool mTagPresentPrev{false};

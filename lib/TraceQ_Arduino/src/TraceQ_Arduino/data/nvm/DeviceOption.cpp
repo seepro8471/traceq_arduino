@@ -17,6 +17,13 @@ void DeviceOption::Load()
 char DeviceOption::GetType() const
 {
     EEPROM.get(mTypeAddr, mType);
+    // EEPROM 손상 등으로 알 수 없는 값이 읽히면 기본값으로 폴백한다.
+    // (main 의 타입 분기 default 는 복구 불가능한 정지였다 — 2.2.5)
+    if (mType != GATEWAY_TYPE_DEVICE && mType != WASHING_TYPE_DEVICE &&
+        mType != DISINFECTION_TYPE_DEVICE && mType != SERVER_TYPE_DEVICE)
+    {
+        mType = WASHING_TYPE_DEVICE;
+    }
     return mType;
 }
 

@@ -19,20 +19,25 @@
 
 #include "TraceQ_Arduino.hpp"
 
-// 펌웨어 빌드 도장(uint32) 저장 주소 — 옵션 영역(0~176) 밖.
-// 저장된 도장 ≠ 현재 빌드 도장이면 "새로 업로드된 펌웨어의 첫 부팅"으로
-// 판단해 EEPROM 전체(설정값 포함)를 소거하고 기본값을 기록한다 (2.2.3,
-// 사용자 확정). 1.0의 DATA_NEEDS_INIT(4095) 방식은 구버전 프로그램이
-// 깔려 있던 기기에서 플래그 자리에 우연히 0이 있으면 초기화를 건너뛰어,
-// "초기화 전용 빌드를 한 번 올렸다가 다시 올리는" 현장 이중 작업이
-// 필요했다 — 빌드 도장 방식은 어떤 이전 상태에서도 확실히 1회 초기화된다.
+// 펌웨어 도장(uint32) 저장 주소 — 옵션 영역(0~176) 밖.
+// 저장된 도장 ≠ 현재 펌웨어 도장이면 "새 펌웨어의 첫 부팅"으로 판단해
+// EEPROM 전체(설정값 포함)를 소거하고 기본값을 기록한다 (2.2.3, 사용자 확정).
+// 1.0의 DATA_NEEDS_INIT(4095) 방식은 구버전이 깔려 있던 기기에서 플래그
+// 자리에 우연히 0이 있으면 초기화를 건너뛰어 "초기화 전용 빌드를 한 번
+// 올렸다가 다시 올리는" 이중 작업이 필요했다 — 도장 방식은 어떤 이전
+// 상태에서도 확실히 1회 초기화된다.
+//
+// ★도장의 재료는 **버전 문자열**이다(2.2.5 정정). 처음엔 `__DATE__ __TIME__`
+//  을 썼는데, 그것은 "main.cpp 를 다시 컴파일한 시각"이라 lib 의 .cpp 만
+//  고친 빌드에서는 값이 그대로여서 초기화가 돌지 않고, 반대로 무관한 헤더를
+//  건드리면 초기화가 도는 비결정적 규칙이었다. 버전 기준이면 규칙이 명확하다:
+//  **버전을 올린 펌웨어를 올리면 완전 초기화, 같은 버전 재업로드는 설정 유지.**
 constexpr uint16_t FIRMWARE_STAMP_ADDR{4088};
 
-// 컴파일 시각 FNV-1a 해시 — 빌드마다 유일한 도장.
-static uint32_t firmware_build_stamp()
+static uint32_t firmware_stamp()
 {
-    const char *s = __DATE__ " " __TIME__;
-    uint32_t h = 2166136261UL;
+    const char *s = TRACEQ_VERSION_STRING;
+    uint32_t h = 2166136261UL;   // FNV-1a
     while (*s)
     {
         h ^= static_cast<uint8_t>(*s++);
@@ -120,6 +125,12 @@ void setup()
 
     Serial.begin(115200);
     Serial.flush();
+    // readBytes 는 **바이트마다** 이 타임아웃을 기다린다. 기본 1000ms 면 패킷
+    // 수신 후 1초를 더 붙들려 loop(태그 폴링·알람 갱신)가 그만큼 멎고, 그 1초
+    // 안에 두 G 패킷이 도착하면 한 버퍼로 합쳐져 **먼저 온 옛 환자정보**가
+    // 채택될 수 있다. 115200bps 에서 바이트 간격은 ~87µs 라 150ms 면 충분히
+    // 넉넉하다 (2.2.5).
+    Serial.setTimeout(150);
 
     SPI.begin();
     Wire.begin();
@@ -131,7 +142,7 @@ void setup()
     // update()는 이미 같은 값인 셀을 건너뛰므로 재초기화 시 빠르고 수명 소모가 적다.
     uint32_t storedStamp{};
     EEPROM.get(FIRMWARE_STAMP_ADDR, storedStamp);
-    const uint32_t currentStamp = firmware_build_stamp();
+    const uint32_t currentStamp = firmware_stamp();
     if (storedStamp != currentStamp)
     {
         const int len = EEPROM.length();
@@ -225,14 +236,20 @@ void loop()
 
     // Company 검사 (회사 코드 일치 여부).
     Company company{};
-    if (rfid.Read(SECTOR0_COMPANY, &company, sizeof(Company)) != RfidResult::Ok ||
-        company.CompanyCode != TRACEQ_COMPANY_CODE)
+    RfidResult companyRead = rfid.Read(SECTOR0_COMPANY, &company, sizeof(Company));
+    if (companyRead != RfidResult::Ok || company.CompanyCode != TRACEQ_COMPANY_CODE)
     {
         // 1.0과 동일하게 1회 재시도 (약한 신호 보정).
         delay(100);
-        if (rfid.Read(SECTOR0_COMPANY, &company, sizeof(Company)) != RfidResult::Ok ||
-            company.CompanyCode != TRACEQ_COMPANY_CODE)
+        companyRead = rfid.Read(SECTOR0_COMPANY, &company, sizeof(Company));
+        if (companyRead != RfidResult::Ok || company.CompanyCode != TRACEQ_COMPANY_CODE)
         {
+            // ★읽기 자체가 실패한 경우에만 사유를 표시한다. 회사코드 불일치는
+            //  "우리 태그가 아님"(호텔 카드 등)이라 1.0처럼 조용히 무시해야
+            //  한다. 이 구분이 없어서 "태그를 댔는데 아무 반응이 없다"의 원인이
+            //  카드 문제인지 리더 문제인지 알 수 없었다 (2.2.5).
+            if (companyRead != RfidResult::Ok)
+                ui.Debug(0, 2, RfidResultName(companyRead));
             rfid.EndSession();
             return;
         }
@@ -288,7 +305,7 @@ void loop()
             ui.Debug(0, 2, F("Invalid Tag Type"));
         }
         break;
-    default: abort();
+    default: util_soft_reset();
     }
 #endif
 
@@ -343,6 +360,7 @@ void handle_menu_recursive(UserInterface::MenuFunction function)
 { // NOLINT(misc-no-recursion)
     util_buzzer();
     ui.ClearScreen();
+    ui.InvalidateHome();   // 지운 화면 — 홈 복귀 시 전체 재출력
     delay(500);
 
     switch (function)

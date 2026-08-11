@@ -53,6 +53,9 @@ uint8_t DisinfectionOption::GetSimultaneousDisinfectionDelay() const
 }
 void DisinfectionOption::SetSimultaneousDisinfectionDelay(uint8_t delay)
 {
+    // 동시소독 판정에서 int8_t 로 캐스팅되므로 127 을 넘으면 음수가 되어
+    // 시간창이 무효화된다 — JSON(df_sim_delay) 경로 방어 (2.2.5).
+    if (delay > 120) delay = 120;
     EEPROM.put(mSimultaneousDelayAddr, delay);
     EEPROM.get(mSimultaneousDelayAddr, mSimultaneousDelay);
 }

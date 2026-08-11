@@ -24,15 +24,21 @@ public:
 
 protected:
     void disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc);
-    void disinfection_start(int deviceNumber, bool isMoved, bool isGuest, const AlarmOption &alarmOption,
+    /// \param isRestart 더블터치 2초 가드로 "시작"이 재실행된 경우 — 소독 횟수를
+    ///                  중복으로 올리지 않기 위한 표시.
+    void disinfection_start(int deviceNumber, bool isMoved, bool isGuest, bool isRestart,
+                            const AlarmOption &alarmOption,
                             DisinfectionOption &disinfectionOption, DefaultRtc &rtc);
     void disinfection_end(bool isMoved, DisinfectionRecord &record);
 
 private:
-    bool is_host(uint8_t n) const  { return mHostScopeNumber == n; }
-    bool is_guest(uint8_t n) const { return mGuestScopeNumber == n; }
-    void set_host(uint8_t n, const DateTime &now) { mHostScopeNumber = n; mStartTime = now; }
-    void set_guest(uint8_t n) { mGuestScopeNumber = n; mStartTime = DateTime{}; }
+    // 스코프 번호는 int16 이다 — uint8 로 받으면 5번과 261번이 같아지고,
+    // 255번이 "빈 슬롯" 센티널과 구별되지 않는다 (1.0 승계 결함, 2.2.5).
+    static constexpr int16_t kNoScope{-1};
+    bool is_host(int16_t n) const  { return mHostScopeNumber == n; }
+    bool is_guest(int16_t n) const { return mGuestScopeNumber == n; }
+    void set_host(int16_t n, const DateTime &now) { mHostScopeNumber = n; mStartTime = now; }
+    void set_guest(int16_t n) { mGuestScopeNumber = n; mStartTime = DateTime{}; }
 
     /**
      * \brief 소독 시작 시각 보정.
@@ -48,7 +54,7 @@ private:
     DateTime get_adjuest_start_time(DateTime current, DefaultRtc &rtc);
 
     DateTime mStartTime{};
-    uint8_t  mHostScopeNumber  = static_cast<uint8_t>(-1);
-    uint8_t  mGuestScopeNumber = static_cast<uint8_t>(-1);
+    int16_t  mHostScopeNumber{kNoScope};
+    int16_t  mGuestScopeNumber{kNoScope};
     bool     mMovable{false};
 };

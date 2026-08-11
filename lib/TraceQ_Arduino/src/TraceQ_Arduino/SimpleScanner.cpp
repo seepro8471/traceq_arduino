@@ -43,13 +43,13 @@ void SimpleScanner::Scan(int tagType, LcdPrinter &printer)
     case MANAGER_TYPE_TAG:
         print_block(SECTOR0_COMPANY);
         print_block(SECTOR0_TAG);
-        print_block(SECTOR1_TAG_SERIAL);
+        print_block(SECTOR1_TAG_SERIAL, true);   // 마지막 — 트레일링 콤마 방지
         break;
     case CLEAR_TYPE_TAG:
         print_block(SECTOR0_COMPANY, true);
         break;
     default:
-        print_block(SECTOR0_COMPANY);
+        print_block(SECTOR0_COMPANY, true);      // 마지막 — 트레일링 콤마 방지
         break;
     }
     Serial.print(F("]"));

@@ -14,7 +14,11 @@ void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
 
     if (recordOption.GetManagerDisposability()) mDisposabilityFlag = true;
 
-    printer.Notify_cstr(0, 2, 100, reinterpret_cast<const char *>(mCachedTag.ID));
+    // Tag.ID[14]는 구조체 마지막 멤버라 14바이트가 다 차면 종료 NUL 이 없다 —
+    // 그대로 출력하면 인접 전역 영역을 계속 읽는다 (2.2.5).
+    char idText[sizeof(mCachedTag.ID) + 1]{};
+    memcpy(idText, mCachedTag.ID, sizeof(mCachedTag.ID));
+    printer.Notify_cstr(0, 2, 100, idText);
 }
 
 bool RecordProcessor::is_valid(const RecordOption &recordOption,

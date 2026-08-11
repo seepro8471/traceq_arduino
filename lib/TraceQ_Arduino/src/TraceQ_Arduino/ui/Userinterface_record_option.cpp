@@ -24,17 +24,18 @@ UserInterface::MenuFunction UserInterface::SetRecordAlarmFlag(AlarmOption &optio
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
 
 UserInterface::MenuFunction UserInterface::SetRecordAlarmTimeSlot(char deviceType, AlarmOption &option)
 {
-    char numberBuffer[3]{};
+    // "%02d" 가 3자리 이상(또는 음수)을 출력할 수 있어 여유 확보 (1.0 승계 결함).
+    char numberBuffer[8]{};
     const auto isWashingType{deviceType == 'W'};
     const int8_t current = isWashingType ? option.GetTimeSlot1() : option.GetTimeSlot2();
-    sprintf(numberBuffer, "%02d", current);
+    snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Alarm Time (NN)" = 15자+NUL (1.0은 [14]라 2바이트 스택 오버런).
     char title[16]{};
     snprintf(title, sizeof(title), "Alarm Time (%s)", numberBuffer);
@@ -64,7 +65,7 @@ UserInterface::MenuFunction UserInterface::SetRecordAlarmTimeSlot(char deviceTyp
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
@@ -93,7 +94,7 @@ UserInterface::MenuFunction UserInterface::SetRecordPatientCheck(RecordOption &o
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
@@ -122,7 +123,7 @@ UserInterface::MenuFunction UserInterface::SetRecordManagerDisposability(RecordO
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }

@@ -82,6 +82,9 @@ public:
      */
     void DisplayHome(DefaultRtc &rtc, int deviceNumber);
 
+    /// 화면을 지운 뒤(메뉴 진입/복귀 등) 다음 DisplayHome 이 전부 다시 그리도록.
+    void InvalidateHome();
+
     /**
      * \brief 인자로 넘어온 인덱스의 메뉴를 표시하고 해당 메뉴에서 선택한 기능(eFuntion)을/를 반환한다.
      *
@@ -310,6 +313,11 @@ private:
     // "%c:%02d" — device_number는 JSON으로 3자리 이상 설정될 수 있으므로
     // int16 최대(5자리)까지 수용 (1.0은 [5]라 3자리부터 오버런).
     char mDeviceInfoBuffer[8]{};
+
+    // Home 화면 갱신 최소화용 캐시 (2.2.5) — 값이 바뀐 항목만 LCD 에 다시 쓴다.
+    char mHomeShownDateTime[20]{};
+    int  mHomeShownNumber{-1};
+    bool mHomeStaticShown{false};
 
     /// \brief 어떠한 컨텐츠를 '선택'한 다음의 딜레이.
     unsigned long mInterval{300};

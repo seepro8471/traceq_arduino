@@ -108,5 +108,8 @@ private:
 private:
     bool mIsAuthenticated{false};
     unsigned char mLegacyBuffer[MIFARE_BLOCK_SIZE]{};
+    /// legacy 덤프 중 블록 읽기 실패 횟수 — 0 이 아니면 전송 데이터가 일부
+    /// 0 으로 나갔다는 뜻이라 담당자에게 알려야 한다 (와이어 포맷은 불변).
+    uint8_t mLegacyReadFailures{0};
     StaticJsonDocument<kFrameBufferSize> mDocument;
 };

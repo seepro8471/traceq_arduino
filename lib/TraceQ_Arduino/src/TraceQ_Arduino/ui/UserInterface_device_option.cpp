@@ -48,7 +48,7 @@ UserInterface::MenuFunction UserInterface::SetDeviceDate(DefaultRtc &rtc)
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
@@ -79,7 +79,7 @@ UserInterface::MenuFunction UserInterface::SetDeviceTime(DefaultRtc &rtc)
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
@@ -112,16 +112,17 @@ UserInterface::MenuFunction UserInterface::SetDeviceType(DeviceOption &option)
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
 
 UserInterface::MenuFunction UserInterface::SetDeviceNumber(DeviceOption &option)
 {
-    char numberBuffer[3]{};
+    // "%02d" 가 3자리 이상을 출력할 수 있어 여유 확보 (1.0 승계 결함).
+    char numberBuffer[8]{};
     const auto current{option.GetNumber()};
-    sprintf(numberBuffer, "%02d", current);
+    snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Number (NN)" = 11자+NUL (1.0은 [10]이라 2바이트 스택 오버런).
     char title[12]{};
     snprintf(title, sizeof(title), "Number (%s)", numberBuffer);
@@ -144,7 +145,7 @@ UserInterface::MenuFunction UserInterface::SetDeviceNumber(DeviceOption &option)
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }

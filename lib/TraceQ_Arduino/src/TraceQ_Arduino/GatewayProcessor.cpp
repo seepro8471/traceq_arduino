@@ -6,6 +6,10 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
 {
     if (buffer == nullptr) return;
 
+    // G2(검사일시) 구간이 없는 패킷이 오면 이전 검사의 날짜가 그대로 남아
+    // 태그에 기록됐다 — 매 수신마다 초기화한다 (1.0 승계 결함, 2.2.5).
+    mDateTime = LocalDateTime{};
+
     char string[64]{};
     if (!find_string(buffer, string, sizeof(string), "G3", "G4")) return;
 
@@ -28,11 +32,9 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
 void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
 {
     if (!is_valid(printer)) return;
-    mCachedProcess.Status = 1;
 
     Gateway gateway{deviceNumber, mDateTime};
     if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return;
-    if (!write_process()) return;
     if (mScanner.Write(SECTOR2_PATIENT_KEY,  mPatientKey,  16) != RfidResult::Ok) return;
     if (mScanner.Write(SECTOR2_PATIENT_NAME, mPatientName, 16) != RfidResult::Ok) return;
 
@@ -46,6 +48,13 @@ void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
     memcpy(buf + MIFARE_BLOCK_SIZE,      mExaminationSubject2, 16);
     memcpy(buf + 2 * MIFARE_BLOCK_SIZE,  mExaminationSubject3, 16);
     if (mScanner.WriteBlocks(SECTOR15_EXAMINATION_SUBJECT, 3, buf) != RfidResult::Ok) return;
+
+    // Status=1(환자정보 기록됨)은 **커밋 플래그** — 환자·검사항목 기록이 모두
+    // 성공한 뒤에 마지막으로 세운다. 앞에 두면 중간 실패 시 "환자정보 있음"
+    // 인데 실제 블록은 비어/이전 환자인 태그가 남아 세척기의 미기재 경고까지
+    // 무력화된다 (1.0 승계 결함 — 2.2.5 수정). 최종 바이트는 동일.
+    mCachedProcess.Status = 1;
+    if (!write_process()) return;
 
     Serial.println(F("S;"));
     print_to_allnun(3, SECTOR0_TAG, reinterpret_cast<unsigned char *>(&mCachedTag));

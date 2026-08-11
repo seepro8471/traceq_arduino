@@ -24,11 +24,26 @@
  *         (사용자 확정). 비어 있으면 소독 기록마다 현재시각이 교환일로
  *         찍혀 통계 주기가 흩어지던 것 방지 — 클리어 태그 등록 전까지
  *         안정된 기준일 제공.
+ * 2.2.5 — 전체 로직 감사 반영. 핵심:
+ *         · 세션 도중 StopCrypto1 금지 규칙을 Read 실패·태그 발급 경로까지
+ *           확대(암호화 상태를 mCryptoOn 으로 분리 추적). 서버 덤프가 1회
+ *           읽기 실패 후 전량 0 으로 나가던 것, 태그 발급(type 0/2)이 항상
+ *           실패하던 것 수정. Read 는 nested 재인증 1회 재시도.
+ *         · 기록 커밋 순서 정정(소독 Process·게이트웨이 Status 를 마지막에)
+ *           → 중간 실패 시 "했다고 표시되지만 기록은 빈" 태그가 남지 않음.
+ *         · 소독 횟수 오계상 2건: 더블터치 재시작 중복 증가, guest 슬롯 잔존.
+ *         · 메뉴 숫자 버퍼 오버런(값 100 이상), abort() 영구정지 → 소프트리셋,
+ *           기기 타입 EEPROM 손상 시 기본값 폴백, 동시소독 지연 상한 클램프.
+ *         · 응답성: Home 화면 변경분만 LCD 갱신, 시리얼 수신 타임아웃 1s→150ms
+ *           (두 G 패킷 병합으로 옛 환자정보가 채택되던 위험도 함께 축소).
+ *         · 진단: 태그 읽기 실패 사유 표시, legacy 덤프 읽기 실패 경고.
+ *         · 도장 기준을 빌드 시각 → **버전 문자열**로 변경(결정적 규칙:
+ *           버전이 오른 펌웨어를 올리면 완전 초기화, 같은 버전은 설정 유지).
  */
 #define TRACEQ_VERSION_MAJOR 2
 #define TRACEQ_VERSION_MINOR 2
-#define TRACEQ_VERSION_PATCH 4
-#define TRACEQ_VERSION_STRING "2.2.4"
+#define TRACEQ_VERSION_PATCH 5
+#define TRACEQ_VERSION_STRING "2.2.5"
 
 // 1.0 UI가 사용하던 매크로 이름 — 호환을 위해 별칭 유지.
 #define TRACEQ_ARDUINO_VERSION TRACEQ_VERSION_STRING

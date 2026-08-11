@@ -2,9 +2,11 @@
 
 UserInterface::MenuFunction UserInterface::SetDisinfectionMaximumCount(DisinfectionOption &option)
 {
-    char numberBuffer[3]{};
+    // int16 최댓값(5자리)+NUL 까지 수용 — JSON 원격 설정으로 100 이상이 되면
+    // "%02d" 가 3자리 이상을 출력해 [3] 버퍼를 넘긴다(1.0 승계 결함).
+    char numberBuffer[8]{};
     const auto current{option.GetMaximumCount()};
-    sprintf(numberBuffer, "%02d", current);
+    snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Max Count (NN)" = 14자+NUL (1.0은 [13]이라 2바이트 스택 오버런).
     char title[16]{};
     snprintf(title, sizeof(title), "Max Count (%s)", numberBuffer);
@@ -27,16 +29,18 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionMaximumCount(Disinfect
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
 
 UserInterface::MenuFunction UserInterface::SetDisinfectionGroupDelay(DisinfectionOption &option)
 {
-    char numberBuffer[3]{};
+    // int16 최댓값(5자리)+NUL 까지 수용 — JSON 원격 설정으로 100 이상이 되면
+    // "%02d" 가 3자리 이상을 출력해 [3] 버퍼를 넘긴다(1.0 승계 결함).
+    char numberBuffer[8]{};
     const uint8_t current{option.GetSimultaneousDisinfectionDelay()};
-    sprintf(numberBuffer, "%02d", current);
+    snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Delay (NN)" = 10자+NUL (1.0은 [9]라 2바이트 스택 오버런).
     char title[12]{};
     snprintf(title, sizeof(title), "Delay (%s)", numberBuffer);
@@ -59,16 +63,18 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionGroupDelay(Disinfectio
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }
 
 UserInterface::MenuFunction UserInterface::SetDisinfectionRange(DisinfectionOption &option)
 {
-    char numberBuffer[3]{};
+    // int16 최댓값(5자리)+NUL 까지 수용 — JSON 원격 설정으로 100 이상이 되면
+    // "%02d" 가 3자리 이상을 출력해 [3] 버퍼를 넘긴다(1.0 승계 결함).
+    char numberBuffer[8]{};
     const auto current{option.GetSimultaneousDisinfectionSlot()};
-    sprintf(numberBuffer, "%02d", current);
+    snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Range (NN)" = 10자+NUL (1.0은 [9]라 2바이트 스택 오버런).
     char title[12]{};
     snprintf(title, sizeof(title), "Range (%s)", numberBuffer);
@@ -91,7 +97,7 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionRange(DisinfectionOpti
     }
     default:
     {
-        abort();
+        util_soft_reset();
     }
     }
 }

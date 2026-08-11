@@ -5,14 +5,23 @@ void DisinfectionProcessor::DisinfectionProcess(
     DisinfectionOption &disinfectionOption, const ManagerOption &managerOption,
     const RecordOption &recordOption, DefaultRtc &rtc, LcdPrinter &printer)
 {
-    if (!is_valid(recordOption, managerOption, printer)) return;
+    if (!is_valid(recordOption, managerOption, printer))
+    {
+        // 거부로 끝나면 클리어 태그로 세운 이동 플래그도 함께 내린다 —
+        // 남겨두면 한참 뒤 종료 상태 태그가 의도치 않게 이동 처리된다
+        // (1.0 승계 결함, 2.2.5).
+        mMovable = false;
+        return;
+    }
     if (!mCachedProcess.WashingStatus)
     {
         printer.CustomWarning(0, 2, 100, 4, F("No Washing Info"));
+        mMovable = false;
         return;
     }
     const bool isMoved = mCachedProcess.MovementNeeded;
     bool isEnd  = (mCachedProcess.Rewrite == 2);
+    bool isRestart = false;   // 더블터치 가드로 시작이 재실행됐는지
 
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
         return;
@@ -30,6 +39,7 @@ void DisinfectionProcessor::DisinfectionProcess(
         {
             simultaneously = false;
             isEnd = false;
+            isRestart = true;   // 시작 재실행 — 소독 횟수는 다시 올리지 않는다
         }
     }
 
@@ -46,8 +56,8 @@ void DisinfectionProcessor::DisinfectionProcess(
             DisinfectionRecord endRecord{deviceNumber, rtc.GetCurrentLocalDateTime()};
             disinfection_end(isMoved, endRecord);
         }
-        if (isGuest) mGuestScopeNumber = static_cast<uint8_t>(-1);
-        else { mHostScopeNumber = static_cast<uint8_t>(-1); mStartTime = DateTime{}; }
+        if (isGuest) mGuestScopeNumber = kNoScope;
+        else { mHostScopeNumber = kNoScope; mStartTime = DateTime{}; }
         rtc.ClearAlarm(2);
     }
     else
@@ -57,9 +67,14 @@ void DisinfectionProcessor::DisinfectionProcess(
             const auto deadline = DefaultRtc::AddTimeSpan(
                 mStartTime,
                 static_cast<int8_t>(disinfectionOption.GetSimultaneousDisinfectionDelay()), 0);
-            if (deadline >= rtc.GetCurrentDateTime()) isGuest = true;
+            // ★대입이어야 한다. 승격(|=)이면, 종료 터치 없이 회수된 guest 슬롯이
+            //  남아 며칠 뒤 그 스코프를 단독 소독해도 계속 guest 로 판정되어
+            //  소독 횟수가 오르지 않는다(액교환 주기 왜곡). 시간창 안에서만
+            //  guest — 원래 의도대로 복원 (1.0 승계 결함, 2.2.5).
+            isGuest = (deadline >= rtc.GetCurrentDateTime());
         }
-        disinfection_start(deviceNumber, isMoved, isGuest, alarmOption, disinfectionOption, rtc);
+        disinfection_start(deviceNumber, isMoved, isGuest, isRestart,
+                           alarmOption, disinfectionOption, rtc);
         if (isGuest) set_guest(mCachedTag.Number);
         else         set_host(mCachedTag.Number, rtc.GetCurrentDateTime());
         rtc.SetAlarm(2, alarmOption.GetTimeSlot2(), 0);
@@ -90,7 +105,8 @@ void DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, Def
 }
 
 void DisinfectionProcessor::disinfection_start(
-    int deviceNumber, bool isMoved, bool isGuest, const AlarmOption &alarmOption,
+    int deviceNumber, bool isMoved, bool isGuest, bool isRestart,
+    const AlarmOption &alarmOption,
     DisinfectionOption &disinfectionOption, DefaultRtc &rtc)
 {
     if (!isMoved)
@@ -131,8 +147,6 @@ void DisinfectionProcessor::disinfection_start(
             LocalDate{current.year(), current.month(), current.day()},
             LocalTime{current.hour(), current.minute(), current.second()}}};
 
-    if (!write_process()) return;
-
     const uint8_t startBlk = isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START;
     const uint8_t keyBlk   = isMoved ? SECTOR7_DISINFECTION_START_MANAGER_KEY  : SECTOR5_DISINFECTION_START_MANAGER_KEY;
     const uint8_t nameBlk  = isMoved ? SECTOR7_DISINFECTION_START_MANAGER_NAME : SECTOR5_DISINFECTION_START_MANAGER_NAME;
@@ -142,7 +156,15 @@ void DisinfectionProcessor::disinfection_start(
     if (mScanner.Write(nameBlk,  mCachedTagSerial.Serial, 16) != RfidResult::Ok) return;
     if (mScanner.Write(detailBlock, &detail, 10) != RfidResult::Ok) return;
 
-    if (!isGuest) disinfectionOption.IncrementCount();
+    // Process(소독 시작 플래그)는 **커밋** — 기록 4종이 모두 성공한 뒤에 쓴다.
+    // 앞에 두면 중간 실패 시 "소독했다"는 플래그만 서고 시작·종료 기록이 0 인
+    // 태그가 남아, 서버가 3단 거부를 통과해 빈 시각을 등록한다
+    // (1.0 승계 결함 — 2.2.5 수정). 세척 경로는 원래 이 순서였다.
+    if (!write_process()) return;
+
+    // 더블터치 가드로 "시작"이 재실행된 경우에는 횟수를 다시 올리지 않는다
+    // (2초 안에 두 번 대면 소독 1회에 횟수 2가 되던 것 — 2.2.5 수정).
+    if (!isGuest && !isRestart) disinfectionOption.IncrementCount();
 
     record.DateTime = add_datetime(current, alarmOption.GetTimeSlot2(), record.DateTime.Time.Second);
     disinfection_end(isMoved, record);

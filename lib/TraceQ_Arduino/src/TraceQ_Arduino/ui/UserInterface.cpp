@@ -89,18 +89,41 @@ void UserInterface::server_ui_initialize()
 
 void UserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
 {
-    // date time
-    mLcd.setCursor(0, 0);
-    mLcd.print(rtc.ToInternalString(mDateTimeBuffer));
+    // ★loop 마다 51자를 I2C 로 다시 쓰면 그 자체가 루프의 최대 지연원이 된다
+    //  (100kHz I2C 기준 문자당 ~1.6ms). 내용이 바뀐 항목만 갱신한다 — 표시
+    //  결과는 동일하고 루프 응답성만 개선 (2.2.5).
+    //  시각은 초 단위로 바뀌므로 실질적으로 초당 1회만 다시 쓰인다.
+    const char *now = rtc.ToInternalString(mDateTimeBuffer);
+    if (strncmp(now, mHomeShownDateTime, sizeof(mHomeShownDateTime) - 1) != 0)
+    {
+        strncpy(mHomeShownDateTime, now, sizeof(mHomeShownDateTime) - 1);
+        mHomeShownDateTime[sizeof(mHomeShownDateTime) - 1] = '\0';
+        mLcd.setCursor(0, 0);
+        mLcd.print(mHomeShownDateTime);
+    }
 
-    // version
-    mLcd.setCursor(6, 3);
-    mLcd.print(TRACEQ_ARDUINO_VERSION);
+    // 버전·기기정보는 부팅 후 바뀌지 않는다(타입 변경 시 재시작) — 1회만 출력.
+    if (!mHomeStaticShown)
+    {
+        mLcd.setCursor(6, 3);
+        mLcd.print(TRACEQ_ARDUINO_VERSION);
+        mHomeStaticShown = true;
+        mHomeShownNumber = deviceNumber + 1;   // 아래에서 반드시 그려지도록
+    }
+    if (mHomeShownNumber != deviceNumber)
+    {
+        mHomeShownNumber = deviceNumber;
+        snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%02d", mType, deviceNumber);
+        mLcd.setCursor(16, 3);
+        mLcd.print(mDeviceInfoBuffer);
+    }
+}
 
-    // device information
-    snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%02d", mType, deviceNumber);
-    mLcd.setCursor(16, 3);
-    mLcd.print(mDeviceInfoBuffer);
+void UserInterface::InvalidateHome()
+{
+    // 메뉴·경고 등으로 화면을 지운 뒤에는 다음 DisplayHome 이 전부 다시 그리게 한다.
+    mHomeShownDateTime[0] = '\0';
+    mHomeStaticShown = false;
 }
 
 UserInterface::MenuFunction UserInterface::DisplayMenu(uint8_t index)
@@ -187,6 +210,7 @@ UserInterface::MenuFunction UserInterface::DisplayPrevMenu()
 void UserInterface::display_line(const Line &line)
 {
     mLcd.clear();
+    InvalidateHome();   // 화면을 지웠으므로 홈 복귀 시 전체 재출력
     // print line and option navigation
     print_line(line);
     print_option_navigation(2, 3);
@@ -200,6 +224,7 @@ void UserInterface::display_line(const Line &line)
 void UserInterface::display_screen(const Screen &screen)
 {
     mLcd.clear();
+    InvalidateHome();   // 화면을 지웠으므로 홈 복귀 시 전체 재출력
     // print screen and menu navigation
     print_screen(screen);
     print_menu_navigation();
@@ -402,7 +427,7 @@ UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p
             }
             default:
             {
-                abort();
+                util_soft_reset();
             }
             } // switch (comparePosition())
 
@@ -424,7 +449,7 @@ UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p
             default:
             {
                 // bug
-                abort();
+                util_soft_reset();
             }
             }
 
@@ -511,7 +536,7 @@ UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p
             }
             default:
             {
-                abort();
+                util_soft_reset();
             }
             } // switch (comparePosition())
 

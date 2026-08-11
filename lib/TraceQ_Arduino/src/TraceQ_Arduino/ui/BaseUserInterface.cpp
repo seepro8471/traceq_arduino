@@ -103,7 +103,7 @@ void BaseUserInterface::emphasis_on_line(const Line &line)
     }
     default:
         // bug
-        abort();
+        util_soft_reset();
     }
 }
 
@@ -137,7 +137,7 @@ void BaseUserInterface::emphasis_on_screen(const Screen &screen)
     }
     default:
         // bug
-        abort();
+        util_soft_reset();
     }
 }
 
@@ -171,7 +171,7 @@ void BaseUserInterface::emphasis_on_option_navigation()
     default:
     {
         // error
-        abort();
+        util_soft_reset();
     }
     }
 }
