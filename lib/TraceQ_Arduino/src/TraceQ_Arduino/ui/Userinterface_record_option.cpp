@@ -49,8 +49,8 @@ UserInterface::MenuFunction UserInterface::SetRecordAlarmTimeSlot(char deviceTyp
     }
     case MenuFunction::Save:
     {
-        const auto edited = (int8_t)str_atoi_range(line.GetContent(), 0, 1);
-        if (current != edited)
+        const int edited = str_atoi(line.GetContent());   // 표시한 자릿수 전부(120 이 12 가 되던 것)
+        if (edited >= 0 && current != edited)
         {
             if (isWashingType)
             {

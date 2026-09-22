@@ -6,9 +6,12 @@ namespace
 // (2.2.1 보강). 저장 시에만 검증 — 조작 방식은 불변.
 bool is_valid_date(const char *yymmdd)
 {
+    const int year  = str_atoi_range(yymmdd, 0, 1);
     const int month = str_atoi_range(yymmdd, 2, 3);
     const int day   = str_atoi_range(yymmdd, 4, 5);
-    return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+    if (year < 0 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+    // 월말·윤년까지 — 2/30·4/31·평년 2/29 를 RTC 에 쓰지 않는다.
+    return DateTime(2000 + year, month, day).isValid();
 }
 
 bool is_valid_time(const char *hhmmss)
@@ -136,8 +139,8 @@ UserInterface::MenuFunction UserInterface::SetDeviceNumber(DeviceOption &option)
     }
     case MenuFunction::Save:
     {
-        const uint8_t edited = str_atoi_range(line.GetContent(), 0, 2);
-        if (current != edited)
+        const int edited = str_atoi(line.GetContent());   // 표시한 자릿수 전부(300 이 44 가 되던 것)
+        if (edited >= 0 && current != edited)
         {
             option.SetNumber(edited);
         }

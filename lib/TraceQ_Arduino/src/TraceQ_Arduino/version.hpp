@@ -24,6 +24,16 @@
  *         (사용자 확정). 비어 있으면 소독 기록마다 현재시각이 교환일로
  *         찍혀 통계 주기가 흩어지던 것 방지 — 클리어 태그 등록 전까지
  *         안정된 기준일 제공.
+ * 2.2.7 — 2차 전체 로직 감사 반영(docs/AUDIT_2026-09-22.md). 핵심:
+ *         · 소독기 RTC 복구에서 세척 종료 기록이 비면 "세척 시작+설정 세척시간+1분"
+ *           (종전엔 0 에 +1분 해 unixtime 이 돌아 RTC 가 2043년에 굳었다).
+ *         · 액교환일: 시계가 방전 표지(2026-01-01)면 미뤘다가 시계가 맞춰질 때 기록.
+ *         · 세척·소독 시작 기록 실패를 성공으로 알리지 않음(Write Error).
+ *         · 더블터치 2초 판정을 "방금 시작한 그 태그"로(guest 포함), 세척기에도 적용.
+ *         · Poll 3회 무응답만 이탈(인증 실패·HaltA 유실 뒤 재처리 방지), 발급은 ForgetTag.
+ *         · 서버 덤프에 읽기 실패가 있었으면 태그를 지우지 않음(재스캔 복구).
+ *         · 메뉴 숫자 전 자릿수 저장·날짜 월말 검증·JSON 값 클램프 뒤 좁히기·메뉴 재귀 제거.
+ *         · 게이트웨이 수신 대기 1초(올눈 250ms 조각 전송), G3·G4 필드 16바이트 전부 저장.
  * 2.2.6 — 게이트웨이 본체번호를 PC(SeePro)가 G1 으로 내려준 값으로 기록.
  *         G1 이 0(=`0000`)이거나 미수신이면 기기 자체 번호를 쓴다(사용자 확정).
  *         1.0 은 G1 구간을 읽지 않고 항상 기기 번호를 썼다. 홈 화면 우하단은
@@ -46,8 +56,8 @@
  */
 #define TRACEQ_VERSION_MAJOR 2
 #define TRACEQ_VERSION_MINOR 2
-#define TRACEQ_VERSION_PATCH 6
-#define TRACEQ_VERSION_STRING "2.2.6"
+#define TRACEQ_VERSION_PATCH 7
+#define TRACEQ_VERSION_STRING "2.2.7"
 
 // 1.0 UI가 사용하던 매크로 이름 — 호환을 위해 별칭 유지.
 #define TRACEQ_ARDUINO_VERSION TRACEQ_VERSION_STRING

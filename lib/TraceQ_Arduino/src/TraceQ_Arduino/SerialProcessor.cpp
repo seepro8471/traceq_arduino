@@ -8,6 +8,8 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
         return;
 
     if (!legacy_loop_process(printer)) return;
+    // 덤프 일부가 0 으로 나갔으면 태그를 지우지 않는다 — 재스캔으로 온전한 덤프를 다시 받게.
+    if (mLegacyReadFailures != 0) return;
 
     mCachedProcess = Process{};
     if (!write_process()) return;
@@ -62,6 +64,7 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
 
     const int typeId = mDocument["type_id"].as<int>();
 
+    mScanner.ForgetTag();   // 설정 프로그램 안내대로 먼저 올려 둔 태그도 잡는다
     while (millis() - timeout < 4000)
     {
         if (mScanner.Poll() == RfidController::TagStatus::Connected)
@@ -207,13 +210,12 @@ void SerialProcessor::update_disinfection_option(DisinfectionOption &d)
     const int maxCnt = mDocument["df_max_cnt"].as<int>();
     if (maxCnt != d.GetMaximumCount()) d.SetMaximumCount(maxCnt);
 
+    // int 그대로 넘긴다 — setter 가 범위를 먼저 자르고 좁힌다(300 이 44 가 되던 것).
     const int delay = mDocument["df_sim_delay"].as<int>();
-    if (delay != d.GetSimultaneousDisinfectionDelay())
-        d.SetSimultaneousDisinfectionDelay(static_cast<uint8_t>(delay));
+    if (delay != d.GetSimultaneousDisinfectionDelay()) d.SetSimultaneousDisinfectionDelay(delay);
 
     const int slot = mDocument["df_sim_slot"].as<int>();
-    if (slot != d.GetSimultaneousDisinfectionSlot())
-        d.SetSimultaneousDisinfectionSlot(static_cast<uint8_t>(slot));
+    if (slot != d.GetSimultaneousDisinfectionSlot()) d.SetSimultaneousDisinfectionSlot(slot);
 
     const int clearCnt = mDocument["df_clear_cnt"].as<int>();
     if (clearCnt != d.GetClearCount()) d.SetClearCount(clearCnt);
@@ -355,7 +357,8 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
     unsigned long interval{timeout};
     bool isHandled{false};
 
-    // 4초 동안 태그 대기 (1초 간격 비프).
+    // 4초 동안 태그 대기 (1초 간격 비프). 먼저 올려 둔 태그도 잡는다.
+    mScanner.ForgetTag();
     while (millis() - timeout < 4000)
     {
         if (mScanner.Poll() == RfidController::TagStatus::Connected)

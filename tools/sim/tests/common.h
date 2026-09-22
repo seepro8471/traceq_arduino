@@ -1,0 +1,110 @@
+#pragma once
+// 시험 공용 — main.cpp 의 전역과 setup/loop/serialEvent 를 그대로 부른다.
+#include "harness.h"
+#include <EEPROM.h>
+#include "TraceQ_Arduino.hpp"
+#include <string.h>
+
+void setup();
+void loop();
+void serialEvent();
+extern char deviceType;
+extern AlarmOption alarmOption;
+extern DeviceOption deviceOption;
+extern DisinfectionOption disinfectionOption;
+extern ManagerOption managerOption;
+extern RecordOption recordOption;
+extern DefaultRtc rtc;
+extern RfidController rfid;
+
+// soft reset 이 나면 1, UI 가 버튼을 무한정 기다리면 2 를 돌려준다.
+#define GUARDED(stmt) ([&]() -> int { g_resetArmed = true; int _r = setjmp(g_resetJmp); \
+    if (_r == 0) { stmt; } g_resetArmed = false; return _r; }())
+
+static inline void run_loops(uint8_t n)
+{
+    for (uint8_t i = 0; i < n; ++i) { GUARDED(loop()); sim_advance_ms(30); }
+}
+
+// 이미 초기화된 기기(기본값 + 타입 + 현재 도장)로 한 번 부팅 — setup() 은 실기처럼 1회만.
+static inline uint32_t fw_stamp()   // main.cpp firmware_stamp() 와 같은 FNV-1a
+{
+    const char *s = TRACEQ_VERSION_STRING;
+    uint32_t h = 2166136261UL;
+    while (*s) { h ^= (uint8_t)*s++; h *= 16777619UL; }
+    return h;
+}
+static inline void boot(char type)
+{
+    g_rtcLostPower = false;
+    alarmOption.Upload(); deviceOption.Upload(); disinfectionOption.Upload();
+    managerOption.Upload(); recordOption.Upload();
+    deviceOption.SetType(type);
+    EEPROM.put((int)4088, fw_stamp());
+    GUARDED(setup());
+    run_loops(2);
+}
+
+// 대기: 카드를 올려 두고 n 루프 → 떼고 n 루프
+static inline void touch(SimCard &c, uint8_t loopsOn = 4, uint8_t loopsOff = 4)
+{
+    card_place(&c);
+    run_loops(loopsOn);
+    card_remove();
+    run_loops(loopsOff);
+}
+
+// ── 태그 데이터 ──
+static inline void put_block(SimCard &c, uint8_t b, const void *p, uint8_t n)
+{
+    memset(c.data[b], 0, 16);
+    memcpy(c.data[b], p, n);
+}
+static inline void make_tag(SimCard &c, uint8_t uidLast, int tagType, int number,
+                            const char *id, const char *serial)
+{
+    card_init_traceq(c, uidLast);
+    Company co{};
+    co.CompanyCode = TRACEQ_COMPANY_CODE;
+    co.TagType = tagType;
+    put_block(c, SECTOR0_COMPANY, &co, sizeof(co));
+    Tag t{};
+    t.Number = number;
+    strncpy((char *)t.ID, id, sizeof(t.ID));
+    put_block(c, SECTOR0_TAG, &t, sizeof(t));
+    TagSerial s{};
+    strncpy((char *)s.Serial, serial, sizeof(s.Serial) - 1);
+    put_block(c, SECTOR1_TAG_SERIAL, &s, sizeof(s));
+}
+static inline Process get_process(const SimCard &c)
+{
+    Process p{};
+    memcpy(&p, c.data[SECTOR1_PROCESS], 9);
+    return p;
+}
+static inline void set_process(SimCard &c, const Process &p) { put_block(c, SECTOR1_PROCESS, &p, 9); }
+static inline LocalDateTime get_ldt(const SimCard &c, uint8_t block)   // 레코드 = {int 번호, LocalDateTime}
+{
+    LocalDateTime t{};
+    memcpy(&t, c.data[block] + 2, sizeof(t));
+    return t;
+}
+static inline void set_record(SimCard &c, uint8_t block, int dev, const DateTime &dt)
+{
+    uint8_t buf[16]{};
+    memcpy(buf, &dev, 2);
+    LocalDateTime t = DefaultRtc::ToLocalDateTime(dt);
+    memcpy(buf + 2, &t, sizeof(t));
+    put_block(c, block, buf, 16);
+}
+static inline bool ldt_eq(const LocalDateTime &t, uint16_t y, uint8_t mo, uint8_t d,
+                          uint8_t h, uint8_t mi, uint8_t s)
+{
+    return t.Date.Year == y && t.Date.Month == mo && t.Date.Day == d &&
+           t.Time.Hour == h && t.Time.Minute == mi && t.Time.Second == s;
+}
+static inline void tlog_ldt(const char *label, const LocalDateTime &t)
+{
+    tlog("  %s = %04u-%02u-%02u %02u:%02u:%02u\n", label, t.Date.Year, t.Date.Month, t.Date.Day,
+         t.Time.Hour, t.Time.Minute, t.Time.Second);
+}

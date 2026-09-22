@@ -19,7 +19,7 @@
 
 #include "TraceQ_Arduino.hpp"
 
-// 펌웨어 도장(uint32) 저장 주소 — 옵션 영역(0~176) 밖.
+// 펌웨어 도장(uint32) 저장 주소 — 옵션 영역(0~177) 밖.
 // 저장된 도장 ≠ 현재 펌웨어 도장이면 "새 펌웨어의 첫 부팅"으로 판단해
 // EEPROM 전체(설정값 포함)를 소거하고 기본값을 기록한다 (2.2.3, 사용자 확정).
 // 1.0의 DATA_NEEDS_INIT(4095) 방식은 구버전이 깔려 있던 기기에서 플래그
@@ -44,37 +44,6 @@ static uint32_t firmware_stamp()
         h *= 16777619UL;
     }
     return h;
-}
-
-// 액교환일 기본값 = 현재로부터 1개월 전 (2.2.4, 사용자 확정).
-// 초기화 직후 액교환일이 비어 있으면 소독 기록마다 현재시각이 교환일로
-// 찍혀 통계 주기가 기록 건건이 흩어진다 — 클리어 태그로 실제 교환을
-// 등록하기 전까지 안정된 기준일을 제공한다. (말일이 짧은 달로 넘어가면
-// 그 달의 말일로 보정: 3/31 → 2/28)
-static LocalDateTime default_clear_datetime(DefaultRtc &rtcRef)
-{
-    LocalDateTime t = rtcRef.GetCurrentLocalDateTime();
-    uint16_t year = t.Date.Year;
-    uint8_t month = t.Date.Month;
-    if (month <= 1)
-    {
-        month = 12;
-        year -= 1;
-    }
-    else
-    {
-        month -= 1;
-    }
-    static const uint8_t kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    uint8_t maxDay = (month >= 1 && month <= 12) ? kDays[month - 1] : 28;
-    if (month == 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)))
-    {
-        maxDay = 29;
-    }
-    if (t.Date.Day > maxDay) t.Date.Day = maxDay;
-    t.Date.Year  = year;
-    t.Date.Month = month;
-    return t;
 }
 
 // 설정된 기기 타입.
@@ -107,7 +76,7 @@ GatewayProcessor      gatewayProcessor     {cachedTag, cachedTagSerial, cachedPr
 SerialProcessor       serialProcessor      {cachedTag, cachedTagSerial, cachedProcess, rfid};
 WashingProcessor      washingProcessor     {cachedTag, cachedTagSerial, cachedProcess, rfid};
 
-void handle_menu_recursive(UserInterface::MenuFunction function);
+void handle_menu(UserInterface::MenuFunction function);
 
 #else
 
@@ -125,12 +94,6 @@ void setup()
 
     Serial.begin(115200);
     Serial.flush();
-    // readBytes 는 **바이트마다** 이 타임아웃을 기다린다. 기본 1000ms 면 패킷
-    // 수신 후 1초를 더 붙들려 loop(태그 폴링·알람 갱신)가 그만큼 멎고, 그 1초
-    // 안에 두 G 패킷이 도착하면 한 버퍼로 합쳐져 **먼저 온 옛 환자정보**가
-    // 채택될 수 있다. 115200bps 에서 바이트 간격은 ~87µs 라 150ms 면 충분히
-    // 넉넉하다 (2.2.5).
-    Serial.setTimeout(150);
 
     SPI.begin();
     Wire.begin();
@@ -153,12 +116,18 @@ void setup()
         managerOption.Upload();
         recordOption.Upload();
         // 액교환일 기본값 = 1개월 전 (소독 모드에서 사용 — 타입과 무관하게
-        // 기록해 두면 나중에 D 타입으로 바꿔도 유효).
-        disinfectionOption.SetClearDateTime(default_clear_datetime(rtc));
+        // 기록해 두면 나중에 D 타입으로 바꿔도 유효). 시계가 방전 표지 시각이면 맞춰질 때 정한다.
+        if (rtc.IsUnsynced())
+            disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
+        else
+            disinfectionOption.SetClearDateTime(DisinfectionOption::OneMonthBefore(rtc.GetCurrentLocalDateTime()));
         EEPROM.put(FIRMWARE_STAMP_ADDR, currentStamp);
     }
 
     deviceType = deviceOption.GetType();
+    // readBytes 는 마지막 바이트 뒤 이만큼 조용해야 끝난다. 올눈(ALLNuN)은 G2~G5 를 250ms 간격으로
+    // 따로 보내므로 게이트웨이는 1.4.1 과 같은 1초로 한 버퍼에 받는다(150ms 면 검사일시가 0 이 됐다).
+    Serial.setTimeout(deviceType == GATEWAY_TYPE_DEVICE ? 1000 : 150);
     ui.UserInterfaceInitialize(deviceOption.GetType());
 
 #ifndef READER_MODE
@@ -197,6 +166,9 @@ void loop()
 #ifdef READER_MODE
     ui.Info(0, 2, F("Reader"));
 #else
+    // 메뉴·PC·게이트웨이로 시계가 맞춰졌으면 미뤄 둔 액교환일을 기록한다.
+    if (!rtc.IsUnsynced()) disinfectionOption.ApplyPendingClear(rtc.GetCurrentLocalDateTime());
+
     switch (deviceType)
     {
     case GATEWAY_TYPE_DEVICE:
@@ -236,7 +208,7 @@ void loop()
     {
         util_buzzer();
         delay(500);
-        handle_menu_recursive(ui.DisplayMenu());
+        handle_menu(ui.DisplayMenu());
     }
 #endif
 
@@ -297,7 +269,16 @@ void loop()
         if (company.TagType == CLEAR_TYPE_TAG)
         {
             disinfectionOption.SetCount(0);
-            disinfectionOption.SetClearDateTime(rtc.GetCurrentLocalDateTime());
+            // 시계가 방전 표지 시각이면 교환일은 시계가 맞춰질 때(첫 소독·메뉴·PC) 기록한다.
+            if (rtc.IsUnsynced())
+            {
+                disinfectionOption.SetClearPending(DisinfectionOption::kPendingNow);
+            }
+            else
+            {
+                disinfectionOption.SetClearDateTime(rtc.GetCurrentLocalDateTime());
+                disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
+            }
             disinfectionOption.IncrementClearCount();
             disinfectionProcessor.SetMovable();
             ui.Notify(0, 2, 500, F("Clear"));
@@ -326,9 +307,8 @@ void loop()
 __attribute__((unused)) void serialEvent()
 {
 #ifndef READER_MODE
-    // 1.0과 동일한 수신 방식: 통짜 단일 write 전제(현장 PC 검증 완료 형식),
-    // 512B가 차거나 바이트 간 1000ms(Stream 기본 타임아웃)까지 블로킹.
-    // 단 마지막 1바이트를 남겨(511) 항상 NUL 종료를 보장한다.
+    // 1.0과 동일한 raw 수신: 512B가 차거나 바이트 간 타임아웃(게이트웨이 1초·그 외 150ms, setup)까지
+    // 블로킹. 마지막 1바이트를 남겨(511) 항상 NUL 종료를 보장한다.
     char buffer[BUFFER_SIZE]{};
     const size_t len = Serial.readBytes(buffer, BUFFER_SIZE - 1);
     if (len == 0) return;
@@ -365,54 +345,51 @@ __attribute__((unused)) void serialEvent()
 
 #ifndef READER_MODE
 
-void handle_menu_recursive(UserInterface::MenuFunction function)
-{ // NOLINT(misc-no-recursion)
-    util_buzzer();
-    ui.ClearScreen();
-    ui.InvalidateHome();   // 지운 화면 — 홈 복귀 시 전체 재출력
-    delay(500);
-
-    switch (function)
+void handle_menu(UserInterface::MenuFunction function)
+{
+    // 화면 전환은 반복문으로 — 재귀였을 때는 페이지를 넘길 때마다 스택이 쌓여 약 75회에 전역을 덮었다.
+    for (;;)
     {
-    case UserInterface::MenuFunction::Home: ui.DisplayHome(rtc, deviceOption.GetNumber()); break;
-    case UserInterface::MenuFunction::Exit:
-    case UserInterface::MenuFunction::Save: break;
-    case UserInterface::MenuFunction::Next: handle_menu_recursive(ui.DisplayNextMenu()); break;
-    case UserInterface::MenuFunction::Prev: handle_menu_recursive(ui.DisplayPrevMenu()); break;
-    default: break;
-    }
+        util_buzzer();
+        ui.ClearScreen();
+        ui.InvalidateHome();   // 지운 화면 — 홈 복귀 시 전체 재출력
+        delay(500);
 
-    switch (function)
-    {
-    case UserInterface::MenuFunction::Date:   handle_menu_recursive(ui.SetDeviceDate(rtc)); break;
-    case UserInterface::MenuFunction::Time:   handle_menu_recursive(ui.SetDeviceTime(rtc)); break;
-    case UserInterface::MenuFunction::Type:   handle_menu_recursive(ui.SetDeviceType(deviceOption)); break;
-    case UserInterface::MenuFunction::Number: handle_menu_recursive(ui.SetDeviceNumber(deviceOption)); break;
-    default: break;
-    }
-
-    if (deviceType == WASHING_TYPE_DEVICE || deviceType == DISINFECTION_TYPE_DEVICE)
-    {
         switch (function)
         {
-        case UserInterface::MenuFunction::AlarmFlag:            handle_menu_recursive(ui.SetRecordAlarmFlag(alarmOption)); break;
-        case UserInterface::MenuFunction::AlarmTimeSlot:        handle_menu_recursive(ui.SetRecordAlarmTimeSlot(deviceType, alarmOption)); break;
-        case UserInterface::MenuFunction::PatientCheck:         handle_menu_recursive(ui.SetRecordPatientCheck(recordOption)); break;
-        case UserInterface::MenuFunction::ManagerDisposability: handle_menu_recursive(ui.SetRecordManagerDisposability(recordOption)); break;
+        case UserInterface::MenuFunction::Home: ui.DisplayHome(rtc, deviceOption.GetNumber()); return;
+        case UserInterface::MenuFunction::Next:   function = ui.DisplayNextMenu(); continue;
+        case UserInterface::MenuFunction::Prev:   function = ui.DisplayPrevMenu(); continue;
+        case UserInterface::MenuFunction::Date:   function = ui.SetDeviceDate(rtc); continue;
+        case UserInterface::MenuFunction::Time:   function = ui.SetDeviceTime(rtc); continue;
+        case UserInterface::MenuFunction::Type:   function = ui.SetDeviceType(deviceOption); continue;
+        case UserInterface::MenuFunction::Number: function = ui.SetDeviceNumber(deviceOption); continue;
         default: break;
         }
-    }
-    if (deviceType == DISINFECTION_TYPE_DEVICE)
-    {
-        switch (function)
+
+        if (deviceType == WASHING_TYPE_DEVICE || deviceType == DISINFECTION_TYPE_DEVICE)
         {
-        case UserInterface::MenuFunction::MaximumCount: handle_menu_recursive(ui.SetDisinfectionMaximumCount(disinfectionOption)); break;
-        case UserInterface::MenuFunction::GroupDelay:   handle_menu_recursive(ui.SetDisinfectionGroupDelay(disinfectionOption)); break;
-        case UserInterface::MenuFunction::Range:        handle_menu_recursive(ui.SetDisinfectionRange(disinfectionOption)); break;
-        default: break;
+            switch (function)
+            {
+            case UserInterface::MenuFunction::AlarmFlag:            function = ui.SetRecordAlarmFlag(alarmOption); continue;
+            case UserInterface::MenuFunction::AlarmTimeSlot:        function = ui.SetRecordAlarmTimeSlot(deviceType, alarmOption); continue;
+            case UserInterface::MenuFunction::PatientCheck:         function = ui.SetRecordPatientCheck(recordOption); continue;
+            case UserInterface::MenuFunction::ManagerDisposability: function = ui.SetRecordManagerDisposability(recordOption); continue;
+            default: break;
+            }
         }
+        if (deviceType == DISINFECTION_TYPE_DEVICE)
+        {
+            switch (function)
+            {
+            case UserInterface::MenuFunction::MaximumCount: function = ui.SetDisinfectionMaximumCount(disinfectionOption); continue;
+            case UserInterface::MenuFunction::GroupDelay:   function = ui.SetDisinfectionGroupDelay(disinfectionOption); continue;
+            case UserInterface::MenuFunction::Range:        function = ui.SetDisinfectionRange(disinfectionOption); continue;
+            default: break;
+            }
+        }
+        return;   // Exit·Save, 또는 이 타입에 없는 항목
     }
-    // (2.2.0: 서버 Version(Latest/Old) 메뉴 삭제 — 레거시 단일 경로)
 }
 
 #endif

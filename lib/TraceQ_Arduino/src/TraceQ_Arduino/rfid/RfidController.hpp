@@ -68,6 +68,9 @@ public:
     /// 새 태그 감지 (1.0의 IsNewTagPresent + IsTagPresent 통합).
     TagStatus Poll();
 
+    /// 올려 둔 카드도 다음 Poll 에서 새 카드(Connected)로 보게 한다 — 발급 명령이 "먼저 올려 둔 태그"를 잡도록.
+    void ForgetTag() { mTagPresent = false; mTagPresentPrev = false; mMissCount = 0; }
+
     /// 현재 캐시된 UID (Poll() 후 Connected/KeepAlive일 때만 유효).
     const MFRC522::Uid &Uid() const { return mMfrc522.uid; }
 
@@ -172,6 +175,7 @@ private:
     // 태그 상태 추적
     bool mTagPresentPrev{false};
     bool mTagPresent{false};
+    uint8_t mMissCount{0};   // 올려 둔 카드의 연속 무응답 횟수(Poll 디바운스)
 
     bool mInitialized{false};
     MFRC522::StatusCode mLastStatus{MFRC522::STATUS_OK};

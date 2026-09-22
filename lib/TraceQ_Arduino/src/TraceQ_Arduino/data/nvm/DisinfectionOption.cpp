@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <EEPROM.h>
 #include "TraceQ_Arduino/data/nvm/DisinfectionOption.hpp"
 
@@ -9,6 +10,7 @@ void DisinfectionOption::Upload()
     EEPROM.put(mSimultaneousSlotAddr, mSimultaneousSlot);
     EEPROM.put(mClearCountAddr, mClearCount);
     EEPROM.put(mClearDateTimeAddr, mClearDateTime);
+    EEPROM.put(mClearPendingAddr, mClearPending);
 }
 
 void DisinfectionOption::Load()
@@ -19,6 +21,7 @@ void DisinfectionOption::Load()
     EEPROM.get(mSimultaneousSlotAddr, mSimultaneousSlot);
     EEPROM.get(mClearCountAddr, mClearCount);
     EEPROM.get(mClearDateTimeAddr, mClearDateTime);
+    EEPROM.get(mClearPendingAddr, mClearPending);
 }
 
 int  DisinfectionOption::GetCount() const
@@ -51,12 +54,12 @@ uint8_t DisinfectionOption::GetSimultaneousDisinfectionDelay() const
     EEPROM.get(mSimultaneousDelayAddr, mSimultaneousDelay);
     return mSimultaneousDelay;
 }
-void DisinfectionOption::SetSimultaneousDisinfectionDelay(uint8_t delay)
+void DisinfectionOption::SetSimultaneousDisinfectionDelay(int delay)
 {
     // 동시소독 판정에서 int8_t 로 캐스팅되므로 127 을 넘으면 음수가 되어
     // 시간창이 무효화된다 — JSON(df_sim_delay) 경로 방어 (2.2.5).
-    if (delay > 120) delay = 120;
-    EEPROM.put(mSimultaneousDelayAddr, delay);
+    const uint8_t v = static_cast<uint8_t>(constrain(delay, 0, 120));
+    EEPROM.put(mSimultaneousDelayAddr, v);
     EEPROM.get(mSimultaneousDelayAddr, mSimultaneousDelay);
 }
 
@@ -65,10 +68,10 @@ uint8_t DisinfectionOption::GetSimultaneousDisinfectionSlot() const
     EEPROM.get(mSimultaneousSlotAddr, mSimultaneousSlot);
     return mSimultaneousSlot;
 }
-void DisinfectionOption::SetSimultaneousDisinfectionSlot(uint8_t range)
+void DisinfectionOption::SetSimultaneousDisinfectionSlot(int range)
 {
-    if (range > 2) range = 2;
-    EEPROM.put(mSimultaneousSlotAddr, range);
+    const uint8_t v = static_cast<uint8_t>(constrain(range, 0, 2));
+    EEPROM.put(mSimultaneousSlotAddr, v);
     EEPROM.get(mSimultaneousSlotAddr, mSimultaneousSlot);
 }
 
@@ -101,4 +104,39 @@ void DisinfectionOption::SetClearDateTime(const LocalDateTime &dateTime)
 {
     EEPROM.put(mClearDateTimeAddr, dateTime);
     EEPROM.get(mClearDateTimeAddr, mClearDateTime);
+}
+
+uint8_t DisinfectionOption::GetClearPending() const
+{
+    EEPROM.get(mClearPendingAddr, mClearPending);
+    return mClearPending;
+}
+void DisinfectionOption::SetClearPending(uint8_t kind)
+{
+    EEPROM.put(mClearPendingAddr, kind);
+    EEPROM.get(mClearPendingAddr, mClearPending);
+}
+
+void DisinfectionOption::ApplyPendingClear(const LocalDateTime &now)
+{
+    const uint8_t kind = GetClearPending();
+    if (kind == kPendingNone) return;
+    SetClearDateTime(kind == kPendingDefault ? OneMonthBefore(now) : now);
+    SetClearPending(kPendingNone);
+}
+
+LocalDateTime DisinfectionOption::OneMonthBefore(LocalDateTime t)
+{
+    // 말일이 짧은 달로 넘어가면 그 달 말일로(3/31 → 2/28, 윤년 2/29).
+    uint16_t year = t.Date.Year;
+    uint8_t month = t.Date.Month;
+    if (month <= 1) { month = 12; year -= 1; }
+    else            { month -= 1; }
+    static const uint8_t kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    uint8_t maxDay = (month >= 1 && month <= 12) ? kDays[month - 1] : 28;
+    if (month == 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))) maxDay = 29;
+    if (t.Date.Day > maxDay) t.Date.Day = maxDay;
+    t.Date.Year  = year;
+    t.Date.Month = month;
+    return t;
 }

@@ -24,7 +24,10 @@ void DisinfectionProcessor::DisinfectionProcess(
     bool isRestart = false;   // 더블터치 가드로 시작이 재실행됐는지
 
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
+    {
+        mMovable = false;   // 위 두 거부와 같이 이동 플래그도 내린다
         return;
+    }
 
     bool isGuest = false;
     bool simultaneously = disinfectionOption.GetSimultaneousDisinfectionSlot() >= 2;
@@ -35,7 +38,9 @@ void DisinfectionProcessor::DisinfectionProcess(
 
     if (isEnd)
     {
-        if (DefaultRtc::AddTimeSpan(mStartTime, 0, 2) > rtc.GetCurrentDateTime())
+        // 더블터치 = 방금 시작한 바로 그 태그가 2초 안에 다시 온 것(host·guest 공통).
+        if (mCachedTag.Number == mLastStartNo &&
+            DefaultRtc::AddTimeSpan(mLastStartAt, 0, 2) > rtc.GetCurrentDateTime())
         {
             simultaneously = false;
             isEnd = false;
@@ -73,8 +78,15 @@ void DisinfectionProcessor::DisinfectionProcess(
             //  guest — 원래 의도대로 복원 (1.0 승계 결함, 2.2.5).
             isGuest = (deadline >= rtc.GetCurrentDateTime());
         }
-        disinfection_start(deviceNumber, isMoved, isGuest, isRestart,
-                           alarmOption, disinfectionOption, rtc);
+        // 커밋 전 실패는 성공으로 알리지 않는다 — host·알람 없이 재접촉을 유도.
+        if (!disinfection_start(deviceNumber, isMoved, isGuest, isRestart,
+                                alarmOption, disinfectionOption, rtc))
+        {
+            printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+            return;
+        }
+        mLastStartNo = mCachedTag.Number;
+        mLastStartAt = rtc.GetCurrentDateTime();
         if (isGuest) set_guest(mCachedTag.Number);
         else         set_host(mCachedTag.Number, rtc.GetCurrentDateTime());
         rtc.SetAlarm(2, alarmOption.GetTimeSlot2(), 0);
@@ -104,7 +116,7 @@ void DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, Def
     disinfection_end(isMoved, record);
 }
 
-void DisinfectionProcessor::disinfection_start(
+bool DisinfectionProcessor::disinfection_start(
     int deviceNumber, bool isMoved, bool isGuest, bool isRestart,
     const AlarmOption &alarmOption,
     DisinfectionOption &disinfectionOption, DefaultRtc &rtc)
@@ -117,12 +129,9 @@ void DisinfectionProcessor::disinfection_start(
 
     DisinfectionDetail detail{};
     const uint8_t detailBlock = isMoved ? SECTOR14_DISINFECTION_DETAIL2 : SECTOR14_DISINFECTION_DETAIL;
-    if (mScanner.Read(detailBlock, &detail, 10) != RfidResult::Ok) return;
+    if (mScanner.Read(detailBlock, &detail, 10) != RfidResult::Ok) return false;
 
     detail.GroupNumber = isGuest ? 2 : 1;
-    detail.DateTime = disinfectionOption.IsClearDateTimeEmpty()
-        ? rtc.GetCurrentLocalDateTime()
-        : disinfectionOption.GetClearDateTime();
 
     Process newProcess{mCachedProcess.Status, 0, mCachedProcess.WashingStatus, 0,
                        deviceNumber, mCachedProcess.MovementNeeded, 0, 2};
@@ -138,8 +147,14 @@ void DisinfectionProcessor::disinfection_start(
     }
     mCachedProcess = newProcess;
 
-    const auto current = get_adjuest_start_time(rtc.GetCurrentDateTime(), rtc);
-    if (current == DateTime{static_cast<uint32_t>(0)}) return;
+    const auto current = get_adjuest_start_time(rtc.GetCurrentDateTime(), rtc, alarmOption.GetTimeSlot1());
+    if (current == DateTime{static_cast<uint32_t>(0)}) return false;
+
+    // 방금 시계가 복구됐으면 미뤄 둔 교환일을 먼저 기록 — 이 스코프 태그에도 맞는 교환일이 들어가게.
+    if (!rtc.IsUnsynced()) disinfectionOption.ApplyPendingClear(rtc.GetCurrentLocalDateTime());
+    detail.DateTime = disinfectionOption.IsClearDateTimeEmpty()
+        ? rtc.GetCurrentLocalDateTime()
+        : disinfectionOption.GetClearDateTime();
 
     DisinfectionRecord record{
         deviceNumber,
@@ -151,16 +166,16 @@ void DisinfectionProcessor::disinfection_start(
     const uint8_t keyBlk   = isMoved ? SECTOR7_DISINFECTION_START_MANAGER_KEY  : SECTOR5_DISINFECTION_START_MANAGER_KEY;
     const uint8_t nameBlk  = isMoved ? SECTOR7_DISINFECTION_START_MANAGER_NAME : SECTOR5_DISINFECTION_START_MANAGER_NAME;
 
-    if (mScanner.Write(startBlk, &record, 10) != RfidResult::Ok) return;
-    if (mScanner.Write(keyBlk,   mCachedTag.ID, 14) != RfidResult::Ok) return;
-    if (mScanner.Write(nameBlk,  mCachedTagSerial.Serial, 16) != RfidResult::Ok) return;
-    if (mScanner.Write(detailBlock, &detail, 10) != RfidResult::Ok) return;
+    if (mScanner.Write(startBlk, &record, 10) != RfidResult::Ok) return false;
+    if (mScanner.Write(keyBlk,   mCachedTag.ID, 14) != RfidResult::Ok) return false;
+    if (mScanner.Write(nameBlk,  mCachedTagSerial.Serial, 16) != RfidResult::Ok) return false;
+    if (mScanner.Write(detailBlock, &detail, 10) != RfidResult::Ok) return false;
 
     // Process(소독 시작 플래그)는 **커밋** — 기록 4종이 모두 성공한 뒤에 쓴다.
     // 앞에 두면 중간 실패 시 "소독했다"는 플래그만 서고 시작·종료 기록이 0 인
     // 태그가 남아, 서버가 3단 거부를 통과해 빈 시각을 등록한다
     // (1.0 승계 결함 — 2.2.5 수정). 세척 경로는 원래 이 순서였다.
-    if (!write_process()) return;
+    if (!write_process()) return false;
 
     // 더블터치 가드로 "시작"이 재실행된 경우에는 횟수를 다시 올리지 않는다
     // (2초 안에 두 번 대면 소독 1회에 횟수 2가 되던 것 — 2.2.5 수정).
@@ -168,6 +183,7 @@ void DisinfectionProcessor::disinfection_start(
 
     record.DateTime = add_datetime(current, alarmOption.GetTimeSlot2(), record.DateTime.Time.Second);
     disinfection_end(isMoved, record);
+    return true;   // 커밋됨(자동 종료 기록 실패는 종료 터치가 다시 쓴다)
 }
 
 void DisinfectionProcessor::disinfection_end(bool isMoved, DisinfectionRecord &record)
@@ -181,7 +197,7 @@ void DisinfectionProcessor::disinfection_end(bool isMoved, DisinfectionRecord &r
     if (mScanner.Write(nameBlk, mCachedTagSerial.Serial, 16) != RfidResult::Ok) return;
 }
 
-DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, DefaultRtc &rtc)
+DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, DefaultRtc &rtc, int8_t washingMinutes)
 {
     WashingRecord record{};
     if (mScanner.Read(SECTOR2_WASHING_START, &record, 10) != RfidResult::Ok)
@@ -197,7 +213,12 @@ DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, Default
         WashingRecord endRecord{};
         if (mScanner.Read(SECTOR3_WASHING_END, &endRecord, 10) != RfidResult::Ok)
             return DateTime{static_cast<uint32_t>(0)};
-        const auto endTime = DefaultRtc::AddTimeSpan(DefaultRtc::ToDateTime(endRecord.DateTime), 1, 0);
+        // 종료 기록이 비었거나(0) 지난 주기면 "세척 시작 + 설정된 세척 시간" 으로 추정한다
+        // (사장님 09-23). 0 에 +1분 하면 unixtime 이 돌아 RTC 가 2043년에 굳는다.
+        auto base = DefaultRtc::ToDateTime(endRecord.DateTime);
+        if (!base.isValid() || base < startTime)
+            base = DefaultRtc::AddTimeSpan(startTime, washingMinutes, 0);
+        const auto endTime = DefaultRtc::AddTimeSpan(base, 1, 0);
         rtc.SetDateTime(endTime);
         return endTime;
     }

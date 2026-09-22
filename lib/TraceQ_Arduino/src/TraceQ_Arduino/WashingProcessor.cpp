@@ -5,10 +5,15 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
                                       DefaultRtc &rtc, LcdPrinter &printer)
 {
     if (!is_valid(recordOption, managerOption, printer)) return;
-    const bool isEnd = (mCachedProcess.Rewrite == 1);
+    bool isEnd = (mCachedProcess.Rewrite == 1);
 
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
         return;
+
+    // 더블터치 = 방금 시작한 바로 그 태그가 2초 안에 다시 온 것 — 종료가 아니라 시작 다시 하기(소독기와 같음).
+    if (isEnd && mCachedTag.Number == mLastStartNo &&
+        DefaultRtc::AddTimeSpan(mLastStartAt, 0, 2) > rtc.GetCurrentDateTime())
+        isEnd = false;
 
     if (isEnd)
     {
@@ -18,7 +23,14 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     }
     else
     {
-        washing_start(deviceNumber, alarmOption, rtc);
+        // 커밋 전 실패는 성공으로 알리지 않는다 — 알람 없이 재접촉을 유도.
+        if (!washing_start(deviceNumber, alarmOption, rtc))
+        {
+            printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+            return;
+        }
+        mLastStartNo = mCachedTag.Number;
+        mLastStartAt = rtc.GetCurrentDateTime();
         rtc.SetAlarm(1, alarmOption.GetTimeSlot1(), 0);
     }
     complete_delay();
@@ -53,7 +65,7 @@ void WashingProcessor::update_process(int deviceNumber)
     mCachedProcess.Rewrite       = 1;
 }
 
-void WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmOption, DefaultRtc &rtc)
+bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmOption, DefaultRtc &rtc)
 {
     const auto current = rtc.GetCurrentDateTime();
     WashingRecord record{
@@ -64,13 +76,14 @@ void WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
 
     update_process(deviceNumber);
 
-    if (mScanner.Write(SECTOR2_WASHING_START, &record, 10) != RfidResult::Ok) return;
-    if (!write_manager_key(SECTOR3_WASHING_START_MANAGER_KEY)) return;
-    if (!write_manager_name(SECTOR3_WASHING_START_MANAGER_NAME)) return;
-    if (!write_process()) return;
+    if (mScanner.Write(SECTOR2_WASHING_START, &record, 10) != RfidResult::Ok) return false;
+    if (!write_manager_key(SECTOR3_WASHING_START_MANAGER_KEY)) return false;
+    if (!write_manager_name(SECTOR3_WASHING_START_MANAGER_NAME)) return false;
+    if (!write_process()) return false;
 
     record.DateTime = add_datetime(current, alarmOption.GetTimeSlot1(), record.DateTime.Time.Second);
     washing_end(record);
+    return true;   // 커밋됨(자동 종료 기록 실패는 종료 터치가 다시 쓴다)
 }
 
 void WashingProcessor::washing_end(WashingRecord &record)

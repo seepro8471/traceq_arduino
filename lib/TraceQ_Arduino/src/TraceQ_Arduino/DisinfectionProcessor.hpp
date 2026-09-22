@@ -26,7 +26,8 @@ protected:
     void disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc);
     /// \param isRestart 더블터치 2초 가드로 "시작"이 재실행된 경우 — 소독 횟수를
     ///                  중복으로 올리지 않기 위한 표시.
-    void disinfection_start(int deviceNumber, bool isMoved, bool isGuest, bool isRestart,
+    /// \return 커밋(Process 기록)까지 성공했는가 — false 면 태그는 시작 전 상태.
+    bool disinfection_start(int deviceNumber, bool isMoved, bool isGuest, bool isRestart,
                             const AlarmOption &alarmOption,
                             DisinfectionOption &disinfectionOption, DefaultRtc &rtc);
     void disinfection_end(bool isMoved, DisinfectionRecord &record);
@@ -47,13 +48,17 @@ private:
      * 판단하고, "세척 종료 시각 + 1분"으로 소독기 RTC를 복구한 뒤 그 시각을
      * 반환한다. RTC 자동 복구는 1.0과 동일하며, +1분(이동 시간 반영)은
      * 2026-08-09 사용자 확정 사양. (2.0 초기 재작성에서는 RTC 복구가 소실되고
-     * +3분 가산만 있었음.)
+     * +3분 가산만 있었음.) 종료 기록이 0·지난 주기면 "세척 시작 + 설정된 세척 시간"
+     * 으로 추정한다(2026-09-23 사용자 확정).
      *
      * \return 보정된 시각. 태그 읽기 실패 시 DateTime{0} (호출측에서 중단).
      */
-    DateTime get_adjuest_start_time(DateTime current, DefaultRtc &rtc);
+    DateTime get_adjuest_start_time(DateTime current, DefaultRtc &rtc, int8_t washingMinutes);
 
     DateTime mStartTime{};
+    // 더블터치 판정용 — 마지막으로 시작한 태그와 그 시각(mStartTime 은 동시소독 시간창 전용).
+    int16_t  mLastStartNo{kNoScope};
+    DateTime mLastStartAt{};
     int16_t  mHostScopeNumber{kNoScope};
     int16_t  mGuestScopeNumber{kNoScope};
     bool     mMovable{false};

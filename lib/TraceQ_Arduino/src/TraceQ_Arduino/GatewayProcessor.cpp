@@ -139,7 +139,9 @@ bool GatewayProcessor::find_string(const char *src, char *dst, size_t dstSize, c
 
 bool GatewayProcessor::substring_for_patient(const char *string)
 {
-    char data[16]{};
+    // [17] = 블록 16바이트를 다 담기 위한 크기(str_substring_safe 는 NUL 자리를 남긴다).
+    // 15바이트만 담던 때는 올눈이 보내는 16바이트 조각의 끝 한글이 반쪽으로 남았다 (09-23).
+    char data[17]{};
     const auto keyIdx = str_index_of(string, ';');
     if (keyIdx == static_cast<size_t>(-1)) return false;
 
@@ -163,7 +165,7 @@ void GatewayProcessor::substring_for_examination_subject(const char *string)
     memset(mExaminationSubject2, 0, 16);
     memset(mExaminationSubject3, 0, 16);
 
-    char data[16]{};
+    char data[17]{};   // 블록 16바이트 전부 (위 substring_for_patient 주석 참조)
     const auto firstIdx = str_index_of_cstr(string, ";");
     if (firstIdx == static_cast<size_t>(-1)) return;
     str_substring_safe(string, data, sizeof(data), 0, firstIdx);

@@ -26,6 +26,9 @@ public:
 
     void SetDateTime(const DateTime &dateTime);
 
+    /// 배터리 방전으로 2026-01-01 에서 시작한 뒤 아직 맞춘 적이 없는가(SetDateTime 이 풀어 준다).
+    bool IsUnsynced() const { return mUnsynced; }
+
     /**
      * \brief 지정된 위치에 설정된 알람이 종료되었는지(fired) 확인하고 parameter useBuzzer의 값에 따라 buzzer를 사용한다.
      *
@@ -101,4 +104,6 @@ private:
      * \brief Slot2에 알람이 설정되어있다면 true. otherwise, false.
      */
     bool mAlarmSlot2Flag{false};
+
+    bool mUnsynced{false};
 };

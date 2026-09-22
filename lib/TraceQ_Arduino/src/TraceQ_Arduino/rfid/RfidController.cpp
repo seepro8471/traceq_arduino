@@ -60,6 +60,7 @@ void RfidController::Reinitialize()
     mInitialized = false;
     mTagPresent = false;
     mTagPresentPrev = false;
+    mMissCount = 0;
     Initialize();
 }
 
@@ -109,6 +110,15 @@ RfidController::TagStatus RfidController::Poll()
         mMfrc522.PICC_ReadCardSerial();
 
     mTagPresent = present;
+
+    // 정지(HALT) 못 시킨 카드는 REQA 에 한 번 걸러 응답한다(ACTIVE→IDLE) — 3회 연속 무응답만 이탈로 본다.
+    // (1회로 보면 인증 실패·HaltA 유실 뒤 올려 둔 태그가 3루프마다 다시 처리된다.)
+    if (!present && mTagPresentPrev && ++mMissCount < 3)
+    {
+        mTagPresent = true;
+        return TagStatus::KeepAlive;
+    }
+    mMissCount = 0;
 
     if (!present)
     {

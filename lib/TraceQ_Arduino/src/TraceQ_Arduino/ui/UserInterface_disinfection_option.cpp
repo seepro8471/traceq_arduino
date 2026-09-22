@@ -20,8 +20,9 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionMaximumCount(Disinfect
     }
     case MenuFunction::Save:
     {
-        const auto edited = str_atoi_range(line.GetContent(), 0, 1);
-        if (current != edited)
+        // 표시·편집한 자릿수 전부를 읽는다(앞 2자리만 읽어 150 이 15 로 저장되던 것).
+        const int edited = str_atoi(line.GetContent());
+        if (edited >= 0 && current != edited)
         {
             option.SetMaximumCount(edited);
         }
@@ -54,8 +55,8 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionGroupDelay(Disinfectio
     }
     case MenuFunction::Save:
     {
-        const uint8_t edited = str_atoi_range(line.GetContent(), 0, 1);
-        if (current != edited)
+        const int edited = str_atoi(line.GetContent());
+        if (edited >= 0 && current != edited)
         {
             option.SetSimultaneousDisinfectionDelay(edited);
         }
@@ -88,8 +89,8 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionRange(DisinfectionOpti
     }
     case MenuFunction::Save:
     {
-        const uint8_t edited = str_atoi_range(line.GetContent(), 0, 1);
-        if (current != edited)
+        const int edited = str_atoi(line.GetContent());
+        if (edited >= 0 && current != edited)
         {
             option.SetSimultaneousDisinfectionSlot(edited);
         }

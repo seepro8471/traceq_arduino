@@ -11,10 +11,11 @@ public:
 
     bool   GetFlag() const;
     void   SetFlag(bool flag);
+    // Set 은 int 로 받아 0~127 로 자른 뒤 1바이트로 저장한다(좁힌 뒤 자르면 200→음수, 300→44).
     int8_t GetTimeSlot1() const;
-    void   SetTimeSlot1(int8_t minute);
+    void   SetTimeSlot1(int minute);
     int8_t GetTimeSlot2() const;
-    void   SetTimeSlot2(int8_t minute);
+    void   SetTimeSlot2(int minute);
 
 protected:
     // 1.0과 동일한 EEPROM 주소 (데이터 호환).

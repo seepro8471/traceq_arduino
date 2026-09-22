@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <EEPROM.h>
 #include "TraceQ_Arduino/data/nvm/AlarmOption.hpp"
 
@@ -33,10 +34,10 @@ int8_t AlarmOption::GetTimeSlot1() const
     return mTimeSlot1;
 }
 
-void AlarmOption::SetTimeSlot1(int8_t minute)
+void AlarmOption::SetTimeSlot1(int minute)
 {
-    if (minute < 0) minute = 0;
-    EEPROM.put(mTimeSlot1Addr, minute);
+    const int8_t v = static_cast<int8_t>(constrain(minute, 0, 127));
+    EEPROM.put(mTimeSlot1Addr, v);
     EEPROM.get(mTimeSlot1Addr, mTimeSlot1);
 }
 
@@ -46,9 +47,9 @@ int8_t AlarmOption::GetTimeSlot2() const
     return mTimeSlot2;
 }
 
-void AlarmOption::SetTimeSlot2(int8_t minute)
+void AlarmOption::SetTimeSlot2(int minute)
 {
-    if (minute < 0) minute = 0;
-    EEPROM.put(mTimeSlot2Addr, minute);
+    const int8_t v = static_cast<int8_t>(constrain(minute, 0, 127));
+    EEPROM.put(mTimeSlot2Addr, v);
     EEPROM.get(mTimeSlot2Addr, mTimeSlot2);
 }
