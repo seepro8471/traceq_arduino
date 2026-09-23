@@ -26,8 +26,9 @@ public:
 
     void SetDateTime(const DateTime &dateTime);
 
-    /// 배터리 방전으로 2026-01-01 에서 시작한 뒤 아직 맞춘 적이 없는가(SetDateTime 이 풀어 준다).
-    bool IsUnsynced() const { return mUnsynced; }
+    /// 시계가 이 펌웨어의 출시일보다 앞서면 아직 맞춰지지 않은 것(방전 표지 2026-01-01 + 가동 시간).
+    /// 시계 값으로만 판정하므로 재시작·DTR 리셋·"시간만 맞춤" 에도 흔들리지 않는다(RAM 표지였을 때의 결함).
+    bool IsUnsynced();
 
     /**
      * \brief 지정된 위치에 설정된 알람이 종료되었는지(fired) 확인하고 parameter useBuzzer의 값에 따라 buzzer를 사용한다.
@@ -104,6 +105,4 @@ private:
      * \brief Slot2에 알람이 설정되어있다면 true. otherwise, false.
      */
     bool mAlarmSlot2Flag{false};
-
-    bool mUnsynced{false};
 };

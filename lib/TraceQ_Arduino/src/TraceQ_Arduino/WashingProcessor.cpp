@@ -10,9 +10,8 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
         return;
 
-    // 더블터치 = 방금 시작한 바로 그 태그가 2초 안에 다시 온 것 — 종료가 아니라 시작 다시 하기(소독기와 같음).
-    if (isEnd && mCachedTag.Number == mLastStartNo &&
-        DefaultRtc::AddTimeSpan(mLastStartAt, 0, 2) > rtc.GetCurrentDateTime())
+    // 더블터치 = 태그에 적힌 시작이 2초 안 — 종료가 아니라 시작 다시 하기(소독기와 같은 규칙).
+    if (isEnd && started_just_now(SECTOR2_WASHING_START, rtc))
         isEnd = false;
 
     if (isEnd)
@@ -29,8 +28,6 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
             printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
             return;
         }
-        mLastStartNo = mCachedTag.Number;
-        mLastStartAt = rtc.GetCurrentDateTime();
         rtc.SetAlarm(1, alarmOption.GetTimeSlot1(), 0);
     }
     complete_delay();

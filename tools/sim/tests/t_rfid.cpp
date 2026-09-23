@@ -133,6 +133,24 @@ int main()
                               DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
         CHECK(dur2 >= 3 && dur2 < 10 && !rtc.HasAlarm(1), "회귀: 2초 지나 대면 종료");
     }
+    // ── [3차 B] 세척기: 커밋은 됐는데 확인 읽기 실패(Write Error) → 곧바로 다시 대면 재시작 ──
+    {
+        static SimCard v;
+        sim_advance_ms(10UL * 60 * 1000);
+        fresh(v, 0x27, 27, 1);
+        v.readErrBlock = SECTOR1_PROCESS;
+        v.readErrSkip = 1;
+        v.readErrTimes = 3;
+        rtc.ClearAlarm(1);
+        logs_clear();
+        touch(v, 1, 4);
+        CHECK(get_process(v).Rewrite == 1 && lcd_has("Write Error"), "3차B(W): 카드엔 커밋됐지만 Write Error");
+        touch(v, 1, 4);
+        const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(v, SECTOR3_WASHING_END)) -
+                             DefaultRtc::ToDateTime(get_ldt(v, SECTOR2_WASHING_START))).totalseconds();
+        tlog("  세척기 확인 실패 뒤 재접촉: 세척시간 %ld초 alarm=%d\n", (long)dur, rtc.HasAlarm(1));
+        CHECK(dur >= 4L * 60 && dur < 5L * 60 && rtc.HasAlarm(1), "3차B(W): 재접촉 = 재시작(1초 종료 아님)");
+    }
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

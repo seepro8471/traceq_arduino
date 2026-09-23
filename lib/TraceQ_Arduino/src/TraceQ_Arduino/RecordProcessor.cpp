@@ -65,6 +65,16 @@ bool RecordProcessor::hasnt_patient_info(const RecordOption &recordOption)
     return recordOption.GetPatientCheck() && mCachedProcess.Status != 1;
 }
 
+bool RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc)
+{
+    WashingRecord record{};   // 세척·소독 시작 기록은 레이아웃이 같다(번호 2 + 일시 8)
+    if (mScanner.Read(startBlock, &record, 10) != RfidResult::Ok) return false;
+    const auto started = DefaultRtc::ToDateTime(record.DateTime);
+    if (!started.isValid()) return false;
+    const int32_t gap = (rtc.GetCurrentDateTime() - started).totalseconds();
+    return gap > -2 && gap < 2;
+}
+
 LocalDateTime RecordProcessor::add_datetime(const DateTime &current,
                                             uint8_t minute, uint8_t seconds)
 {

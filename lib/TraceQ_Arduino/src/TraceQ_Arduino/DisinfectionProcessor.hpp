@@ -55,10 +55,7 @@ private:
      */
     DateTime get_adjuest_start_time(DateTime current, DefaultRtc &rtc, int8_t washingMinutes);
 
-    DateTime mStartTime{};
-    // 더블터치 판정용 — 마지막으로 시작한 태그와 그 시각(mStartTime 은 동시소독 시간창 전용).
-    int16_t  mLastStartNo{kNoScope};
-    DateTime mLastStartAt{};
+    DateTime mStartTime{};   // 동시소독 시간창의 기준(host 시작 시각)
     int16_t  mHostScopeNumber{kNoScope};
     int16_t  mGuestScopeNumber{kNoScope};
     bool     mMovable{false};

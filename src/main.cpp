@@ -166,8 +166,9 @@ void loop()
 #ifdef READER_MODE
     ui.Info(0, 2, F("Reader"));
 #else
-    // 메뉴·PC·게이트웨이로 시계가 맞춰졌으면 미뤄 둔 액교환일을 기록한다.
-    if (!rtc.IsUnsynced()) disinfectionOption.ApplyPendingClear(rtc.GetCurrentLocalDateTime());
+    // 메뉴·PC·게이트웨이로 시계가 맞춰졌으면 미뤄 둔 액교환일을 기록한다(미룸이 있을 때만 시계를 읽는다).
+    if (disinfectionOption.HasPendingClear() && !rtc.IsUnsynced())
+        disinfectionOption.ApplyPendingClear(rtc.GetCurrentLocalDateTime());
 
     switch (deviceType)
     {
@@ -313,7 +314,13 @@ __attribute__((unused)) void serialEvent()
     const size_t len = Serial.readBytes(buffer, BUFFER_SIZE - 1);
     if (len == 0) return;
 
-    switch (serialProcessor.GetProcessKind(buffer, len, ui))
+    // raw 명령(G / C·M·S·Z)은 머리글자로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
+    // (버리면 다음 스코프에 직전 환자가 기록된다). JSON 은 STX 나 '{' 로 시작하므로 겹치지 않는다.
+    const bool rawHead =
+        (deviceType == GATEWAY_TYPE_DEVICE && buffer[0] == 'G') ||
+        (deviceType == SERVER_TYPE_DEVICE &&
+         (buffer[0] == 'C' || buffer[0] == 'M' || buffer[0] == 'S' || buffer[0] == 'Z'));
+    switch (rawHead ? SerialProcessor::ProcessKind::NotJson : serialProcessor.GetProcessKind(buffer, len, ui))
     {
     case SerialProcessor::ProcessKind::NewTag:
         serialProcessor.NewTag(rtc, ui);

@@ -21,6 +21,7 @@ struct SimCard
     int16_t removeAfterOps;   // 인증·읽기·쓰기 n회 뒤 필드 이탈. 0=없음
     int16_t readErrBlock;     // 이 블록 읽기를 리더 쪽 오류로(카드 상태 유지). -1=없음
     uint8_t readErrTimes;     // 위 오류 횟수
+    uint8_t readErrSkip;      // 그 블록의 처음 n회 읽기는 통과시킨 뒤 오류(예: 쓰기 확인 읽기만 실패)
     bool    loseHalt;         // 다음 HaltA 프레임 유실
     // 계수
     uint16_t authCount, writeCount, readCount, opCount;

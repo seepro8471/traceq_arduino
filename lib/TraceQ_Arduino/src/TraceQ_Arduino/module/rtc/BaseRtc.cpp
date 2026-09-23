@@ -1,5 +1,7 @@
 #include "BaseRtc.hpp"
 
+#include "TraceQ_Arduino/version.hpp"
+
 void BaseRtc::RtcInitialize()
 {
     if (!mRtc.begin())
@@ -14,7 +16,6 @@ void BaseRtc::RtcInitialize()
         // 방전임을 알 수 있고, 과거 날짜라 소독기의 RTC 자동 복구
         // (세척 종료+1분)와 비교가 항상 성립해 운용 중 자동 교정된다.
         mRtc.adjust(DateTime(2026, 1, 1, 0, 0, 0));
-        mUnsynced = true;
     }
     // set alarm 1, 2 flag to false
     mRtc.clearAlarm(1);
@@ -39,7 +40,11 @@ TimeSpan BaseRtc::GetCurrentTimeSpan()
 void BaseRtc::SetDateTime(const DateTime &dateTime)
 {
     mRtc.adjust(dateTime);
-    mUnsynced = false;
+}
+
+bool BaseRtc::IsUnsynced()
+{
+    return mRtc.now() < DateTime(TRACEQ_RELEASE_YEAR, TRACEQ_RELEASE_MONTH, TRACEQ_RELEASE_DAY, 0, 0, 0);
 }
 
 void BaseRtc::HandleAlarm(const uint8_t slot, bool useBuzzer)

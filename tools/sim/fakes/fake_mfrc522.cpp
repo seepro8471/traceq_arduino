@@ -73,6 +73,21 @@ MFRC522::StatusCode MFRC522::PICC_RequestA(byte *atqa, byte *size)
     return STATUS_TIMEOUT;
 }
 
+MFRC522::StatusCode MFRC522::PICC_WakeupA(byte *atqa, byte *size)
+{
+    // WUPA: IDLE 뿐 아니라 HALT 카드도 응답한다(ISO14443-3 6.3). 그 밖은 REQA 와 같다.
+    if (g_card == nullptr) return STATUS_TIMEOUT;
+    if (g_readerCrypto) { card_idle(); return STATUS_TIMEOUT; }
+    if (g_cardState == CARD_IDLE || g_cardState == CARD_HALT)
+    {
+        g_cardState = CARD_READY;
+        if (atqa && size && *size >= 2) { atqa[0] = 0x04; atqa[1] = 0x00; *size = 2; }
+        return STATUS_OK;
+    }
+    card_idle();
+    return STATUS_TIMEOUT;
+}
+
 bool MFRC522::PICC_ReadCardSerial()
 {
     if (g_card == nullptr || g_cardState != CARD_READY) return false;
@@ -136,8 +151,12 @@ MFRC522::StatusCode MFRC522::MIFARE_Read(byte block, byte *buffer, byte *size)
     if (!card_can_rw(block)) { card_idle(); return STATUS_TIMEOUT; }
     if (c.readErrBlock == (int16_t)block && c.readErrTimes)
     {
-        --c.readErrTimes;
-        return STATUS_CRC_WRONG;   // 리더 쪽 수신 오류 — 카드는 그대로
+        if (c.readErrSkip) { --c.readErrSkip; }
+        else
+        {
+            --c.readErrTimes;
+            return STATUS_CRC_WRONG;   // 리더 쪽 수신 오류 — 카드는 그대로
+        }
     }
     memcpy(buffer, c.data[block], 16);
     buffer[16] = buffer[17] = 0;

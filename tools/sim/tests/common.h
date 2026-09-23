@@ -2,6 +2,7 @@
 // 시험 공용 — main.cpp 의 전역과 setup/loop/serialEvent 를 그대로 부른다.
 #include "harness.h"
 #include <EEPROM.h>
+#include <new>
 #include "TraceQ_Arduino.hpp"
 #include <string.h>
 
@@ -16,6 +17,15 @@ extern ManagerOption managerOption;
 extern RecordOption recordOption;
 extern DefaultRtc rtc;
 extern RfidController rfid;
+extern DisplayClass lcd;
+extern UserInterfaceClass ui;
+extern Tag cachedTag;
+extern TagSerial cachedTagSerial;
+extern Process cachedProcess;
+extern DisinfectionProcessor disinfectionProcessor;
+extern GatewayProcessor gatewayProcessor;
+extern SerialProcessor serialProcessor;
+extern WashingProcessor washingProcessor;
 
 // soft reset 이 나면 1, UI 가 버튼을 무한정 기다리면 2 를 돌려준다.
 #define GUARDED(stmt) ([&]() -> int { g_resetArmed = true; int _r = setjmp(g_resetJmp); \
@@ -41,6 +51,32 @@ static inline void boot(char type)
     managerOption.Upload(); recordOption.Upload();
     deviceOption.SetType(type);
     EEPROM.put((int)4088, fw_stamp());
+    GUARDED(setup());
+    run_loops(2);
+}
+
+// 진짜 리셋 — RAM 전역을 전부 다시 만든다(EEPROM·RTC 칩·카드는 그대로). setup() 만 다시 부르면
+// RAM 표지가 살아남아 "재시작 뒤" 결함을 못 본다(3차 감사에서 실제로 놓쳤던 것).
+static inline void hard_reset(bool rtcDead = false)
+{
+    g_rtcLostPower = rtcDead;
+    deviceType = 0;
+    new (&alarmOption) AlarmOption{};
+    new (&deviceOption) DeviceOption{};
+    new (&disinfectionOption) DisinfectionOption{};
+    new (&managerOption) ManagerOption{};
+    new (&recordOption) RecordOption{};
+    new (&rtc) DefaultRtc{};
+    new (&rfid) RfidController{};
+    new (&lcd) DisplayClass{0x27, 20, 4};
+    new (&ui) UserInterfaceClass{lcd};
+    new (&cachedTag) Tag{};
+    new (&cachedTagSerial) TagSerial{};
+    new (&cachedProcess) Process{};
+    new (&disinfectionProcessor) DisinfectionProcessor{cachedTag, cachedTagSerial, cachedProcess, rfid};
+    new (&gatewayProcessor) GatewayProcessor{cachedTag, cachedTagSerial, cachedProcess, rfid};
+    new (&serialProcessor) SerialProcessor{cachedTag, cachedTagSerial, cachedProcess, rfid};
+    new (&washingProcessor) WashingProcessor{cachedTag, cachedTagSerial, cachedProcess, rfid};
     GUARDED(setup());
     run_loops(2);
 }

@@ -87,7 +87,7 @@ void RfidController::pcdSoftReset()
     // 타임아웃 시에도 진행: 다음 레지스터 쓰기에서 실패하면 상위에서 IsAlive로 감지.
 }
 
-RfidController::TagStatus RfidController::Poll()
+RfidController::TagStatus RfidController::Poll(bool wakeHalted)
 {
     if (!mInitialized)
     {
@@ -104,7 +104,9 @@ RfidController::TagStatus RfidController::Poll()
     mMfrc522.PCD_WriteRegister(MFRC522::RxModeReg, 0x00);
     mMfrc522.PCD_WriteRegister(MFRC522::ModWidthReg, 0x26);
 
-    mLastStatus = mMfrc522.PICC_RequestA(bufferATQA, &bufferSize);
+    // WUPA 는 정지(HALT)된 카드도 깨운다 — 발급 대기에서만 쓴다(운영 루프가 쓰면 올려 둔 태그가 매번 다시 처리된다).
+    mLastStatus = wakeHalted ? mMfrc522.PICC_WakeupA(bufferATQA, &bufferSize)
+                             : mMfrc522.PICC_RequestA(bufferATQA, &bufferSize);
     const bool present =
         (mLastStatus == MFRC522::STATUS_OK || mLastStatus == MFRC522::STATUS_COLLISION) &&
         mMfrc522.PICC_ReadCardSerial();

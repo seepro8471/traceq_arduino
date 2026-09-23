@@ -67,7 +67,7 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
     mScanner.ForgetTag();   // 설정 프로그램 안내대로 먼저 올려 둔 태그도 잡는다
     while (millis() - timeout < 4000)
     {
-        if (mScanner.Poll() == RfidController::TagStatus::Connected)
+        if (mScanner.Poll(true) == RfidController::TagStatus::Connected)   // 정지된 태그도 깨운다(발급 대기)
         {
             // typeId 0: factory default → TraceQ (KEY_A(FF) 인증 → TraceQ 키 설치).
             //        1: TraceQ 재설정 (데이터만 소거).
@@ -361,7 +361,7 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
     mScanner.ForgetTag();
     while (millis() - timeout < 4000)
     {
-        if (mScanner.Poll() == RfidController::TagStatus::Connected)
+        if (mScanner.Poll(true) == RfidController::TagStatus::Connected)   // 정지된 태그도 깨운다(발급 대기)
         {
             const int parsedType{legacy_parse_tag(buffer)};
             if (parsedType == -1) break;

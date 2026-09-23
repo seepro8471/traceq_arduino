@@ -10,6 +10,16 @@ int main()
     CHECK(deviceType == 'W', "boot: 타입 W");
     CHECK(lcd_has("W"), "boot: LCD 출력이 잡힌다");
 
+    // [3차 G] 담당자 미등록(비일회성)이면 세척 시작을 거부한다 — 완전 초기화 직후 상태
+    {
+        static SimCard early;
+        make_tag(early, 0x03, SCOPE_TYPE_TAG, 3, "SC0003", "S0003");
+        logs_clear();
+        touch(early);
+        CHECK(lcd_has("No Manager Info") && get_process(early).WashingStatus == 0 && !rtc.HasAlarm(1),
+              "담당자 미등록 → 세척 시작 거부(기록·알람 없음)");
+    }
+
     make_tag(mgr, 0x01, MANAGER_TYPE_TAG, 7, "ND01456", "KIMJH");
     touch(mgr);
     CHECK(managerOption.HasData(), "매니저 태그 등록");

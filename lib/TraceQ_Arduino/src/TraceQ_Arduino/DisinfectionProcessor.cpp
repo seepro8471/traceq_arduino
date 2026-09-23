@@ -38,9 +38,8 @@ void DisinfectionProcessor::DisinfectionProcess(
 
     if (isEnd)
     {
-        // 더블터치 = 방금 시작한 바로 그 태그가 2초 안에 다시 온 것(host·guest 공통).
-        if (mCachedTag.Number == mLastStartNo &&
-            DefaultRtc::AddTimeSpan(mLastStartAt, 0, 2) > rtc.GetCurrentDateTime())
+        // 더블터치 = 태그에 적힌 시작이 2초 안(host·guest 공통, 기록 실패·재부팅 뒤에도 태그가 답한다).
+        if (started_just_now(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START, rtc))
         {
             simultaneously = false;
             isEnd = false;
@@ -85,8 +84,6 @@ void DisinfectionProcessor::DisinfectionProcess(
             printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
             return;
         }
-        mLastStartNo = mCachedTag.Number;
-        mLastStartAt = rtc.GetCurrentDateTime();
         if (isGuest) set_guest(mCachedTag.Number);
         else         set_host(mCachedTag.Number, rtc.GetCurrentDateTime());
         rtc.SetAlarm(2, alarmOption.GetTimeSlot2(), 0);
@@ -121,7 +118,9 @@ bool DisinfectionProcessor::disinfection_start(
     const AlarmOption &alarmOption,
     DisinfectionOption &disinfectionOption, DefaultRtc &rtc)
 {
-    if (!isMoved)
+    // 재시작(더블터치)은 커밋된 시작을 지우지 않는다 — 지운 뒤 중간에 실패하면 RW=2 인데 시작이 0 인 태그가
+    // 남아 서버가 빈 시각을 등록한다. 세 블록과 자동 종료를 전부 다시 쓰므로 지울 이유도 없다.
+    if (!isMoved && !isRestart)
     {
         mScanner.ClearSector(5);
         mScanner.ClearSector(6);
@@ -151,7 +150,8 @@ bool DisinfectionProcessor::disinfection_start(
     if (current == DateTime{static_cast<uint32_t>(0)}) return false;
 
     // 방금 시계가 복구됐으면 미뤄 둔 교환일을 먼저 기록 — 이 스코프 태그에도 맞는 교환일이 들어가게.
-    if (!rtc.IsUnsynced()) disinfectionOption.ApplyPendingClear(rtc.GetCurrentLocalDateTime());
+    if (disinfectionOption.HasPendingClear() && !rtc.IsUnsynced())
+        disinfectionOption.ApplyPendingClear(rtc.GetCurrentLocalDateTime());
     detail.DateTime = disinfectionOption.IsClearDateTimeEmpty()
         ? rtc.GetCurrentLocalDateTime()
         : disinfectionOption.GetClearDateTime();

@@ -94,6 +94,13 @@ int main()
     CHECK(alarmOption.GetTimeSlot1() == 4 && disinfectionOption.GetSimultaneousDisinfectionDelay() == 3,
           "회귀: JSON 정상 범위 그대로");
 
+    // ── [3차 D/E] str_atoi 오버플로 검사가 실제로 동작한다(부호 오버플로 UB 로 컴파일러가 지웠던 것) ──
+    tlog("  str_atoi: 70000→%d 65536→%d 32767→%d 32768→%d range(70000)→%d\n",
+         str_atoi("70000"), str_atoi("65536"), str_atoi("32767"), str_atoi("32768"), str_atoi_range("70000", 0, 4));
+    CHECK(str_atoi("70000") == -1 && str_atoi("65536") == -1 && str_atoi("32768") == -1, "3차: str_atoi 32767 초과는 -1");
+    CHECK(str_atoi("32767") == 32767 && str_atoi("0") == 0 && str_atoi("007") == 7, "회귀: str_atoi 정상 범위");
+    CHECK(str_atoi_range("70000", 0, 4) == -1 && str_atoi_range("2026", 0, 3) == 2026, "3차: str_atoi_range 도 같은 검사");
+
     // ── [D P2-3] 메뉴 페이지를 60번 넘겨도 스택이 쌓이지 않는다 ──
     {
         static char seq[200];

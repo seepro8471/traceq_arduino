@@ -66,9 +66,11 @@ public:
     void Reinitialize();
 
     /// 새 태그 감지 (1.0의 IsNewTagPresent + IsTagPresent 통합).
-    TagStatus Poll();
+    /// wakeHalted=true 면 WUPA 로 정지(HALT)된 카드도 깨운다 — 발급 대기 전용.
+    TagStatus Poll(bool wakeHalted = false);
 
     /// 올려 둔 카드도 다음 Poll 에서 새 카드(Connected)로 보게 한다 — 발급 명령이 "먼저 올려 둔 태그"를 잡도록.
+    /// (운영 루프가 이미 처리해 정지시킨 TraceQ 태그는 Poll(true) 로 깨워야 잡힌다.)
     void ForgetTag() { mTagPresent = false; mTagPresentPrev = false; mMissCount = 0; }
 
     /// 현재 캐시된 UID (Poll() 후 Connected/KeepAlive일 때만 유효).

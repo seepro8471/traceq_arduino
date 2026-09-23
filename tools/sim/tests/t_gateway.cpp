@@ -94,6 +94,48 @@ int main()
               "올눈 16바이트 조각 → 블록에 16바이트 전부");
         CHECK(block_cp949_ok(c.data[SECTOR15_EXAMINATION_SUBJECT]), "올눈 16바이트 조각 → 끝 글자 온전");
     }
+
+    // ── [3차 G] 환자 키·이름(G3)도 16바이트 전부 담긴다(올눈은 자르지 않고 보낸다) ──
+    {
+        static SimCard e;
+        sim_advance_ms(60UL * 1000);
+        const char pkt[] = "G10000;G22026;9;23;3;14;0;0;G3ABCDEFGHIJKLMNOP;"
+                           "\xB0\xA1\xB3\xAA\xB4\xD9\xB6\xF3\xB8\xB6\xB9\xD9\xBB\xE7\xBE\xC6;G4EGD;;;G5;";   // 키 16자, 이름 한글 8자
+        serial_inject(pkt, sizeof(pkt) - 1);
+        pump(3000);
+        fresh_scope(e, 0x55, 55);
+        touch(e);
+        CHECK(memcmp(e.data[SECTOR2_PATIENT_KEY], "ABCDEFGHIJKLMNOP", 16) == 0, "3차G: 환자 키 16바이트 전부");
+        CHECK(memcmp(e.data[SECTOR2_PATIENT_NAME], "\xB0\xA1\xB3\xAA\xB4\xD9\xB6\xF3\xB8\xB6\xB9\xD9\xBB\xE7\xBE\xC6", 16) == 0,
+              "3차G: 환자 이름 16바이트 전부(끝 글자 온전)");
+    }
+
+    // ── [3차 G] Status=1 은 커밋 — 검사명 기록이 실패하면 "환자정보 있음" 이 서지 않는다 ──
+    {
+        static SimCard f;
+        sim_advance_ms(60UL * 1000);
+        fresh_scope(f, 0x56, 56);
+        f.removeAfterOps = 22;                          // 게이트웨이 블록·환자 쓰기 뒤, 검사명 일괄 쓰기(21~26번째 작업) 도중 이탈
+        logs_clear();
+        touch(f);
+        const Process p = get_process(f);
+        tlog("  검사명 쓰기 중 이탈: Status=%u Sm!=%d\n", p.Status, serial_has("Sm!"));
+        CHECK(p.Status == 0 && !serial_has("Sm!"), "3차G: 중간 실패 → Status 0 유지 · Sm! 없음");
+    }
+    // ── [3차 C] 검사명에 '{…}' 가 있어도(SeePro 는 무가공 송신) G 패킷을 JSON 으로 오판해 버리지 않는다 ──
+    {
+        static SimCard d;
+        sim_advance_ms(60UL * 1000);
+        const char pkt[] = "G10000;G22026;9;23;3;13;0;0;G3B0002;\xC8\xAB\xB1\xE6\xB5\xBF;G4{\xBC\xF6\xB8\xE9}EGD;;;G5;";   // {수면}EGD
+        serial_inject(pkt, sizeof(pkt) - 1);
+        pump(3000);
+        fresh_scope(d, 0x54, 54);
+        logs_clear();
+        touch(d);
+        tlog("  중괄호 검사명 뒤 태그 환자키 = %.8s\n", (const char *)d.data[SECTOR2_PATIENT_KEY]);
+        CHECK(memcmp(d.data[SECTOR2_PATIENT_KEY], "B0002", 6) == 0, "3차C: '{' 가 든 G 도 환자정보로 채택(직전 환자 아님)");
+        CHECK(memcmp(d.data[SECTOR15_EXAMINATION_SUBJECT], "{\xBC\xF6\xB8\xE9}EGD", 8) == 0, "3차C: 검사명 그대로 기록");
+    }
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

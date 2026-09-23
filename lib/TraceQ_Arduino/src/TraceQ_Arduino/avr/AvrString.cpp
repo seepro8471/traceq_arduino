@@ -44,8 +44,10 @@ int str_atoi(const char *s)
     for (size_t i = 0; i < TRACEQ_STR_MAX_SCAN_LEN && s[i] != '\0'; ++i)
     {
         if (!is_digit_char(s[i])) return -1; // 비숫자 거부 (1.0은 무조건 진행).
-        res = res * 10 + (s[i] - '0');
-        if (res < 0) return -1; // overflow.
+        const int digit = s[i] - '0';
+        // 곱하기 전에 검사한다 — 곱한 뒤 `res < 0` 은 부호 오버플로(미정의)라 컴파일러가 지워 버렸다("70000"→4464).
+        if (res > (32767 - digit) / 10) return -1;
+        res = res * 10 + digit;
     }
     return res;
 }
@@ -61,8 +63,9 @@ int str_atoi_range(const char *s, uint8_t begin, uint8_t end)
     for (uint8_t i = begin; i <= end; ++i)
     {
         if (!is_digit_char(s[i])) return -1;
-        res = res * 10 + (s[i] - '0');
-        if (res < 0) return -1;
+        const int digit = s[i] - '0';
+        if (res > (32767 - digit) / 10) return -1;   // 곱하기 전 검사(위 str_atoi 와 같은 이유)
+        res = res * 10 + digit;
     }
     return res;
 }

@@ -37,6 +37,7 @@ public:
     static constexpr uint8_t kPendingNow{1};       // 클리어 태그 — 맞춰진 시각이 교환일
     static constexpr uint8_t kPendingDefault{2};   // 첫 부팅 기본값 — 맞춰진 시각의 1개월 전
     uint8_t GetClearPending() const;
+    bool    HasPendingClear() const { return GetClearPending() != kPendingNone; }
     void    SetClearPending(uint8_t kind);
     void    ApplyPendingClear(const LocalDateTime &now);   // 미뤄 둔 게 없으면 아무것도 안 함
 
