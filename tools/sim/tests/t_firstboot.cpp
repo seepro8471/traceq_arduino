@@ -93,21 +93,21 @@ int main()
     {
         const int noBefore = deviceOption.GetNumber();
         EEPROM.put((int)4088, (uint32_t)0);
-        buttons_script("rR");                          // 뗀 상태로 들어와 한 표본만 눌림
+        buttons_script("rR");                          // 오른쪽으로만 옮김 — MENU 로 확정하지 않으면 안 지워진다
         hard_reset(false);
         tlog("  튐 1회 뒤: no=%d\n", deviceOption.GetNumber());
-        CHECK(deviceOption.GetNumber() == noBefore, "2.2.9: RIGHT 튐 1회 → 초기화되지 않음");
+        CHECK(deviceOption.GetNumber() == noBefore, "2.2.9: > 로 옮기기만 하면 초기화되지 않음(MENU 필요)");
     }
 
     // ── [2.2.9] RIGHT 을 눌러 두면 완전 초기화 ──
     {
         EEPROM.put((int)4088, (uint32_t)0);
-        buttons_script("rRRRR");                       // 뗀 상태로 들어와 0.2초 이상 누름
+        buttons_script("rRS");                         // 뗌 → 오른쪽으로 옮김 → MENU 로 확정
         hard_reset(false);
         tlog("  초기화: type=%c no=%d wash=%d cnt=%d\n", deviceOption.GetType(),
              deviceOption.GetNumber(), alarmOption.GetTimeSlot1(), disinfectionOption.GetCount());
         CHECK(deviceOption.GetNumber() == 1 && alarmOption.GetTimeSlot1() == 4 &&
-              disinfectionOption.GetCount() == 0, "2.2.9: RIGHT → 완전 초기화(기본값으로)");
+              disinfectionOption.GetCount() == 0, "2.2.9: > 로 옮겨 MENU → 완전 초기화(기본값으로)");
     }
 
     // ── [2.2.9] 같은 판이어도 전원 켤 때 RIGHT 을 누르고 있으면 다시 고를 수 있다(유지 뒤 되돌릴 길) ──
@@ -123,14 +123,16 @@ int main()
         CHECK(lcd_has("Keep settings"), "2.2.9: 같은 판 + RIGHT 누르고 켜기 → 선택 화면이 뜬다");
         CHECK(deviceOption.GetNumber() == 5 && alarmOption.GetTimeSlot1() == 11,
               "2.2.9: 누른 채 켜도 곧바로 지워지지 않는다(뗄 때까지 무시)");
+        // ★손을 떼기 전에는 커서가 움직이지 않아야 한다 — 안 그러면 뗀 뒤 MENU 만 눌러도 지워진다.
+        CHECK(!lcd_has("> Erase all"), "2.2.9: 누른 채 켜도 커서가 '초기화' 로 옮겨가지 않는다");
 
         // 뗐다가 다시 눌러야 초기화된다
         logs_clear();
-        buttons_script("RRRRrRRRR");                   // 진입 4회 + 뗌 + 초기화 4회
+        buttons_script("RRRRrRS");                     // 진입 4회 + 뗌 + 오른쪽 + MENU
         hard_reset(false);
         tlog("  RIGHT 켜고 다시 누름: no=%d wash=%d\n", deviceOption.GetNumber(), alarmOption.GetTimeSlot1());
         CHECK(deviceOption.GetNumber() == 1 && alarmOption.GetTimeSlot1() == 4,
-              "2.2.9: 켠 뒤 RIGHT 을 다시 눌러 두면 완전 초기화");
+              "2.2.9: 켠 뒤 손을 떼고 > + MENU 하면 완전 초기화");
     }
 
     // ── [2.2.9] SELECT(유지)를 누른 채로 있어도 설정 메뉴로 빠지지 않는다 ──
@@ -138,7 +140,7 @@ int main()
         deviceOption.SetNumber(8);
         EEPROM.put((int)4088, (uint32_t)0);
         logs_clear();
-        buttons_script("SSS");                         // 선택 뒤에도 잠시 더 눌려 있음
+        buttons_script("sSSS");                        // 뗌 → MENU(유지) 확정, 뒤에도 잠시 더 눌려 있음
         hard_reset(false);
         run_loops(4);
         tlog("  SELECT 유지: no=%d 홈=%d\n", deviceOption.GetNumber(), lcd_has("R-O"));

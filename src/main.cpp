@@ -95,53 +95,65 @@ static bool right_held_at_boot()
     return true;
 }
 
-// 업로드 직후 1회 — 설정을 지울지 묻는다. SELECT=유지, RIGHT=완전 초기화, 10초 무응답=유지.
-// 1.4.1 과 EEPROM 주소가 같아 유지하면 기기번호·세척시간·담당자·소독 횟수·액교환일이 그대로 남는다.
+// 업로드 직후 1회 — 설정을 지울지 묻는다. 조작은 리더기 메뉴와 같다: `<` `>` 로 고르고 MENU 로 확정.
+// 10초 무응답이면 유지(안전한 쪽). 1.4.1 과 EEPROM 주소가 같아 유지하면 기기번호·세척시간·담당자·
+// 소독 횟수·액교환일이 그대로 남는다.
 static bool ask_erase_settings()
 {
     lcd.init();
     lcd.backlight();
     ui.Info(0, 0, F("Keep settings?      "));
-    ui.Info(0, 1, F("SELECT = Keep       "));
-    ui.Info(0, 2, F("RIGHT  = Erase all  "));
 
+    bool erase = false;          // 기본은 유지
+    bool drawn = false;          // 화면에 그려진 선택
+    bool first = true;           // 첫 바퀴는 무조건 그린다(우연히 같아도 그려야 한다)
+    uint8_t shownSec = 0xFF;
     const unsigned long start = millis();
-    uint8_t shown = 0xFF;
-    uint8_t rightHeld = 0;
-    // 들어올 때 이미 눌려 있으면(전원 켤 때 RIGHT 을 누른 진입) 한 번 뗄 때까지 무시한다 — 바로 지워지지 않게.
-    bool rightReleased = (digitalRead(PIN_RIGHT_BUTTON) != LOW);
+    // 켤 때 눌려 있던 버튼은 한 번 뗄 때까지 무시 — 누른 채로 켜자마자 골라지는 사고를 막는다.
+    bool armed = false;
+
     while (millis() - start < 10000UL)
     {
-        if (digitalRead(PIN_SELECT_BUTTON) == LOW)
+        const bool sel = digitalRead(PIN_SELECT_BUTTON) == LOW;
+        const bool lft = digitalRead(PIN_LEFT_BUTTON)   == LOW;
+        const bool rgt = digitalRead(PIN_RIGHT_BUTTON)  == LOW;
+
+        if (!armed)
+        {
+            if (!sel && !lft && !rgt) armed = true;
+        }
+        else if (sel)
         {
             util_buzzer();
             // 손을 뗄 때까지 기다린다 — 안 그러면 첫 loop() 이 눌린 채로 보고 설정 메뉴로 들어간다.
             // 버튼이 붙은 채 고장나도 부팅이 멈추지 않게 2초까지만.
             for (uint8_t i = 0; i < 100 && digitalRead(PIN_SELECT_BUTTON) == LOW; ++i) delay(20);
-            return false;
+            return erase;
         }
-        if (!rightReleased)
+        else if (lft || rgt)
         {
-            if (digitalRead(PIN_RIGHT_BUTTON) != LOW) rightReleased = true;
-        }
-        else
-        {
-            // 완전 초기화는 되돌릴 수 없다 — 튐 한 번에 지워지지 않게 0.2초 이상 눌러야 한다.
-            rightHeld = (digitalRead(PIN_RIGHT_BUTTON) == LOW) ? static_cast<uint8_t>(rightHeld + 1) : 0;
-            if (rightHeld >= 4) { util_buzzer(400, 2); return true; }
+            erase = rgt;         // 왼쪽=유지, 오른쪽=완전 초기화 (확정은 MENU)
+            util_buzzer(30);
         }
 
-        const uint8_t left = static_cast<uint8_t>(10 - (millis() - start) / 1000);
-        if (left != shown)
+        if (first || drawn != erase)
         {
-            shown = left;
+            first = false;
+            drawn = erase;
+            ui.Info(0, 1, erase ? F("  Keep settings     ") : F("> Keep settings     "));
+            ui.Info(0, 2, erase ? F("> Erase all        ") : F("  Erase all        "));
+        }
+        const uint8_t left = static_cast<uint8_t>(10 - (millis() - start) / 1000);
+        if (left != shownSec)
+        {
+            shownSec = left;
             char buf[21]{};
-            snprintf(buf, sizeof(buf), "keep in %2u s        ", left);
+            snprintf(buf, sizeof(buf), "<>move  MENU=OK %2us", left);
             ui.Info_cstr(0, 3, buf);
         }
         delay(50);
     }
-    return false;
+    return false;                // 무응답 = 유지
 }
 
 void setup()
