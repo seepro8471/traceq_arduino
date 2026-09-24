@@ -124,7 +124,10 @@ int main()
         CHECK(deviceOption.GetNumber() == 5 && alarmOption.GetTimeSlot1() == 11,
               "2.2.9: 누른 채 켜도 곧바로 지워지지 않는다(뗄 때까지 무시)");
         // ★손을 떼기 전에는 커서가 움직이지 않아야 한다 — 안 그러면 뗀 뒤 MENU 만 눌러도 지워진다.
+        //   ★양성대조를 같이 둔다: 화면을 아예 안 그려도 위 부정 확인만으로는 통과한다(변이 M4).
+        CHECK(lcd_has("> Keep settings") && lcd_has("Erase all"), "2.2.9: 두 선택지와 커서가 화면에 그려진다");
         CHECK(!lcd_has("> Erase all"), "2.2.9: 누른 채 켜도 커서가 '초기화' 로 옮겨가지 않는다");
+        CHECK(lcd_has("MENU=OK"), "2.2.9: 조작 안내와 남은 초가 화면에 나온다");
 
         // 뗐다가 다시 눌러야 초기화된다
         logs_clear();
@@ -133,6 +136,20 @@ int main()
         tlog("  RIGHT 켜고 다시 누름: no=%d wash=%d\n", deviceOption.GetNumber(), alarmOption.GetTimeSlot1());
         CHECK(deviceOption.GetNumber() == 1 && alarmOption.GetTimeSlot1() == 4,
               "2.2.9: 켠 뒤 손을 떼고 > + MENU 하면 완전 초기화");
+    }
+
+    // ── [2.2.9] `<` 로 되돌릴 수 있어야 한다 — 실수로 `>` 를 눌렀을 때의 유일한 탈출구 ──
+    {
+        deviceOption.SetNumber(9);
+        alarmOption.SetTimeSlot1(13);
+        EEPROM.put((int)4088, (uint32_t)0);
+        logs_clear();
+        buttons_script("rRLS");                        // 뗌 → 오른쪽(초기화) → 왼쪽으로 되돌림 → MENU
+        hard_reset(false);
+        tlog("  > 뒤 < 로 되돌림: no=%d wash=%d 커서=%d\n", deviceOption.GetNumber(),
+             alarmOption.GetTimeSlot1(), lcd_has("> Keep settings"));
+        CHECK(deviceOption.GetNumber() == 9 && alarmOption.GetTimeSlot1() == 13,
+              "2.2.9: > 눌렀다가 < 로 되돌리면 유지된다");
     }
 
     // ── [2.2.9] SELECT(유지)를 누른 채로 있어도 설정 메뉴로 빠지지 않는다 ──
