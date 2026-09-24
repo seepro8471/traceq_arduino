@@ -3,7 +3,12 @@
 void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
                                       ManagerOption &managerOption, LcdPrinter &printer)
 {
-    if (!print_tag_number(printer) || !read_tag_serial()) return;
+    // 읽기 실패를 조용히 넘기면 담당자가 등록된 줄 안다 — 알리고 다시 대게.
+    if (!print_tag_number(printer) || !read_tag_serial())
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
+        return;
+    }
 
     // Tag.ID는 14바이트인데 SetKey는 KEY_SIZE(16)바이트를 복사한다 —
     // 1.0은 인접 2바이트를 함께 읽는 OOB였음. 16바이트 버퍼로 0패딩 후 전달.
@@ -24,13 +29,21 @@ void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
 bool RecordProcessor::is_valid(const RecordOption &recordOption,
                                const ManagerOption &managerOption, LcdPrinter &printer)
 {
-    if (!print_tag_number(printer) || !read_tag_serial()) return false;
-    if (!recordOption.GetManagerDisposability() && !managerOption.HasData())
+    if (!print_tag_number(printer) || !read_tag_serial())
     {
-        printer.CustomWarning(0, 2, 100, 2, F("No Manager Info"));
+        printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
         return false;
     }
-    if (!read_process()) return false;
+    if (!recordOption.GetManagerDisposability() && !managerOption.HasData())
+    {
+        printer.Reject(0, 2, F("No Manager Info"));
+        return false;
+    }
+    if (!read_process())
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
+        return false;
+    }
     return true;
 }
 
@@ -51,7 +64,7 @@ bool RecordProcessor::try_load_manager_data(const ManagerOption &managerOption,
     {
         if (!isEnd && !mDisposabilityFlag)
         {
-            printer.CustomWarning(0, 2, 100, 2, F("No Manager Info"));
+            printer.Reject(0, 2, F("No Manager Info"));
             return false;
         }
         mDisposabilityFlag = false;

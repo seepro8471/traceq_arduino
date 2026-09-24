@@ -5,26 +5,58 @@
 void SerialProcessor::LoopProcess(LcdPrinter &printer)
 {
     if (!print_tag_number(printer) || !read_tag_serial() || !read_process())
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
         return;
+    }
 
     if (!legacy_loop_process(printer)) return;
     // 덤프 일부가 0 으로 나갔으면 태그를 지우지 않는다 — 재스캔으로 온전한 덤프를 다시 받게.
     if (mLegacyReadFailures != 0) return;
 
-    mCachedProcess = Process{};
-    if (!write_process()) return;
-
-    // 게이트웨이/환자/검사종류 초기화 — 같은 섹터 묶음을 WriteBlocks로 한 번에.
-    // SECTOR1: gateway(5) + 인접 블록은 process(6)에 이미 썼으므로 단건 Clear.
-    mScanner.Clear(SECTOR1_GATEWAY);
-    // SECTOR2: patient_key(8), patient_name(9), washing_start(10)는 같은 섹터.
-    //         washing_start 까지 지우면 안 되므로 환자 두 블록만.
-    uint8_t zero[2 * MIFARE_BLOCK_SIZE]{};
-    mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero, MIFARE_BLOCK_SIZE);
-    mScanner.ClearSector(15);
+    // 초기화가 실패했는데 완료음을 내면, 이전 환자 정보가 남은 태그가 그대로 다음 검사로 나간다.
+    // 순서에 세 가지를 동시에 만족시켜야 한다:
+    //  ① 환자정보 있음(Status)을 **먼저** 내린다 — 중간에 멈춰도 "환자정보 있음인데 블록은 빈" 태그가 남지
+    //     않는다(그런 태그는 세척기의 미기재 경고를 무력화한다).
+    //  ② 세척·소독 표시(W/D)는 완료 커밋 때까지 남긴다 — 그래야 재접촉이 거부되지 않고 복구된다.
+    //     단 마지막 환자 블록 소거는 커밋 뒤라 예외 — 거기서 실패하면 환자정보가 태그에 남는다(2.2.8 도 동일).
+    //  ③ 환자 블록은 **완료 커밋 뒤에** 지운다 — 그 전에 지우면 재접촉의 2차 덤프가 환자정보 없이 나가
+    //     PC 에 이미 저장된 검사기록을 빈 값으로 덮어쓴다(구형 델파이는 등록번호로 중복을 가린다).
+    mCachedProcess.Status = 0;
+    const bool ok = write_process()
+                 && clear_gateway_and_subject()
+                 && commit_dump_done()
+                 && clear_patient();
+    if (!ok)
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+        return;
+    }
 
     complete_delay();
     util_buzzer(150);
+}
+
+bool SerialProcessor::clear_gateway_and_subject()
+{
+    // SECTOR1: gateway(5) 는 단건 Clear (인접 블록 6 은 Process 라 건드리지 않는다).
+    if (mScanner.Clear(SECTOR1_GATEWAY) != RfidResult::Ok) return false;
+    return mScanner.ClearSector(15) == RfidResult::Ok;
+}
+
+bool SerialProcessor::commit_dump_done()
+{
+    // 여기서 세척·소독 표시까지 0 — 이 순간부터 이 태그는 다시 덤프되지 않는다.
+    mCachedProcess = Process{};
+    return write_process();
+}
+
+bool SerialProcessor::clear_patient()
+{
+    // SECTOR2: patient_key(8), patient_name(9), washing_start(10)는 같은 섹터.
+    //         washing_start 까지 지우면 안 되므로 환자 두 블록만.
+    uint8_t zero[2 * MIFARE_BLOCK_SIZE]{};
+    return mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero, MIFARE_BLOCK_SIZE) == RfidResult::Ok;
 }
 
 SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
@@ -105,7 +137,7 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
     if (isHandled)
         printer.Notify(0, 2, 500, F("tag created"));
     else
-        printer.Warning(0, 2, F("timeout or error"));
+        printer.CustomWarning(0, 2, 100, 4, F("timeout or error"));
 }
 
 void SerialProcessor::WriteOptionData(
@@ -267,24 +299,24 @@ bool SerialProcessor::legacy_loop_process(LcdPrinter &printer)
     // 서버에서 필요한 데이터가 제대로 기록되어 있는지 검사한다.
     if (mCachedProcess.WashingStatus == 0 && mCachedProcess.DisinfectionCount == 0)
     {
-        printer.CustomDebug(0, 2, 100, 4, F("Not W and D"));
+        printer.RejectDebug(0, 2, F("Not W and D"));
         return false;
     }
     if (mCachedProcess.WashingStatus == 0)
     {
-        printer.CustomDebug(0, 2, 100, 4, F("Not Washing"));
+        printer.RejectDebug(0, 2, F("Not Washing"));
         return false;
     }
     if (mCachedProcess.DisinfectionCount == 0)
     {
-        printer.CustomDebug(0, 2, 100, 4, F("Not Disinfection"));
+        printer.RejectDebug(0, 2, F("Not Disinfection"));
         return false;
     }
 
     // 연결 상태 검사 (PSOk → 'Z' 핸드셰이크).
     if (!legacy_is_connected())
     {
-        printer.CustomDebug(0, 2, 100, 4, F("Not Connected"));
+        printer.RejectDebug(0, 2, F("Not Connected"));
         return false;
     }
 
@@ -400,7 +432,7 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
     }
     else
     {
-        printer.Warning(0, 2, F("timeout or error"));
+        printer.CustomWarning(0, 2, 100, 4, F("timeout or error"));
     }
 }
 

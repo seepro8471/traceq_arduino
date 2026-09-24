@@ -44,6 +44,12 @@ static inline uint32_t fw_stamp()   // main.cpp firmware_stamp() 와 같은 FNV-
     while (*s) { h ^= (uint8_t)*s++; h *= 16777619UL; }
     return h;
 }
+// 공장 출하 상태의 EEPROM(전부 0xFF) — 타입 원값이 W/D/S/G 가 아니므로 "쓰던 기기" 가 아니다.
+static inline void eeprom_factory()
+{
+    for (int i = 0; i < EEPROM.length(); ++i) EEPROM.update(i, 0xFF);
+}
+
 static inline void boot(char type)
 {
     g_rtcLostPower = false;
@@ -57,7 +63,7 @@ static inline void boot(char type)
 
 // 진짜 리셋 — RAM 전역을 전부 다시 만든다(EEPROM·RTC 칩·카드는 그대로). setup() 만 다시 부르면
 // RAM 표지가 살아남아 "재시작 뒤" 결함을 못 본다(3차 감사에서 실제로 놓쳤던 것).
-static inline void hard_reset(bool rtcDead = false)
+static inline void hard_reset(bool rtcDead = false, uint8_t loops = 2)
 {
     g_rtcLostPower = rtcDead;
     deviceType = 0;
@@ -78,7 +84,7 @@ static inline void hard_reset(bool rtcDead = false)
     new (&serialProcessor) SerialProcessor{cachedTag, cachedTagSerial, cachedProcess, rfid};
     new (&washingProcessor) WashingProcessor{cachedTag, cachedTagSerial, cachedProcess, rfid};
     GUARDED(setup());
-    run_loops(2);
+    run_loops(loops);   // loops=0 이면 setup 직후 상태를 그대로 볼 수 있다
 }
 
 // 대기: 카드를 올려 두고 n 루프 → 떼고 n 루프

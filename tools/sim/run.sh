@@ -11,7 +11,9 @@ EW=$(cygpath -m "$ELF")
 out=$(timeout "$LIMIT" "$TC/avr-gdb.exe" -batch -ex "file $EW" -ex "target sim" -ex "load" \
       -ex "break main" -ex "run" -ex "restore $EW.data.bin binary $VMA" -ex "delete" \
       -ex "break done" -ex "continue" \
-      -ex 'printf "%s", g_log' -ex 'printf "==> pass=%d fail=%d\n", g_pass, g_fail' 2>&1)
+      -ex 'printf "%s", g_log' \
+      -ex 'printf "\n--- 실패 목록(g_log 가 잘려도 남는다) ---\n%s", g_failLog' \
+      -ex 'printf "==> pass=%d fail=%d\n", g_pass, g_fail' 2>&1)
 rc=$?
 [ $rc -eq 124 ] && echo "!! TIMEOUT ${LIMIT}s"
 echo "$out" | sed -n '/^Breakpoint 2, done/,$p' | tail -n +3

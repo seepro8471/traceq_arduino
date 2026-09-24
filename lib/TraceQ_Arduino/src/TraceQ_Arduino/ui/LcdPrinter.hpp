@@ -134,6 +134,11 @@ public:
      * \param row row position
      * \param string 출력할 문자열
      */
+    /// 거부(이 태그는 여기서 진행할 수 없다) — 삐삐 뒤 긴 삐. 실패(다시 대면 됨)와 소리로 갈린다.
+    void Reject(uint8_t col, uint8_t row, const __FlashStringHelper *string);
+    /// 거부 + 시리얼 에코(PC 가 그 문자열로 음성을 낸다).
+    void RejectDebug(uint8_t col, uint8_t row, const __FlashStringHelper *string);
+
     void Debug(uint8_t col, uint8_t row, const __FlashStringHelper *string);
 
     /**

@@ -25,6 +25,17 @@ void tlog(const char *fmt, ...)
     }
     va_end(ap);
 }
+// 실패 줄만 모으는 작은 버퍼 — g_log 가 넘쳐도 무엇이 실패했는지는 반드시 남는다.
+char g_failLog[1024];
+static uint16_t s_failLen;
+void flog(const char *name)
+{
+    const int room = (int)sizeof(g_failLog) - (int)s_failLen - 1;
+    if (room <= 1) return;
+    const int n = snprintf(g_failLog + s_failLen, room, "FAIL %s\n", name);
+    if (n > 0) s_failLen += (n < room) ? n : room - 1;
+}
+
 extern "C" void done() { asm volatile(""); }
 
 // ── 시간 ──
@@ -85,6 +96,13 @@ int digitalRead(uint8_t pin)
         ++s_btnHead;
         s_btnIdleReads = 0;
         return LOW;
+    }
+    // 소문자('s','l','r') = 그 버튼이 "안 눌린 것"으로 한 번 읽힌다 — 눌렀다 뗐다 다시 누르는 순서를 표현한다.
+    if (s_btnHead < s_btnLen && s_btn[s_btnHead] == static_cast<char>(want + 32))
+    {
+        ++s_btnHead;
+        s_btnIdleReads = 0;
+        return HIGH;
     }
     // 스크립트가 끝났는데 UI 가 계속 버튼을 기다리면 시험을 끊는다.
     if (s_btnHead >= s_btnLen && s_btnLen != 0 && ++s_btnIdleReads > 30000 && g_resetArmed)

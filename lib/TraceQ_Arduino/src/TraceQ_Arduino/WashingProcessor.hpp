@@ -18,5 +18,5 @@ protected:
     void update_process(int deviceNumber);
     /// \return 커밋(Process 기록)까지 성공했는가 — false 면 태그는 시작 전 상태.
     bool washing_start(int deviceNumber, const AlarmOption &alarmOption, DefaultRtc &rtc);
-    void washing_end(WashingRecord &record);
+    bool washing_end(WashingRecord &record);
 };

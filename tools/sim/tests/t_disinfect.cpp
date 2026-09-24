@@ -1,7 +1,11 @@
 // 소독기(D) 시나리오 — B P2-1·P2-2·P2-3·P2-6 재현 + 확정 사양 회귀.
 #include "common.h"
 
-static SimCard mgr, clr, s1, s2, s3, s4, s5, s6, s7, s8, s9;
+// ★카드 실체는 2장만 두고 돌려쓴다 — 시뮬 RAM(31.5KB)을 넘기면 스택과 겹쳐 시험이 조용히 틀린다.
+//   s7(host)·s8(guest) 만 동시에 살아 있으므로 서로 다른 실체를 가리킨다.
+static SimCard mgr, clr, c1, c2;
+static SimCard &s1 = c1, &s2 = c2, &s3 = c1, &s4 = c2, &s5 = c1,
+               &s6 = c2, &s7 = c1, &s8 = c2, &s9 = c1;
 
 // 세척을 마친 스코프 태그(WS=1, RW=1). status=1 이면 환자정보 있음(성공음 경로).
 static void washed(SimCard &c, uint8_t uid, int no, const DateTime &ws, const DateTime *we, uint8_t status = 1)
@@ -152,53 +156,50 @@ int main()
     }
     // ── [3차 B] 커밋은 됐는데 확인 읽기가 실패(Write Error) → 곧바로 다시 대면 종료가 아니라 재시작 ──
     {
-        static SimCard v;
         sim_advance_ms(30UL * 60 * 1000);
         const DateTime ws(2026, 9, 22, 16, 0, 0), we(2026, 9, 22, 16, 4, 0);
-        washed(v, 0x1A, 26, ws, &we);
-        v.readErrBlock = SECTOR1_PROCESS;
-        v.readErrSkip = 1;                             // 시작 전 Process 읽기는 통과
-        v.readErrTimes = 3;                            // 커밋 쓰기 뒤 확인 읽기 3회 전부 실패 → VerifyMismatch
+        washed(c1, 0x1A, 26, ws, &we);
+        c1.readErrBlock = SECTOR1_PROCESS;
+        c1.readErrSkip = 1;                             // 시작 전 Process 읽기는 통과
+        c1.readErrTimes = 3;                            // 커밋 쓰기 뒤 확인 읽기 3회 전부 실패 → VerifyMismatch
         rtc.ClearAlarm(2);
         logs_clear();
-        touch(v, 1, 4);
-        tlog("  확인 실패: RW=%u lcd Write Error=%d\n", get_process(v).Rewrite, lcd_has("Write Error"));
-        CHECK(get_process(v).Rewrite == 2 && lcd_has("Write Error"), "3차B: 카드엔 커밋됐지만 Write Error");
-        touch(v, 1, 4);                                // 1초 안 재접촉
-        const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(v, SECTOR6_DISINFECTION_END)) -
-                             DefaultRtc::ToDateTime(get_ldt(v, SECTOR5_DISINFECTION_START))).totalseconds();
+        touch(c1, 1, 4);
+        tlog("  확인 실패: RW=%u lcd Write Error=%d\n", get_process(c1).Rewrite, lcd_has("Write Error"));
+        CHECK(get_process(c1).Rewrite == 2 && lcd_has("Write Error"), "3차B: 카드엔 커밋됐지만 Write Error");
+        touch(c1, 1, 4);                                // 1초 안 재접촉
+        const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(c1, SECTOR6_DISINFECTION_END)) -
+                             DefaultRtc::ToDateTime(get_ldt(c1, SECTOR5_DISINFECTION_START))).totalseconds();
         tlog("  재접촉 뒤 소독시간 %ld초 alarm=%d\n", (long)dur, rtc.HasAlarm(2));
         CHECK(dur >= 18L * 60 && dur < 19L * 60 && rtc.HasAlarm(2), "3차B: 재접촉 = 재시작(1초 종료 아님)");
     }
     // ── [3차 B] 재시작 도중 실패해도 커밋된 시작 기록은 남는다(지우고 시작하지 않는다) ──
     {
-        static SimCard w;
         sim_advance_ms(30UL * 60 * 1000);
         const DateTime ws(2026, 9, 22, 17, 0, 0), we(2026, 9, 22, 17, 4, 0);
-        washed(w, 0x1B, 27, ws, &we);
-        touch(w, 1, 4);                                // 정상 시작(커밋)
-        const LocalDateTime first = get_ldt(w, SECTOR5_DISINFECTION_START);
-        w.readErrBlock = SECTOR14_DISINFECTION_DETAIL; // 재시작에서 상세 블록 읽기가 실패(옛 코드는 그 전에 섹터 5·6 을 지웠다)
-        w.readErrTimes = 2;
-        touch(w, 1, 4);                                // 1초 안 재접촉 → 재시작 → 실패
-        const LocalDateTime after = get_ldt(w, SECTOR5_DISINFECTION_START);
+        washed(c2, 0x1B, 27, ws, &we);
+        touch(c2, 1, 4);                                // 정상 시작(커밋)
+        const LocalDateTime first = get_ldt(c2, SECTOR5_DISINFECTION_START);
+        c2.readErrBlock = SECTOR14_DISINFECTION_DETAIL; // 재시작에서 상세 블록 읽기가 실패(옛 코드는 그 전에 섹터 5·6 을 지웠다)
+        c2.readErrTimes = 2;
+        touch(c2, 1, 4);                                // 1초 안 재접촉 → 재시작 → 실패
+        const LocalDateTime after = get_ldt(c2, SECTOR5_DISINFECTION_START);
         tlog_ldt("재시작 실패 뒤 시작", after);
         CHECK(after.Date.Year == first.Date.Year && after.Time.Hour == first.Time.Hour && after.Time.Minute == first.Time.Minute,
               "3차B: 재시작 실패 → 원래 시작 기록 보존(0 아님)");
-        CHECK(get_process(w).Rewrite == 2, "3차B: 태그는 여전히 시작 상태");
+        CHECK(get_process(c2).Rewrite == 2, "3차B: 태그는 여전히 시작 상태");
     }
     // ── [3차] 시작 직후 리더기가 재부팅돼도(RAM 없음) 2초 안 재접촉은 재시작 ──
     {
-        static SimCard x;
         sim_advance_ms(30UL * 60 * 1000);
         const DateTime ws(2026, 9, 22, 18, 0, 0), we(2026, 9, 22, 18, 4, 0);
-        washed(x, 0x1C, 28, ws, &we);
-        touch(x, 1, 2);
+        washed(c1, 0x1C, 28, ws, &we);
+        touch(c1, 1, 2);
         hard_reset(false);                             // 전원 유지 리셋
         touch(mgr);                                    // 담당자 재등록(EEPROM 은 유지되나 절차 그대로)
-        touch(x, 1, 4);
-        const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(x, SECTOR6_DISINFECTION_END)) -
-                             DefaultRtc::ToDateTime(get_ldt(x, SECTOR5_DISINFECTION_START))).totalseconds();
+        touch(c1, 1, 4);
+        const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(c1, SECTOR6_DISINFECTION_END)) -
+                             DefaultRtc::ToDateTime(get_ldt(c1, SECTOR5_DISINFECTION_START))).totalseconds();
         tlog("  재부팅 사이 더블터치: 소독시간 %ld초\n", (long)dur);
         CHECK(dur >= 18L * 60 && dur < 19L * 60, "3차: 재부팅 사이 더블터치도 재시작(태그가 기억)");
     }

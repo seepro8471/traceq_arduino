@@ -19,7 +19,8 @@ static void json(const char *s)
 
 int main()
 {
-    // 공장 EEPROM(도장 없음) + 첫 전원(DS3231 OSF=1) → 완전 초기화
+    // 공장 EEPROM(도장 없음) + 첫 전원(DS3231 OSF=1) → 묻지 않고 완전 초기화
+    eeprom_factory();
     g_rtcLostPower = true;
     GUARDED(setup());
     run_loops(2);
@@ -31,8 +32,8 @@ int main()
     tlog_ldt("시계 맞춘 뒤 교환일", disinfectionOption.GetClearDateTime());
     CHECK(clear_is(2026, 8, 23, 9, 0), "첫 부팅(방전): 시계 복구 때 현재-1개월");
 
-    // [회귀] 시계 정상인 기기에 새 버전 첫 부팅 → 즉시 현재-1개월
-    EEPROM.put((int)4088, (uint32_t)0);
+    // [회귀] 시계 정상인 공장 기기에 새 버전 첫 부팅 → 즉시 현재-1개월
+    eeprom_factory();
     g_rtcLostPower = false;
     rtc_set(DateTime(2026, 10, 31, 10, 0, 0));
     GUARDED(setup());
@@ -41,7 +42,7 @@ int main()
     CHECK(clear_is(2026, 9, 30, 10, 0), "회귀: 시계 정상 → 즉시 현재-1개월(10/31→9/30 말일 보정)");
 
     // [3차] 방전 첫 부팅 뒤 PC 접속(DTR 리셋) — 시계를 못 맞춘 채 리셋돼도 기본값을 표지로 박지 않는다
-    EEPROM.put((int)4088, (uint32_t)0);
+    eeprom_factory();
     hard_reset(true);
     hard_reset(false);                                     // 전원 유지 리셋(OSF 지워짐)
     sim_advance_ms(3UL * 1000);
@@ -50,6 +51,110 @@ int main()
     json("{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-23 09:00:00\"}");
     run_loops(2);
     CHECK(clear_is(2026, 8, 23, 9, 0), "첫 부팅(방전)+DTR 리셋 뒤 시계 맞춤 → 현재-1개월");
+    // ── [2.2.9] 쓰던 기기에 새 버전 업로드 — 묻고, 무응답이면 유지 ──
+    {
+        eeprom_factory();
+        g_rtcLostPower = false;
+        rtc_set(DateTime(2026, 9, 23, 10, 0, 0));
+        GUARDED(setup());                              // 공장 → 묻지 않고 초기화
+        run_loops(2);
+        deviceOption.SetType('D');
+        deviceOption.SetNumber(7);
+        alarmOption.SetTimeSlot1(9);
+        disinfectionOption.SetCount(33);
+        disinfectionOption.SetClearDateTime(LocalDateTime{LocalDate{2026, 5, 6}, LocalTime{7, 8, 9}});
+        EEPROM.update(177, 0xFF);                      // 1.4.1 이 안 쓰던 자리의 쓰레기값
+        EEPROM.put((int)4088, (uint32_t)0);            // 새 펌웨어 업로드 흉내
+        hard_reset(false, 0);                          // 버튼 무응답 → 유지 (loop 전 상태를 본다)
+        const uint8_t pendingAfterBoot = disinfectionOption.GetClearPending();
+        run_loops(2);
+        tlog("  유지: type=%c no=%d wash=%d cnt=%d pending=%u\n",
+             deviceOption.GetType(), deviceOption.GetNumber(),
+             alarmOption.GetTimeSlot1(), disinfectionOption.GetCount(), pendingAfterBoot);
+        CHECK(deviceOption.GetType() == 'D' && deviceOption.GetNumber() == 7 &&
+              alarmOption.GetTimeSlot1() == 9 && disinfectionOption.GetCount() == 33,
+              "2.2.9: 무응답 → 설정 유지(타입·번호·세척시간·소독 횟수)");
+        CHECK(clear_is(2026, 5, 6, 7, 8), "2.2.9: 유지 → 액교환일 그대로");
+        CHECK(pendingAfterBoot == 0, "2.2.9: 유지 → 부팅 중에 177번지 쓰레기값 정리(액교환일 덮어쓰기 방지)");
+    }
+
+    // ── [2.2.9] 정상 미룸(시계 못 맞춘 기기)은 유지해도 살아남는다 ──
+    {
+        disinfectionOption.SetClearPending(DisinfectionOption::kPendingNow);
+        EEPROM.put((int)4088, (uint32_t)0);
+        hard_reset(false, 0);
+        const uint8_t pending = disinfectionOption.GetClearPending();
+        run_loops(2);
+        tlog("  유지 뒤 미룸 = %u\n", pending);
+        CHECK(pending == DisinfectionOption::kPendingNow, "2.2.9: 유지 → 정상 미룸(1)은 버리지 않는다");
+    }
+
+    // ── [2.2.9] RIGHT 이 한 표본만 튀어도 지우지 않는다(되돌릴 수 없는 동작) ──
+    {
+        const int noBefore = deviceOption.GetNumber();
+        EEPROM.put((int)4088, (uint32_t)0);
+        buttons_script("rR");                          // 뗀 상태로 들어와 한 표본만 눌림
+        hard_reset(false);
+        tlog("  튐 1회 뒤: no=%d\n", deviceOption.GetNumber());
+        CHECK(deviceOption.GetNumber() == noBefore, "2.2.9: RIGHT 튐 1회 → 초기화되지 않음");
+    }
+
+    // ── [2.2.9] RIGHT 을 눌러 두면 완전 초기화 ──
+    {
+        EEPROM.put((int)4088, (uint32_t)0);
+        buttons_script("rRRRR");                       // 뗀 상태로 들어와 0.2초 이상 누름
+        hard_reset(false);
+        tlog("  초기화: type=%c no=%d wash=%d cnt=%d\n", deviceOption.GetType(),
+             deviceOption.GetNumber(), alarmOption.GetTimeSlot1(), disinfectionOption.GetCount());
+        CHECK(deviceOption.GetNumber() == 1 && alarmOption.GetTimeSlot1() == 4 &&
+              disinfectionOption.GetCount() == 0, "2.2.9: RIGHT → 완전 초기화(기본값으로)");
+    }
+
+    // ── [2.2.9] 같은 판이어도 전원 켤 때 RIGHT 을 누르고 있으면 다시 고를 수 있다(유지 뒤 되돌릴 길) ──
+    {
+        deviceOption.SetNumber(5);
+        alarmOption.SetTimeSlot1(11);
+        // 도장은 그대로(=같은 판). 누른 채 켜면 물어보고, 뗀 뒤 아무것도 안 하면 유지.
+        logs_clear();
+        buttons_script("RRRRRRRR");                    // 켤 때부터 계속 누르고 있음(진입 4회 + 선택창에서도 계속)
+        hard_reset(false);
+        tlog("  RIGHT 켜기: 물음=%d no=%d wash=%d\n", lcd_has("Keep settings"),
+             deviceOption.GetNumber(), alarmOption.GetTimeSlot1());
+        CHECK(lcd_has("Keep settings"), "2.2.9: 같은 판 + RIGHT 누르고 켜기 → 선택 화면이 뜬다");
+        CHECK(deviceOption.GetNumber() == 5 && alarmOption.GetTimeSlot1() == 11,
+              "2.2.9: 누른 채 켜도 곧바로 지워지지 않는다(뗄 때까지 무시)");
+
+        // 뗐다가 다시 눌러야 초기화된다
+        logs_clear();
+        buttons_script("RRRRrRRRR");                   // 진입 4회 + 뗌 + 초기화 4회
+        hard_reset(false);
+        tlog("  RIGHT 켜고 다시 누름: no=%d wash=%d\n", deviceOption.GetNumber(), alarmOption.GetTimeSlot1());
+        CHECK(deviceOption.GetNumber() == 1 && alarmOption.GetTimeSlot1() == 4,
+              "2.2.9: 켠 뒤 RIGHT 을 다시 눌러 두면 완전 초기화");
+    }
+
+    // ── [2.2.9] SELECT(유지)를 누른 채로 있어도 설정 메뉴로 빠지지 않는다 ──
+    {
+        deviceOption.SetNumber(8);
+        EEPROM.put((int)4088, (uint32_t)0);
+        logs_clear();
+        buttons_script("SSS");                         // 선택 뒤에도 잠시 더 눌려 있음
+        hard_reset(false);
+        run_loops(4);
+        tlog("  SELECT 유지: no=%d 홈=%d\n", deviceOption.GetNumber(), lcd_has("R-O"));
+        CHECK(deviceOption.GetNumber() == 8, "2.2.9: SELECT → 설정 유지");
+        CHECK(lcd_has("R-O") && !lcd_has("Number"), "2.2.9: SELECT 를 누른 채여도 홈으로 — 설정 메뉴에 갇히지 않는다");
+    }
+
+    // ── [회귀] 버튼을 안 누르고 켜면 묻지 않는다(같은 판) ──
+    {
+        deviceOption.SetNumber(6);
+        logs_clear();
+        hard_reset(false);
+        CHECK(!lcd_has("Keep settings") && deviceOption.GetNumber() == 6,
+              "회귀: 같은 판 + 버튼 안 누름 → 묻지 않고 그대로 부팅");
+    }
+
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

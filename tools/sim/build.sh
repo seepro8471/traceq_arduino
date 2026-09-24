@@ -17,7 +17,10 @@ INC=(-I"$HERE/fakes" -I"$HERE/tests" -I"$FW/cores/arduino" -I"$FW/variants/mega"
      -I"$FW/libraries/EEPROM/src" -I"$FW/libraries/SPI/src" -I"$FW/libraries/Wire/src"
      -I"$LD/ArduinoJson/src" -I"$LD/RTClib/src" -I"$LD/Adafruit BusIO" -I"$LD/LiquidCrystal_I2C"
      -I"$ROOT/lib/MFRC522" -I"$ROOT/lib/TraceQ_Arduino/src")
-CXXF="-mmcu=atmega2560 -Os -g -std=gnu++11 -fno-exceptions -fno-threadsafe-statics
+# 시뮬 데이터공간은 0x200~0xFFFF — 실칩 8KB 와 무관한 **시험 장치만의 값**이다(제품 스택은 따로 잰다).
+STACK_TOP=0x7FFF
+RAM_LIMIT=28000
+CXXF="-mmcu=atmega2560 -Os -g -std=gnu++11 -fno-exceptions -fno-threadsafe-statics -DSIM_STACK_TOP=$STACK_TOP
       -ffunction-sections -fdata-sections -w"
 LDF=""
 # 제품과 같은 LTO(PlatformIO atmelavr 기본). LTO=0 이면 끈다.
@@ -41,6 +44,16 @@ wait
 for t in "$@"; do
     name=$(basename "$t" .cpp)
     "$TC/avr-g++" $CXXF $DEFS "${INC[@]}" -c "$t" -o "$OUTD/$name.o"
-    "$TC/avr-g++" -mmcu=atmega2560 -Os -g $LDF -Wl,--gc-sections -Wl,--defsym=__stack=0x7FFF \
+    "$TC/avr-g++" -mmcu=atmega2560 -Os -g $LDF -Wl,--gc-sections -Wl,--defsym=__stack=$STACK_TOP \
         -o "$OUTD/$name.elf" "$OBJ"/*.o "$OUTD/$name.o"
+    # 시뮬 RAM 은 0x200~$STACK_TOP. 정적 영역이 커지면 스택과 겹쳐 **시험이 조용히 틀린 결과**를 낸다
+    # (2026-09-23: SimCard 16장으로 .bss 34KB → 뒤쪽 시험 4개가 거짓 빨강, 멈추지도 않았다).
+    ram=$("$TC/avr-size" -A "$OUTD/$name.elf" | awk '/^\.data|^\.bss/ {s+=$2} END {print s+0}')
+    if [ "$ram" -gt "$RAM_LIMIT" ]; then
+        echo "★$name: 정적 RAM ${ram}B > ${RAM_LIMIT}B — 스택과 겹친다. SimCard 를 줄이고 돌려쓸 것." >&2
+        rm -f "$OUTD/$name.elf"      # 남겨 두면 runall 이 그대로 돌려 초록으로 보인다
+        RAM_OVER=1
+    fi
 done
+if [ -n "$RAM_OVER" ]; then exit 1; fi
+exit 0

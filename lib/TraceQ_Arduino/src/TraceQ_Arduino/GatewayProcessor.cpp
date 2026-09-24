@@ -50,29 +50,12 @@ void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
 {
     if (!is_valid(printer)) return;
 
-    // 본체번호는 PC 가 G1 로 준 값 (기기 설정은 미수신 시 폴백일 뿐).
-    Gateway gateway{effective_number(deviceNumber), mDateTime};
-    if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return;
-    if (mScanner.Write(SECTOR2_PATIENT_KEY,  mPatientKey,  16) != RfidResult::Ok) return;
-    if (mScanner.Write(SECTOR2_PATIENT_NAME, mPatientName, 16) != RfidResult::Ok) return;
-
-    // 1.0과 동일하게 섹터15를 먼저 소거 — 아래 일괄 쓰기가 중간에 실패해도
-    // 이전 검사항목이 태그에 잔존하지 않도록 한다.
-    if (mScanner.ClearSector(15) != RfidResult::Ok) return;
-
-    // SECTOR15 데이터 블록은 60,61,62 (트레일러 63). 3블록을 한 번에 일괄 쓰기 — 인증 1회.
-    unsigned char buf[3 * MIFARE_BLOCK_SIZE]{};
-    memcpy(buf,                          mExaminationSubject,  16);
-    memcpy(buf + MIFARE_BLOCK_SIZE,      mExaminationSubject2, 16);
-    memcpy(buf + 2 * MIFARE_BLOCK_SIZE,  mExaminationSubject3, 16);
-    if (mScanner.WriteBlocks(SECTOR15_EXAMINATION_SUBJECT, 3, buf) != RfidResult::Ok) return;
-
-    // Status=1(환자정보 기록됨)은 **커밋 플래그** — 환자·검사항목 기록이 모두
-    // 성공한 뒤에 마지막으로 세운다. 앞에 두면 중간 실패 시 "환자정보 있음"
-    // 인데 실제 블록은 비어/이전 환자인 태그가 남아 세척기의 미기재 경고까지
-    // 무력화된다 (1.0 승계 결함 — 2.2.5 수정). 최종 바이트는 동일.
-    mCachedProcess.Status = 1;
-    if (!write_process()) return;
+    // 기록 실패를 조용히 넘기면 환자정보가 들어간 줄 안다 — 알리고 다시 대게(Sm! 도 안 보낸다).
+    if (!write_patient_info(deviceNumber))
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+        return;
+    }
 
     Serial.println(F("S;"));
     print_to_allnun(3, SECTOR0_TAG, reinterpret_cast<unsigned char *>(&mCachedTag));
@@ -87,6 +70,46 @@ void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
     printer.InfoForWhile_cstr(0, 2, 500, buffer);
 }
 
+bool GatewayProcessor::write_no_patient_info(const Gateway &gateway, const char *stringDateTime)
+{
+    if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return false;
+    if (!write_process()) return false;
+
+    // SECTOR2 환자 키/이름 두 블록 일괄 0으로 — 인증 1회.
+    unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
+    if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
+
+    if (mScanner.ClearSector(15) != RfidResult::Ok) return false;
+    return mScanner.Write(SECTOR15_EXAMINATION_SUBJECT, stringDateTime, 16) == RfidResult::Ok;
+}
+
+bool GatewayProcessor::write_patient_info(int deviceNumber)
+{
+    // 본체번호는 PC 가 G1 로 준 값 (기기 설정은 미수신 시 폴백일 뿐).
+    Gateway gateway{effective_number(deviceNumber), mDateTime};
+    if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return false;
+    if (mScanner.Write(SECTOR2_PATIENT_KEY,  mPatientKey,  16) != RfidResult::Ok) return false;
+    if (mScanner.Write(SECTOR2_PATIENT_NAME, mPatientName, 16) != RfidResult::Ok) return false;
+
+    // 1.0과 동일하게 섹터15를 먼저 소거 — 아래 일괄 쓰기가 중간에 실패해도
+    // 이전 검사항목이 태그에 잔존하지 않도록 한다.
+    if (mScanner.ClearSector(15) != RfidResult::Ok) return false;
+
+    // SECTOR15 데이터 블록은 60,61,62 (트레일러 63). 3블록을 한 번에 일괄 쓰기 — 인증 1회.
+    unsigned char buf[3 * MIFARE_BLOCK_SIZE]{};
+    memcpy(buf,                          mExaminationSubject,  16);
+    memcpy(buf + MIFARE_BLOCK_SIZE,      mExaminationSubject2, 16);
+    memcpy(buf + 2 * MIFARE_BLOCK_SIZE,  mExaminationSubject3, 16);
+    if (mScanner.WriteBlocks(SECTOR15_EXAMINATION_SUBJECT, 3, buf) != RfidResult::Ok) return false;
+
+    // Status=1(환자정보 기록됨)은 **커밋 플래그** — 환자·검사항목 기록이 모두
+    // 성공한 뒤에 마지막으로 세운다. 앞에 두면 중간 실패 시 "환자정보 있음"
+    // 인데 실제 블록은 비어/이전 환자인 태그가 남아 세척기의 미기재 경고까지
+    // 무력화된다 (1.0 승계 결함 — 2.2.5 수정). 최종 바이트는 동일.
+    mCachedProcess.Status = 1;
+    return write_process();
+}
+
 void GatewayProcessor::GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc, LcdPrinter &printer)
 {
     if (!is_valid(printer)) return;
@@ -98,30 +121,32 @@ void GatewayProcessor::GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc,
     char format[16]{"YYYYMMDD:hhmmss"};
     const auto stringDateTime = dateTime.toString(format);
 
-    if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return;
-    if (!write_process()) return;
-
-    // SECTOR2 환자 키/이름 두 블록 일괄 0으로 — 인증 1회.
-    unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
-    if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return;
-
-    if (mScanner.ClearSector(15) != RfidResult::Ok) return;
-    if (mScanner.Write(SECTOR15_EXAMINATION_SUBJECT, stringDateTime, 16) != RfidResult::Ok) return;
+    // 기록 실패는 성공으로 알리지 않는다 — 알리고 다시 대게.
+    if (!write_no_patient_info(gateway, stringDateTime))
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+        return;
+    }
 
     complete_delay();
-    util_buzzer(40, 4);
+    // 환자정보 없이 기록했다 — 기록은 됐으므로 실패음(짧게 4회)과 달라야 한다. 길게 2회로 구분 (사장님 09-23).
+    util_buzzer(400, 2);
 }
 
 bool GatewayProcessor::is_valid(LcdPrinter &printer)
 {
-    if (!print_tag_number(printer) || !read_tag_serial()) return false;
-    if (!read_process()) return false;
+    // 읽기 실패를 조용히 넘기면 환자정보가 들어간 줄 안다 — 세척·소독기와 같은 알림(RecordProcessor::is_valid).
+    if (!print_tag_number(printer) || !read_tag_serial() || !read_process())
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
+        return false;
+    }
     if (mCachedProcess.WashingStatus != 0 && mCachedProcess.DisinfectionStatus != 0)
     {
         // CustomDebug 는 시리얼에도 "No Complete" 를 에코한다 — SeePro 가 이
         // 문자열로 완료 미처리 음성·화면 알림을 낸다 (올눈 MainFormSo 58395
         // 재현). 문구를 바꾸면 안 된다.
-        printer.CustomDebug(0, 2, 100, 4, F("No Complete"));
+        printer.RejectDebug(0, 2, F("No Complete"));
         return false;
     }
     return true;

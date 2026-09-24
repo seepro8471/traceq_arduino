@@ -14,6 +14,15 @@ void DeviceOption::Load()
     EEPROM.get(mNumberAddr, mNumber);
 }
 
+bool DeviceOption::HasStoredSettings() const
+{
+    // 폴백 없는 원값 — 공장 초기(0xFF)·손상과 "설정이 들어 있는 기기" 를 가른다.
+    char type{};
+    EEPROM.get(mTypeAddr, type);
+    return type == GATEWAY_TYPE_DEVICE || type == WASHING_TYPE_DEVICE ||
+           type == DISINFECTION_TYPE_DEVICE || type == SERVER_TYPE_DEVICE;
+}
+
 char DeviceOption::GetType() const
 {
     EEPROM.get(mTypeAddr, mType);

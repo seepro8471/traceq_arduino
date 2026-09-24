@@ -55,7 +55,7 @@ uint8_t buzz_count(uint16_t pulseMs);   // 길이가 pulseMs 인 부저 펄스 �
 void buzz_clear();
 
 // ── 버튼 스크립트 (LOW=눌림) ──
-void buttons_script(const char *seq);   // 'L','S','R' 한 글자 = 한 번 누름
+void buttons_script(const char *seq);   // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
 extern uint16_t g_minSP;                // 버튼 읽는 자리에서 본 최저 SP
 
 // ── soft reset 가로채기 ──
@@ -65,8 +65,11 @@ extern uint16_t g_resetCount;
 
 // ── 결과 ──
 extern char g_log[4096];
+// ★실패 줄은 **따로** 모은다 — g_log 가 가득 차면 PASS 에 밀려 FAIL 이름이 통째로 사라진다(진단 불가).
+extern char g_failLog[1024];
 extern uint16_t g_pass, g_fail;
 void tlog(const char *fmt, ...);
+void flog(const char *name);
 #define CHECK(cond, name) do { if (cond) { ++g_pass; tlog("PASS %s\n", name); } \
-                               else { ++g_fail; tlog("FAIL %s\n", name); } } while (0)
+                               else { ++g_fail; tlog("FAIL %s\n", name); flog(name); } } while (0)
 extern "C" void done() __attribute__((noinline));

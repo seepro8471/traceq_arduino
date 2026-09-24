@@ -81,6 +81,9 @@ protected:
     /// 1.0의 legacy 검사자료 업로드 — W/D 완료 검증 → PSOk/Z 핸드셰이크 →
     /// 섹터 5,6[,7,8],14 + B; C; S; G; W; 블록 덤프 + "Ok!".
     bool legacy_loop_process(LcdPrinter &printer);
+    bool clear_gateway_and_subject();
+    bool commit_dump_done();
+    bool clear_patient();
 
     /// 1.0의 C/M/S 태그 발급 (4초 대기, 1초 간격 비프).
     void legacy_create_tag(const char *buffer, LcdPrinter &printer);

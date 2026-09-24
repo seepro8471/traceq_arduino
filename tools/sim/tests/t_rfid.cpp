@@ -1,7 +1,9 @@
 // 세척기(W) + RFID 폴링 — A P2-1(올려 둔 카드 재처리) · B P2-1(세척 시작 실패 알림) 재현 + 회귀.
 #include "common.h"
 
-static SimCard mgr, foreign, a, b, c, d, e;
+// ★카드 실체는 2장만 두고 돌려쓴다(시나리오가 전부 순차) — 시뮬 RAM 을 넘기면 스택과 겹쳐 시험이 조용히 틀린다.
+static SimCard mgr, c1, c2;
+static SimCard &foreign = c1, &a = c2, &b = c1, &c = c2, &d = c1, &e = c2;
 
 static uint8_t count_str(const char *hay, const char *needle)
 {
@@ -117,7 +119,7 @@ int main()
     }
     // ── [09-23 결정] 세척기도 2초 안에 다시 대면 종료가 아니라 시작 다시 하기(소독기와 같음) ──
     {
-        static SimCard f;
+        SimCard &f = c1;
         sim_advance_ms(10UL * 60 * 1000);
         fresh(f, 0x26, 26);
         touch(f, 1, 4);                                // 시작
@@ -135,7 +137,7 @@ int main()
     }
     // ── [3차 B] 세척기: 커밋은 됐는데 확인 읽기 실패(Write Error) → 곧바로 다시 대면 재시작 ──
     {
-        static SimCard v;
+        SimCard &v = c2;
         sim_advance_ms(10UL * 60 * 1000);
         fresh(v, 0x27, 27, 1);
         v.readErrBlock = SECTOR1_PROCESS;

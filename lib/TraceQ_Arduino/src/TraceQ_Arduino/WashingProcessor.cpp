@@ -17,7 +17,12 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     if (isEnd)
     {
         WashingRecord record{deviceNumber, rtc.GetCurrentLocalDateTime()};
-        washing_end(record);
+        // 종료 기록 실패도 성공으로 알리지 않는다 — 알람을 남겨 두고 재접촉을 유도.
+        if (!washing_end(record))
+        {
+            printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+            return;
+        }
         rtc.ClearAlarm(1);
     }
     else
@@ -33,7 +38,8 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     complete_delay();
 
     if (hasnt_patient_info(recordOption))
-        printer.CustomWarning(0, 2, 100, 4, F("No Patient Info"));
+        // 환자정보 없음 = 길게 2회(기록은 됐다). 실패(짧게 4회)와 구분 (사장님 09-23).
+        printer.CustomWarning(0, 2, 400, 2, F("No Patient Info"));
     else
         util_buzzer();
 }
@@ -79,13 +85,14 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
     if (!write_process()) return false;
 
     record.DateTime = add_datetime(current, alarmOption.GetTimeSlot1(), record.DateTime.Time.Second);
-    washing_end(record);
+    (void)washing_end(record);
     return true;   // 커밋됨(자동 종료 기록 실패는 종료 터치가 다시 쓴다)
 }
 
-void WashingProcessor::washing_end(WashingRecord &record)
+bool WashingProcessor::washing_end(WashingRecord &record)
 {
-    if (mScanner.Write(SECTOR3_WASHING_END, &record, 10) != RfidResult::Ok) return;
-    if (!write_manager_key(SECTOR4_WASHING_END_MANAGER_KEY)) return;
-    if (!write_manager_name(SECTOR4_WASHING_END_MANAGER_NAME)) return;
+    if (mScanner.Write(SECTOR3_WASHING_END, &record, 10) != RfidResult::Ok) return false;
+    if (!write_manager_key(SECTOR4_WASHING_END_MANAGER_KEY)) return false;
+    if (!write_manager_name(SECTOR4_WASHING_END_MANAGER_NAME)) return false;
+    return true;
 }

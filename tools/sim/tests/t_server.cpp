@@ -36,6 +36,22 @@ int main()
         CHECK(serial_has("B;") && serial_has("W;") && serial_has("Ok!"), "회귀: 레거시 덤프 머리·끝");
         CHECK(serial_has("17140200EA07"), "회귀: 소독시작 블록 줄(1714…)");
         CHECK(p.WashingStatus == 0 && p.DisinfectionCount == 0, "회귀: 덤프 뒤 태그 초기화");
+        // ★성공 경로의 최종 태그 상태는 1.4.1·2.2.8 과 같아야 한다 — 순서만 바꿨지 결과는 그대로.
+        uint8_t proc[9]{};
+        memcpy(proc, ok.data[SECTOR1_PROCESS], 9);
+        bool procZero = true;
+        for (uint8_t i = 0; i < 9; ++i) if (proc[i]) procZero = false;
+        bool blocksZero = true;
+        const uint8_t cleared[] = {SECTOR1_GATEWAY, SECTOR2_PATIENT_KEY, SECTOR2_PATIENT_NAME,
+                                   SECTOR15_EXAMINATION_SUBJECT, SECTOR15_EXAMINATION_SUBJECT2,
+                                   SECTOR15_EXAMINATION_SUBJECT3};
+        for (uint8_t i = 0; i < sizeof(cleared); ++i)
+            for (uint8_t j = 0; j < 16; ++j)
+                if (ok.data[cleared[i]][j]) blocksZero = false;
+        tlog("  최종 상태: Process 전부0=%d 소거블록 전부0=%d 세척시작 보존=%d\n",
+             procZero, blocksZero, ok.data[SECTOR2_WASHING_START][0] != 0);
+        CHECK(procZero && blocksZero, "회귀: 성공 경로 최종 태그 = 2.2.8 과 같은 결과(Process·소거 6블록 전부 0)");
+        CHECK(ok.data[SECTOR2_WASHING_START][0] != 0, "회귀: 같은 섹터의 세척 시작 기록은 지우지 않는다");
     }
     // ── [F P2-2] 블록 20 을 두 번 못 읽어 0 으로 나간 덤프 뒤에는 태그를 지우지 않는다 ──
     {

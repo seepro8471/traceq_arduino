@@ -23,14 +23,14 @@ public:
     void SetMovable() { mMovable = true; }
 
 protected:
-    void disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc);
+    bool disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc);
     /// \param isRestart 더블터치 2초 가드로 "시작"이 재실행된 경우 — 소독 횟수를
     ///                  중복으로 올리지 않기 위한 표시.
     /// \return 커밋(Process 기록)까지 성공했는가 — false 면 태그는 시작 전 상태.
     bool disinfection_start(int deviceNumber, bool isMoved, bool isGuest, bool isRestart,
                             const AlarmOption &alarmOption,
                             DisinfectionOption &disinfectionOption, DefaultRtc &rtc);
-    void disinfection_end(bool isMoved, DisinfectionRecord &record);
+    bool disinfection_end(bool isMoved, DisinfectionRecord &record);
 
 private:
     // 스코프 번호는 int16 이다 — uint8 로 받으면 5번과 261번이 같아지고,

@@ -115,7 +115,7 @@ int main()
         const int r = setjmp(g_resetJmp);
         if (r == 0) loop();
         g_resetArmed = false;
-        const uint16_t depth = 0x7FFF - g_minSP;
+        const uint16_t depth = SIM_STACK_TOP - g_minSP;
         tlog("  페이지 60회: 스택 %u B (r=%d)\n", depth, r);
         CHECK(r == 0, "D2-3: 메뉴 60페이지 넘김 뒤 정상 복귀");
         CHECK(depth < 1200, "D2-3: 페이지 넘김 횟수와 무관한 스택");

@@ -7,6 +7,9 @@ void util_buzzer();
 void util_buzzer(unsigned long ms);
 void util_buzzer(unsigned long ms, uint8_t loop);
 
+/// 거부음 — 삐삐 뒤에 긴 삐 하나(삐삐—삐~~). "다시 대면 되는 실패(짧게 4회)" 와 귀로 갈린다.
+void util_buzzer_reject();
+
 /**
  * \brief 소프트 리셋 — 주소 0으로 점프해 프로그램을 처음부터 재시작한다.
  *

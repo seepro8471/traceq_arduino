@@ -39,6 +39,8 @@ protected:
 
 private:
     static bool find_string(const char *src, char *dst, size_t dstSize, const char *from, const char *to);
+    bool write_patient_info(int deviceNumber);
+    bool write_no_patient_info(const Gateway &gateway, const char *stringDateTime);
     bool substring_for_patient(const char *string);
     void substring_for_examination_subject(const char *string);
     void substring_for_local_date_time(char *string);

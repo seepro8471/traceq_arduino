@@ -83,6 +83,22 @@ void LcdPrinter::Debug_cstr(uint8_t col, uint8_t row, const char *string)
     Warning_cstr(col, row, string);
 }
 
+void LcdPrinter::Reject(const uint8_t col, const uint8_t row, const __FlashStringHelper *string)
+{
+    clear_line(row);
+    mLcd.setCursor(col, row);
+    mLcd.print(string);
+    util_buzzer_reject();
+    clear_line(row);
+}
+
+void LcdPrinter::RejectDebug(const uint8_t col, const uint8_t row, const __FlashStringHelper *string)
+{
+    // 시리얼 에코는 PC 가 음성·화면 안내에 쓴다 — 문구를 바꾸면 안 된다.
+    Serial.println(string);
+    Reject(col, row, string);
+}
+
 void LcdPrinter::CustomDebug(const uint8_t col, const uint8_t row, const unsigned long ms,
                              const uint8_t count, const __FlashStringHelper *string)
 {

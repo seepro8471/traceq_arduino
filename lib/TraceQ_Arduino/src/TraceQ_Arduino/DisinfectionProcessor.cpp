@@ -15,7 +15,7 @@ void DisinfectionProcessor::DisinfectionProcess(
     }
     if (!mCachedProcess.WashingStatus)
     {
-        printer.CustomWarning(0, 2, 100, 4, F("No Washing Info"));
+        printer.Reject(0, 2, F("No Washing Info"));
         mMovable = false;
         return;
     }
@@ -51,14 +51,21 @@ void DisinfectionProcessor::DisinfectionProcess(
 
     if (isEnd)
     {
+        bool ok;
         if (mMovable)
         {
-            disinfector_move(deviceNumber, isMoved, rtc);
+            ok = disinfector_move(deviceNumber, isMoved, rtc);
         }
         else
         {
             DisinfectionRecord endRecord{deviceNumber, rtc.GetCurrentLocalDateTime()};
-            disinfection_end(isMoved, endRecord);
+            ok = disinfection_end(isMoved, endRecord);
+        }
+        // 종료·이동 기록 실패도 성공으로 알리지 않는다 — 슬롯·알람을 남겨 두고 재접촉을 유도.
+        if (!ok)
+        {
+            printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+            return;
         }
         if (isGuest) mGuestScopeNumber = kNoScope;
         else { mHostScopeNumber = kNoScope; mStartTime = DateTime{}; }
@@ -99,18 +106,19 @@ void DisinfectionProcessor::DisinfectionProcess(
         }
     }
     if (hasnt_patient_info(recordOption))
-        printer.Warning(0, 2, F("No Patient Info"));
+        // 환자정보 없음 = 길게 2회(세척기와 같은 소리 — 종전엔 40ms 4회로 달랐다).
+        printer.CustomWarning(0, 2, 400, 2, F("No Patient Info"));
     else
         util_buzzer();
 }
 
-void DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc)
+bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc)
 {
     mCachedProcess.MovementNeeded = true;
     mCachedProcess.Rewrite        = 0;
-    if (!write_process()) return;
+    if (!write_process()) return false;
     DisinfectionRecord record{deviceNumber, rtc.GetCurrentLocalDateTime()};
-    disinfection_end(isMoved, record);
+    return disinfection_end(isMoved, record);
 }
 
 bool DisinfectionProcessor::disinfection_start(
@@ -182,19 +190,20 @@ bool DisinfectionProcessor::disinfection_start(
     if (!isGuest && !isRestart) disinfectionOption.IncrementCount();
 
     record.DateTime = add_datetime(current, alarmOption.GetTimeSlot2(), record.DateTime.Time.Second);
-    disinfection_end(isMoved, record);
+    (void)disinfection_end(isMoved, record);
     return true;   // 커밋됨(자동 종료 기록 실패는 종료 터치가 다시 쓴다)
 }
 
-void DisinfectionProcessor::disinfection_end(bool isMoved, DisinfectionRecord &record)
+bool DisinfectionProcessor::disinfection_end(bool isMoved, DisinfectionRecord &record)
 {
     const uint8_t recBlk  = isMoved ? SECTOR8_DISINFECTION_END : SECTOR6_DISINFECTION_END;
     const uint8_t keyBlk  = isMoved ? SECTOR8_DISINFECTION_END_MANAGER_KEY  : SECTOR6_DISINFECTION_END_MANAGER_KEY;
     const uint8_t nameBlk = isMoved ? SECTOR8_DISINFECTION_END_MANAGER_NAME : SECTOR6_DISINFECTION_END_MANAGER_NAME;
 
-    if (mScanner.Write(recBlk,  &record, 10) != RfidResult::Ok) return;
-    if (mScanner.Write(keyBlk,  mCachedTag.ID, 14) != RfidResult::Ok) return;
-    if (mScanner.Write(nameBlk, mCachedTagSerial.Serial, 16) != RfidResult::Ok) return;
+    if (mScanner.Write(recBlk,  &record, 10) != RfidResult::Ok) return false;
+    if (mScanner.Write(keyBlk,  mCachedTag.ID, 14) != RfidResult::Ok) return false;
+    if (mScanner.Write(nameBlk, mCachedTagSerial.Serial, 16) != RfidResult::Ok) return false;
+    return true;
 }
 
 DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, DefaultRtc &rtc, int8_t washingMinutes)

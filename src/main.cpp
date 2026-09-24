@@ -84,6 +84,66 @@ SimpleScanner simpleScanner{rfid};
 
 #endif
 
+// 전원을 켤 때 RIGHT 을 누르고 있으면 같은 판이어도 다시 고를 수 있다 — 유지를 고른 뒤 되돌릴 유일한 길.
+static bool right_held_at_boot()
+{
+    for (uint8_t i = 0; i < 4; ++i)
+    {
+        if (digitalRead(PIN_RIGHT_BUTTON) != LOW) return false;
+        delay(15);
+    }
+    return true;
+}
+
+// 업로드 직후 1회 — 설정을 지울지 묻는다. SELECT=유지, RIGHT=완전 초기화, 10초 무응답=유지.
+// 1.4.1 과 EEPROM 주소가 같아 유지하면 기기번호·세척시간·담당자·소독 횟수·액교환일이 그대로 남는다.
+static bool ask_erase_settings()
+{
+    lcd.init();
+    lcd.backlight();
+    ui.Info(0, 0, F("Keep settings?      "));
+    ui.Info(0, 1, F("SELECT = Keep       "));
+    ui.Info(0, 2, F("RIGHT  = Erase all  "));
+
+    const unsigned long start = millis();
+    uint8_t shown = 0xFF;
+    uint8_t rightHeld = 0;
+    // 들어올 때 이미 눌려 있으면(전원 켤 때 RIGHT 을 누른 진입) 한 번 뗄 때까지 무시한다 — 바로 지워지지 않게.
+    bool rightReleased = (digitalRead(PIN_RIGHT_BUTTON) != LOW);
+    while (millis() - start < 10000UL)
+    {
+        if (digitalRead(PIN_SELECT_BUTTON) == LOW)
+        {
+            util_buzzer();
+            // 손을 뗄 때까지 기다린다 — 안 그러면 첫 loop() 이 눌린 채로 보고 설정 메뉴로 들어간다.
+            // 버튼이 붙은 채 고장나도 부팅이 멈추지 않게 2초까지만.
+            for (uint8_t i = 0; i < 100 && digitalRead(PIN_SELECT_BUTTON) == LOW; ++i) delay(20);
+            return false;
+        }
+        if (!rightReleased)
+        {
+            if (digitalRead(PIN_RIGHT_BUTTON) != LOW) rightReleased = true;
+        }
+        else
+        {
+            // 완전 초기화는 되돌릴 수 없다 — 튐 한 번에 지워지지 않게 0.2초 이상 눌러야 한다.
+            rightHeld = (digitalRead(PIN_RIGHT_BUTTON) == LOW) ? static_cast<uint8_t>(rightHeld + 1) : 0;
+            if (rightHeld >= 4) { util_buzzer(400, 2); return true; }
+        }
+
+        const uint8_t left = static_cast<uint8_t>(10 - (millis() - start) / 1000);
+        if (left != shown)
+        {
+            shown = left;
+            char buf[21]{};
+            snprintf(buf, sizeof(buf), "keep in %2u s        ", left);
+            ui.Info_cstr(0, 3, buf);
+        }
+        delay(50);
+    }
+    return false;
+}
+
 void setup()
 {
     pinMode(PIN_BUZZER, OUTPUT);
@@ -101,26 +161,37 @@ void setup()
     rtc.RtcInitialize();
     rfid.Initialize();
 
-    // 새 빌드의 첫 부팅이면 EEPROM 완전 초기화 (설정값 포함) + 기본값 기록.
-    // update()는 이미 같은 값인 셀을 건너뛰므로 재초기화 시 빠르고 수명 소모가 적다.
+    // 새 빌드의 첫 부팅 — 쓰던 기기면 설정을 지울지 묻고, 공장 초기·손상이면 묻지 않고 초기화한다.
     uint32_t storedStamp{};
     EEPROM.get(FIRMWARE_STAMP_ADDR, storedStamp);
     const uint32_t currentStamp = firmware_stamp();
-    if (storedStamp != currentStamp)
+    if (storedStamp != currentStamp || right_held_at_boot())
     {
-        const int len = EEPROM.length();
-        for (int i = 0; i < len; ++i) EEPROM.update(i, 0);
-        alarmOption.Upload();
-        deviceOption.Upload();
-        disinfectionOption.Upload();
-        managerOption.Upload();
-        recordOption.Upload();
-        // 액교환일 기본값 = 1개월 전 (소독 모드에서 사용 — 타입과 무관하게
-        // 기록해 두면 나중에 D 타입으로 바꿔도 유효). 시계가 방전 표지 시각이면 맞춰질 때 정한다.
-        if (rtc.IsUnsynced())
-            disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
+        if (!deviceOption.HasStoredSettings() || ask_erase_settings())
+        {
+            // update()는 이미 같은 값인 셀을 건너뛰므로 재초기화 시 빠르고 수명 소모가 적다.
+            const int len = EEPROM.length();
+            for (int i = 0; i < len; ++i) EEPROM.update(i, 0);
+            alarmOption.Upload();
+            deviceOption.Upload();
+            disinfectionOption.Upload();
+            managerOption.Upload();
+            recordOption.Upload();
+            // 액교환일 기본값 = 1개월 전 (소독 모드에서 사용 — 타입과 무관하게
+            // 기록해 두면 나중에 D 타입으로 바꿔도 유효). 시계가 방전 표지 시각이면 맞춰질 때 정한다.
+            if (rtc.IsUnsynced())
+                disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
+            else
+                disinfectionOption.SetClearDateTime(DisinfectionOption::OneMonthBefore(rtc.GetCurrentLocalDateTime()));
+        }
         else
-            disinfectionOption.SetClearDateTime(DisinfectionOption::OneMonthBefore(rtc.GetCurrentLocalDateTime()));
+        {
+            // 유지 — 177번지(액교환일 미룸)에 **알 수 없는 값**만 정리한다. 옛 판이 안 쓰던 자리라
+            // 쓰레기값이면 첫 소독에서 액교환일을 오늘로 덮어쓴다. 정상 미룸(1·2)은 시계를 아직 못 맞춘
+            // 기기이므로 그대로 둬야 한다.
+            if (disinfectionOption.GetClearPending() > DisinfectionOption::kPendingDefault)
+                disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
+        }
         EEPROM.put(FIRMWARE_STAMP_ADDR, currentStamp);
     }
 
@@ -231,7 +302,7 @@ void loop()
             //  한다. 이 구분이 없어서 "태그를 댔는데 아무 반응이 없다"의 원인이
             //  카드 문제인지 리더 문제인지 알 수 없었다 (2.2.5).
             if (companyRead != RfidResult::Ok)
-                ui.Debug(0, 2, RfidResultName(companyRead));
+                ui.CustomDebug(0, 2, 100, 4, RfidResultName(companyRead));   // 읽기 실패 = 실패음(다시 대면 됨)
             rfid.EndSession();
             return;
         }
@@ -252,7 +323,7 @@ void loop()
         }
         else
         {
-            ui.Debug(0, 2, F("Invalid Tag Type"));
+            ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 처리할 수 없는 태그 = 거부음
         }
         break;
     case WASHING_TYPE_DEVICE:
@@ -293,7 +364,7 @@ void loop()
         }
         else
         {
-            ui.Debug(0, 2, F("Invalid Tag Type"));
+            ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 처리할 수 없는 태그 = 거부음
         }
         break;
     default: util_soft_reset();

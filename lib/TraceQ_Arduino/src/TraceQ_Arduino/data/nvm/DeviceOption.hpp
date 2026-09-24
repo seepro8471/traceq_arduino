@@ -11,6 +11,8 @@ public:
 
     char GetType() const;
     void SetType(char type);
+    /// 쓰던 기기인가(타입 원값이 W/D/S/G) — 공장 초기·손상이면 false.
+    bool HasStoredSettings() const;
     int  GetNumber() const;
     void SetNumber(int number);
 
