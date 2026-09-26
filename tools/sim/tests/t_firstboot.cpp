@@ -29,7 +29,10 @@ int main()
     // 공장 EEPROM(도장 없음) + 첫 전원(DS3231 OSF=1) → 묻지 않고 완전 초기화
     eeprom_factory();
     g_rtcLostPower = true;
+    logs_clear();
     GUARDED(setup());
+    // 전체 소거(≈14초)는 진행을 보여 준다 — 화면이 비어 있으면 고장으로 보인다(4차 D).
+    CHECK(lcd_has("Initializing") && lcd_has("100%"), "첫 부팅 전체 소거: 'Initializing' 과 진행률(100%)을 보여 준다");
     run_loops(2);
     tlog_ldt("첫 부팅 뒤 교환일", disinfectionOption.GetClearDateTime());
     CHECK(!clear_from_marker(), "첫 부팅(방전): 2025-12-01 을 기본값으로 쓰지 않음");

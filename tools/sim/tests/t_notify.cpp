@@ -223,24 +223,30 @@ int main()
         //  않아야** 한다. 그래야 2차 덤프가 1차와 같아 PC 가 중복으로 걸러낸다. 하나라도 지워진 채
         //  2차가 나가면 구형 델파이가 저장된 행의 그 칸(검사일시·검사항목·환자)을 빈 값으로 덮어쓴다.
         const bool redumpable = (p.WashingStatus != 0 && p.DisinfectionCount != 0);
-        CHECK(!redumpable || (b.data[SECTOR2_PATIENT_KEY][0] != 0 &&
-                              b.data[SECTOR15_EXAMINATION_SUBJECT][0] != 0 &&
-                              b.data[SECTOR1_GATEWAY][0] != 0),
-              "서버 커밋 실패 → 소거는 아직 하나도 안 됐다(2차 덤프 = 1차와 동일)");
+        // 커밋은 덤프 뒤 **첫** 쓰기(off=3)여야 한다 — 그보다 뒤면 소거가 커밋 앞에 끼어든 것(옛 순서).
+        CHECK(redumpable == (off == 3), "서버: 완료 커밋이 덤프 뒤 첫 쓰기다(소거는 전부 그 뒤)");
+        if (redumpable)
+            CHECK(b.data[SECTOR2_PATIENT_KEY][0] != 0 && b.data[SECTOR15_EXAMINATION_SUBJECT][0] != 0 &&
+                  b.data[SECTOR1_GATEWAY][0] != 0,
+                  "서버 커밋 실패 → 소거는 아직 하나도 안 됐다(2차 덤프 = 1차와 동일)");
+        else
+            CHECK(p.Status == 0 && p.WashingStatus == 0 && p.DisinfectionCount == 0,
+                  "서버 소거 실패 → 이미 완료 커밋됨(Status·W·D 모두 0)");
         b.failWriteAt = 0;
         logs_clear(); buzz_clear();
         serial_inject("Z", 1);
         touch(b);
         const Process p2 = get_process(b);
-        tlog("    재접촉: WS=%u 환자키=[%.5s]\n", p2.WashingStatus, (const char *)b.data[SECTOR2_PATIENT_KEY]);
+        tlog("    재접촉: WS=%u 환자키=[%.5s] Ok!=%d\n", p2.WashingStatus,
+             (const char *)b.data[SECTOR2_PATIENT_KEY], serial_has("Ok!"));
         // 커밋 전 실패면 재접촉으로 전부 마무리된다. 커밋 뒤 실패면 이미 완료 처리라 재접촉이 거부되고
         // 잔재가 남는다 — 사장님 09-25 판정에 따른 **의도된 대가**이므로 되돌리지 못하게 여기 박아 둔다.
         if (redumpable)
-            CHECK(p2.WashingStatus == 0 && b.data[SECTOR2_PATIENT_KEY][0] == 0,
-                  "서버 커밋 실패 → 재접촉하면 완료·소거가 모두 끝난다");
+            CHECK(serial_has("Ok!") && p2.WashingStatus == 0 && b.data[SECTOR2_PATIENT_KEY][0] == 0,
+                  "서버 커밋 실패 → 재접촉하면 2차 덤프(1차와 동일) + 완료·소거가 모두 끝난다");
         else
-            CHECK(p2.Status == 0 && p2.WashingStatus == 0,
-                  "서버 소거 실패 → 완료 처리는 유지된다(재접촉 거부는 의도된 대가)");
+            CHECK(!serial_has("Ok!") && p2.Status == 0 && p2.WashingStatus == 0,
+                  "서버 소거 실패 → 재접촉은 2차 덤프를 내지 않는다(PC 기록 보호 · 의도된 대가)");
     }
 
     // ── 서버: 소거만 실패하고 Process 쓰기는 되는 경우(카드는 살아 있고 확인 읽기만 실패) ──

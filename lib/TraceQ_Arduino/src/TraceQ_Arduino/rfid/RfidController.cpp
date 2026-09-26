@@ -295,28 +295,33 @@ RfidResult RfidController::Write(uint8_t block, const void *value, uint8_t size)
     uint8_t buffer[MIFARE_BLOCK_SIZE]{};
     memcpy(buffer, value, size); // size<16이면 zero-pad.
 
+    return writeVerified(block, buffer);
+}
+
+// ★쓰기 재시도·검증의 **정본 하나** — Write() 와 WriteBlocks() 가 같이 쓴다. 종전엔 두 벌이었고
+//  WriteBlocks 쪽(검사명 3블록·환자 소거 2블록)은 어느 시험도 안 잠가, 검증이 죽어도 초록이었다.
+RfidResult RfidController::writeVerified(uint8_t block, const uint8_t buffer[16])
+{
     if (!ensureAuthenticated(block)) return RfidResult::AuthFailed;
 
     RfidResult lastError = RfidResult::WriteFailed;
     for (uint8_t attempt = 0; attempt < TRACEQ_RFID_MAX_WRITE_RETRIES; ++attempt)
     {
-        RfidResult r = writeOnce(block, buffer);
-        if (r == RfidResult::Ok)
+        if (writeOnce(block, buffer) == RfidResult::Ok)
         {
 #if TRACEQ_RFID_VERIFY_WRITES
             if (verifyBlock(block, buffer)) return RfidResult::Ok;
             // verify 실패 → 재시도. 캐시만 무효화하고 nested 재인증
             // (StopCrypto1을 하면 카드의 암호화 상태와 어긋나 재인증이 실패한다).
             lastError = RfidResult::VerifyMismatch;
-            dropAuthCache();
-            if (!ensureAuthenticated(block)) return RfidResult::AuthFailed;
-            continue;
 #else
             return RfidResult::Ok;
 #endif
         }
-        // 쓰기 자체 실패 → nested 재인증 후 재시도.
-        lastError = RfidResult::WriteFailed;
+        else
+        {
+            lastError = RfidResult::WriteFailed;   // 쓰기 자체 실패 → nested 재인증 후 재시도.
+        }
         dropAuthCache();
         if (!ensureAuthenticated(block)) return RfidResult::AuthFailed;
     }
@@ -349,32 +354,9 @@ RfidResult RfidController::WriteBlocks(uint8_t startBlock, uint8_t count,
         memcpy(buffer, src, stride);
         src += stride;
 
-        // ensureAuthenticated가 섹터 캐시로 인증 1회만 수행 — 1.0 대비 핵심 개선.
-        if (!ensureAuthenticated(block)) return RfidResult::AuthFailed;
-
-        bool ok = false;
-        RfidResult lastError = RfidResult::WriteFailed;
-        for (uint8_t attempt = 0; attempt < TRACEQ_RFID_MAX_WRITE_RETRIES; ++attempt)
-        {
-            if (writeOnce(block, buffer) == RfidResult::Ok)
-            {
-#if TRACEQ_RFID_VERIFY_WRITES
-                if (verifyBlock(block, buffer)) { ok = true; break; }
-                lastError = RfidResult::VerifyMismatch;
-                dropAuthCache(); // nested 재인증 (StopCrypto1 금지 — 카드 암호화 상태 유지)
-                if (!ensureAuthenticated(block)) return RfidResult::AuthFailed;
-#else
-                ok = true; break;
-#endif
-            }
-            else
-            {
-                lastError = RfidResult::WriteFailed;
-                dropAuthCache(); // nested 재인증 (StopCrypto1 금지 — 카드 암호화 상태 유지)
-                if (!ensureAuthenticated(block)) return RfidResult::AuthFailed;
-            }
-        }
-        if (!ok) return lastError;
+        // 섹터 캐시 덕에 같은 섹터는 인증 1회 — 재시도·검증은 Write() 와 같은 정본.
+        const RfidResult r = writeVerified(block, buffer);
+        if (r != RfidResult::Ok) return r;
     }
     return RfidResult::Ok;
 }

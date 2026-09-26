@@ -23,6 +23,15 @@
  *         (사용자 확정). 비어 있으면 소독 기록마다 현재시각이 교환일로
  *         찍혀 통계 주기가 흩어지던 것 방지 — 클리어 태그 등록 전까지
  *         안정된 기준일 제공.
+ * 2.2.11 — 4차 감사 후속(09-26): 서버 연결 확인이 PC 명령을 먹던 것 + 정본 통합 둘 + 첫 부팅 진행 표시.
+ *         [서버] PSOk 뒤 'Z' 를 peek 로 본다 — 종전엔 10ms 마다 1바이트 소비해 줄 서 있던 설정 JSON·발급
+ *           명령을 먹었고 55바이트 넘으면 정상 연결인데 'Not Connected'. 이제 명령이 앞이면 접촉을 거부하고
+ *           다음 loop 의 serialEvent 가 그 명령을 처리한 뒤 재접촉이 성공한다(유실 0).
+ *         [정본] 소독기 담당자 키·이름 4줄 직접 쓰기 → RecordProcessor 정본 호출 · Write/WriteBlocks 두 벌이던
+ *           재시도·검증 루프 → writeVerified 하나(검사명 3블록·환자 소거 2블록 경로가 처음으로 잠김).
+ *         [부팅] 첫 부팅 EEPROM 전체 소거(≈14초)에 "Initializing… %" 진행 표시.
+ *         시험: t_a5(12) — peek·정본·guest 대입(2.2.5 M46)·검사일시 이월 금지(2.2.5 M45)·번호 읽기 실패 시
+ *           직전 번호 전송 금지. t_notify 서버 훑기의 항상 참 CHECK 해소. 되돌린 변이 6/6 빨강. 253/253.
  * 2.2.10 — 4차 전체 로직 감사(09-25~26): 환자 기록이 조용히 어긋나던 자리 12곳 + 메뉴 시한 + 화면 갱신.
  *         [태그 재처리] 리더 재초기화가 올려 둔 태그 표시를 지워 세척·소독이 곧바로 '종료' 로 기록되던 것 ·
  *           지원 안 되는 카드(교통·출입)를 정지 안 해 그 뒤 스코프가 무음으로 먹히던 것.
@@ -88,8 +97,8 @@
  */
 #define TRACEQ_VERSION_MAJOR 2
 #define TRACEQ_VERSION_MINOR 2
-#define TRACEQ_VERSION_PATCH 10
-#define TRACEQ_VERSION_STRING "2.2.10"
+#define TRACEQ_VERSION_PATCH 11
+#define TRACEQ_VERSION_STRING "2.2.11"
 // 이 판을 만든 날 — 시계가 이보다 앞서면 실제 시각일 수 없다(BaseRtc::IsUnsynced). 버전을 올릴 때 같이 올린다.
 #define TRACEQ_RELEASE_YEAR  2026
 #define TRACEQ_RELEASE_MONTH 9

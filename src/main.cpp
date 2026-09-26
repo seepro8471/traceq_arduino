@@ -183,8 +183,22 @@ void setup()
         if (!deviceOption.HasStoredSettings() || ask_erase_settings())
         {
             // update()는 이미 같은 값인 셀을 건너뛰므로 재초기화 시 빠르고 수명 소모가 적다.
+            // 쓰던 기기는 4KB×3.3ms ≈ 14초가 걸린다 — 진행을 보여 주지 않으면 고장처럼 보인다(4차 D).
+            lcd.init();
+            lcd.backlight();
+            ui.Info(0, 0, F("Initializing...     "));
             const int len = EEPROM.length();
-            for (int i = 0; i < len; ++i) EEPROM.update(i, 0);
+            for (int i = 0; i < len; ++i)
+            {
+                EEPROM.update(i, 0);
+                if ((i & 0xFF) == 0)
+                {
+                    char pct[8]{};
+                    snprintf_P(pct, sizeof(pct), PSTR("%3d%%"), static_cast<int>(100L * i / len));
+                    ui.Info_cstr(0, 1, pct);
+                }
+            }
+            ui.Info(0, 1, F("100%"));
             alarmOption.Upload();
             deviceOption.Upload();
             disinfectionOption.Upload();

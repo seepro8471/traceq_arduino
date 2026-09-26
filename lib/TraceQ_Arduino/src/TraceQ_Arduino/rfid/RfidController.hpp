@@ -157,6 +157,7 @@ private:
 
     void pcdSoftReset();
     RfidResult writeOnce(uint8_t block, const uint8_t buffer[16]);
+    RfidResult writeVerified(uint8_t block, const uint8_t buffer[16]);   // 재시도·검증 정본(Write·WriteBlocks 공용)
     bool verifyBlock(uint8_t block, const uint8_t expected[16]);
 
     MFRC522 mMfrc522;

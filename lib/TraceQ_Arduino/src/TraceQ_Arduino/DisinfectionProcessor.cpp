@@ -177,8 +177,8 @@ bool DisinfectionProcessor::disinfection_start(
     const uint8_t nameBlk  = isMoved ? SECTOR7_DISINFECTION_START_MANAGER_NAME : SECTOR5_DISINFECTION_START_MANAGER_NAME;
 
     if (mScanner.Write(startBlk, &record, 10) != RfidResult::Ok) return false;
-    if (mScanner.Write(keyBlk,   mCachedTag.ID, 14) != RfidResult::Ok) return false;
-    if (mScanner.Write(nameBlk,  mCachedTagSerial.Serial, 16) != RfidResult::Ok) return false;
+    if (!write_manager_key(keyBlk)) return false;     // 정본(RecordProcessor) — 세척과 같은 바이트
+    if (!write_manager_name(nameBlk)) return false;
     if (mScanner.Write(detailBlock, &detail, 10) != RfidResult::Ok) return false;
 
     // ★미리 채우는 자동 종료도 **커밋 앞**에 둔다 — "종료 시각이 빌 수 없다"(사장님 09-23)가 안전망인데,
@@ -207,8 +207,8 @@ bool DisinfectionProcessor::disinfection_end(bool isMoved, DisinfectionRecord &r
 
     // ★담당자를 먼저, **시각을 마지막에** — 반대면 담당자 블록만 실패했을 때 "오늘 종료 시각 + 지난
     //  주기 담당자" 쌍이 남는다(그 블록들은 서버 덤프도 안 지워 옛 담당자가 늘 남아 있다).
-    if (mScanner.Write(keyBlk,  mCachedTag.ID, 14) != RfidResult::Ok) return false;
-    if (mScanner.Write(nameBlk, mCachedTagSerial.Serial, 16) != RfidResult::Ok) return false;
+    if (!write_manager_key(keyBlk)) return false;     // 정본(RecordProcessor) — 세척과 같은 바이트
+    if (!write_manager_name(nameBlk)) return false;
     return mScanner.Write(recBlk, &record, 10) == RfidResult::Ok;
 }
 

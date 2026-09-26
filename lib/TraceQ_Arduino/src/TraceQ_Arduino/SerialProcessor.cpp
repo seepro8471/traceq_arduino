@@ -471,14 +471,19 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
 
 bool SerialProcessor::legacy_is_connected()
 {
+    // PC 는 PSOk 에 'Z' 한 바이트로 답한다(델파이·세척관리·SeePro 셋 다 줄바꿈 없음).
+    // ★읽지 않고 들여다본다(peek) — 종전엔 10ms 마다 1바이트씩 **소비**해서, 줄 서 있던 PC 명령
+    //  (설정 JSON·발급 명령)을 먹어 버리고, 55바이트를 넘으면 정상 연결인데 'Not Connected' 가 됐다.
+    //  'Z' 가 아닌 바이트가 앞에 있으면 그 뒤의 'Z' 에 닿을 수 없으니 곧장 실패로 — 다음 loop 의
+    //  serialEvent 가 그 명령을 정상 처리하고, 재접촉이 성공한다(명령 유실 없음).
     Serial.println(F("PSOk"));
     for (uint8_t i = 0; i < 55; ++i)
     {
         delay(10);
-        if (Serial.available() > 0 && Serial.read() == 'Z')
-        {
-            return true;
-        }
+        if (Serial.available() <= 0) continue;
+        if (Serial.peek() != 'Z') return false;
+        (void)Serial.read();   // 'Z' 만 소비
+        return true;
     }
     return false;
 }
