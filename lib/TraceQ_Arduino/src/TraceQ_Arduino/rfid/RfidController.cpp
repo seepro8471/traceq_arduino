@@ -166,6 +166,8 @@ RfidController::TagStatus RfidController::Poll(bool wakeHalted)
     // ★"올려 둔 태그는 1회만" 판정을 prev 만으로 하지 않는다 — 처리 뒤 알림음(최대 1.6초) 동안 **다른** 태그로 바꿔 올리면
     //  prev=참이라 KeepAlive 로 먹혀 무음이었다(5차 V2 · 사장님 09-26 "처리되게"). 같은 UID 가 계속 있으면 KeepAlive,
     //  다른 UID 면 Connected. 같은 태그를 뗐다 다시 대면 prev=거짓이라 Connected(종전과 같다).
+    // [5차 판정 · 재론 금지] 태그 **둘을 겹쳐** 올리고 HaltA 가 유실되면(두 조건 동시) 앞 태그가 뒤 태그 다음에 다시 잡혀
+    //  재처리된다(X2). 2칸 이력은 상태 증가라 두지 않는다 — 겹쳐 올림은 현장 확인 목록.
     const bool sameAsLast = (mLastUidSize != 0) && (mLastUidSize == mMfrc522.uid.size) &&
                             (memcmp(mLastUid, mMfrc522.uid.uidByte, mLastUidSize) == 0);
     if (mTagPresentPrev && sameAsLast) return TagStatus::KeepAlive;

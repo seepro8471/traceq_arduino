@@ -35,7 +35,12 @@ void DisinfectionOption::SetCount(int count)
     EEPROM.put(mCountAddr, count);
     EEPROM.get(mCountAddr, mCount);
 }
-void DisinfectionOption::IncrementCount() { SetCount(GetCount() + 1); }
+void DisinfectionOption::IncrementCount()
+{
+    // 32767 에서 +1 은 int16 이 돌아 0 이 되고(SetCount 가 음수를 0 으로) "MaxCount Over" 가 풀렸다 → 상한에서 멈춘다(X2)
+    const int count = GetCount();
+    if (count < INT16_MAX) SetCount(count + 1);
+}
 
 int  DisinfectionOption::GetMaximumCount() const
 {

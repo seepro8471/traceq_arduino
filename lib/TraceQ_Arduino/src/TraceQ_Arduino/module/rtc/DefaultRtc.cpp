@@ -128,6 +128,9 @@ void DefaultRtc::FromInternalString(char *string, const DateTime &entry, Default
         // 날짜는 '지금' 것. ★편집 중 자정을 넘긴 경우(진입 날짜 ≠ 지금 날짜)에만 진입 날짜와 지금 날짜 중 지금과
         //  가까운 쪽을 고른다. "지금과 12시간 넘게 차이" 로 판정하면 방전된 시계를 처음 맞추는 정당한 조작(1월 1일 →
         //  날짜 저장 → 14:30 입력)까지 하루 옮겨 전날 날짜가 됐다(재검증 W1 P1 — 내 V3 수정의 결함).
+        // [5차 판정 · 재론 금지] "틀린 시계의 자정이 편집 중에 지나면서 큰 보정" (예: 시계 23:59:50 에 09:00 입력 → 자정 뒤
+        //  저장 → 다음 날 09:00) 은 같은 입력에 정답이 둘이라 어떤 규칙도 못 가른다(조작당 ≈0.07%). 지금 규칙이 나머지
+        //  전부(자정 넘김·같은 날 큰 보정·방전 초기 설정)를 맞힌다(X1 조합표 29).
         DateTime composed{dateTime.year(), dateTime.month(), dateTime.day(), hour, minute, second};
         if (entry.year() != dateTime.year() || entry.month() != dateTime.month() || entry.day() != dateTime.day())
         {

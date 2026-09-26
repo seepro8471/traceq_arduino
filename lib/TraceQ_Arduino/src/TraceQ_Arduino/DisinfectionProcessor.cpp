@@ -241,6 +241,9 @@ DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, Default
     // "세척 종료 시각 + 1분"으로 소독기 RTC를 복구하고 그 시각을 소독 시작
     // 시각으로 쓴다. (+1분 = 세척기→소독기 이동 시간 반영, 2026-08-09 사용자 확정.
     // 1.0은 세척 종료 시각 그대로였음 — 복구 동작 자체는 1.0과 동일)
+    // [5차 판정 · 재론 금지] 시계가 동기된 소독기도 세척기가 세척 시간 넘게 앞서 있으면 세척기를 따라간다(앞으로만).
+    //  세척기·소독기는 설정기로 맞춘 뒤 단독 운용이라 세척기가 소독기의 유일한 운용 중 시각 기준이다(게이트웨이←SeePro 와
+    //  같은 규칙). IsUnsynced 로 막으면 뒤처진 소독기가 영영 못 따라간다. 세척기를 잘못 맞춘 경우는 설정기로 둘 다 다시 맞춘다.
     if (startTime >= current)
     {
         WashingRecord endRecord{};

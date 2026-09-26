@@ -211,9 +211,7 @@ int main()
     // W1 P1: 방전된 시계를 처음 맞추는 조작(1월 1일 → 날짜 저장 → 14:30 입력)이 전날로 가지 않는다
     reboot_as('W');
     {
-        rtc_set(DateTime(2026, 1, 1, 0, 0, 30));         // 방전 표지 근처에서 흐르는 시계
-        buttons_script("LS");                            // 날짜 메뉴: 그대로 저장(=오늘 날짜로 세팅하는 조작은 t_ui 가 봄) — 여기선 시각만 본다
-        rtc_set(DateTime(2026, 9, 28, 0, 0, 30));        // 날짜를 09-28 로 맞춘 직후(00:00:30) 라고 두고
+        rtc_set(DateTime(2026, 9, 28, 0, 0, 30));        // 방전(1월 1일)에서 날짜만 09-28 로 맞춘 직후(00:00:30) 라고 두고
         // 시간 메뉴에서 14:30:00 입력 후 저장 — 진입 스냅샷과 저장 시각이 같은 날 → 같은 날 14:30 이어야 한다
         char tbuf[8]; snprintf(tbuf, sizeof(tbuf), "143000");
         rtc.FromInternalString(tbuf, rtc.GetCurrentDateTime(), DefaultRtc::Format::Time);
@@ -235,6 +233,14 @@ int main()
         const DateTime m = rtc.GetCurrentDateTime();
         tlog("  W1 자정 넘긴 편집: %u-%u %02u:%02u\n", m.month(), m.day(), m.hour(), m.minute());
         CHECK(m.day() == 26 && m.hour() == 23, "W1 자정을 넘긴 편집은 진입 날짜(전날)로 — 종전 자정 보정 유지");
+        // 자정을 넘긴 편집에서 **새 날의 시각**(00:00:05)을 넣으면 오늘 — "지금과 가까운 쪽" 의 다른 갈래(X1 P3-2)
+        rtc_set(DateTime(2026, 9, 26, 23, 59, 50));
+        const DateTime entry2 = rtc.GetCurrentDateTime();
+        sim_advance_ms(20000);
+        char tb4[8]; snprintf(tb4, sizeof(tb4), "000005");
+        rtc.FromInternalString(tb4, entry2, DefaultRtc::Format::Time);
+        CHECK(rtc.GetCurrentDateTime().day() == 27 && rtc.GetCurrentDateTime().hour() == 0,
+              "W1 자정을 넘긴 편집에 새 날 시각을 넣으면 오늘(전날로 안 감)");
         rtc_set(rel_date(10, 0, 0));
     }
     // W1 P3-1: 담당자 미등록 상태에서도 첫 읽기 실패는 이동 플래그를 지킨다(거부에만 내림)
@@ -259,6 +265,19 @@ int main()
         touch(b);                                        // 재접촉 → 이동이어야
         tlog("  W1 P3-1 재접촉: MV=%u\n", get_process(b).MovementNeeded);
         CHECK(get_process(b).MovementNeeded == 1, "W1 P3-1 담당자 미등록 상태의 읽기 실패도 이동 플래그를 지킨다");
+        // is_valid 의 세 번째 갈래(Process 블록 읽기 실패)도 -1 — 이동 플래그 유지(X1 P3-4)
+        washed_scope(b, 0x93, 93);
+        touch(b);
+        sim_advance_ms(20UL * 60 * 1000);
+        touch(c);                                        // 이동 플래그
+        b.readErrBlock = SECTOR1_PROCESS; b.readErrTimes = 10;
+        logs_clear();
+        touch(b);
+        CHECK(lcd_has("Read Error"), "W1 전제: Process 읽기 실패 = Read Error");
+        b.readErrBlock = -1; b.readErrTimes = 0;
+        logs_clear();
+        touch(b);
+        CHECK(get_process(b).MovementNeeded == 1, "X1 P3-4 Process 블록 읽기 실패(세 번째 갈래)도 이동 플래그를 지킨다");
     }
     // W1 P3-2: 본체번호 4자리는 숫자만 5칸
     reboot_as('G');
@@ -269,6 +288,34 @@ int main()
         serial_inject(pk, strlen(pk)); GUARDED(serialEvent()); run_loops(1);
         ui.InvalidateHome(); logs_clear(); run_loops(1);
         CHECK(lcd_has(" 9999") && !lcd_has("G:9999"), "W1 P3-2 본체번호 4자리는 숫자만 5칸(20열 밖으로 안 나감)");
+    }
+
+    // ═══ X2 잠금 ═══
+    reboot_as('D');
+    touch(mgr);
+    {
+        // X2 P3-1: 소독 횟수 32767 에서 소독을 시작해도 0 으로 돌지 않고 "MaxCount Over" 가 유지된다
+        disinfectionOption.SetMaximumCount(100);
+        disinfectionOption.SetCount(32767);
+        washed_scope(b, 0x94, 94);
+        logs_clear();
+        touch(b);
+        tlog("  X2 P3-1 count=%d\n", disinfectionOption.GetCount());
+        CHECK(disinfectionOption.GetCount() == 32767 && lcd_has("MaxCount Over"),
+              "X2 P3-1 소독 횟수 32767 에서 +1 은 0 으로 돌지 않는다(MaxCount Over 유지)");
+        disinfectionOption.SetCount(0);
+        disinfectionOption.SetMaximumCount(0);
+        // X2 P2-1(판정 · 1.0 유지): 동기된 소독기도 세척기가 세척 시간 넘게 앞서면 "세척 종료 + 1분" 으로 따라간다
+        rtc_set(rel_date(10, 0, 0));
+        fresh_scope(b, 0x95, 95);
+        set_process(b, Process{1, 0, 1, 0, 1, false, 0, 0});
+        set_record(b, SECTOR2_WASHING_START, 1, rel_date(10, 30, 0));   // 세척기가 30분 앞선다
+        set_record(b, SECTOR3_WASHING_END,   1, rel_date(10, 45, 0));
+        touch(b);
+        const DateTime n = rtc.GetCurrentDateTime();
+        tlog("  X2 P2-1 세척기 앞섬: %02u:%02u\n", n.hour(), n.minute());
+        CHECK(n.hour() == 10 && n.minute() == 46, "X2 P2-1 [판정] 동기된 소독기도 앞선 세척기를 따라간다(세척 종료+1분 · 1.0)");
+        rtc_set(rel_date(10, 0, 0));
     }
 
     tlog("  resets=%u\n", g_resetCount);
