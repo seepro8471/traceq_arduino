@@ -60,7 +60,7 @@ int str_atoi_range(const char *s, uint8_t begin, uint8_t end)
     if (end >= len) end = static_cast<uint8_t>(len - 1);
     if (begin > end) return -1;
     int res = 0;
-    for (uint8_t i = begin; i <= end; ++i)
+    for (uint16_t i = begin; i <= end; ++i)   // uint8 이면 end=255 에서 무한 루프(5차 E)
     {
         if (!is_digit_char(s[i])) return -1;
         const int digit = s[i] - '0';
@@ -126,7 +126,7 @@ void str_substring_safe(const char *src, char *dst, size_t dstSize,
     dst[0] = '\0';
     if (src == nullptr) return;
 
-    if (begin > end) { size_t t = begin; begin = end; end = t; }
+    if (begin > end) return;   // 뒤집힌 범위는 빈 문자열 — 스왑하면 검사명2 꼬리가 검사명3 에 들어갔다(5차 E)
     const size_t srcLen = str_strlen(src);
     if (begin >= srcLen) return;
     if (end > srcLen) end = srcLen;

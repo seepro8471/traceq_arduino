@@ -38,6 +38,7 @@ protected:
     bool is_valid(LcdPrinter &printer);
 
 private:
+    static size_t find_marker(const char *src, const char *marker, size_t begin);   // 필드 경계의 마커만
     static bool find_string(const char *src, char *dst, size_t dstSize, const char *from, const char *to);
     bool write_patient_info(int deviceNumber);
     bool write_no_patient_info(const Gateway &gateway, const char *stringDateTime);

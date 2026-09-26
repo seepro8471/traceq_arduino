@@ -166,7 +166,9 @@ int main()
         logs_clear();
         touch(c1, 1, 4);
         tlog("  확인 실패: RW=%u lcd Write Error=%d\n", get_process(c1).Rewrite, lcd_has("Write Error"));
-        CHECK(get_process(c1).Rewrite == 2 && lcd_has("Write Error"), "3차B: 카드엔 커밋됐지만 Write Error");
+        // 5차: 커밋이 실제로 됐으면 write_process 가 한 번 더 읽어 성공으로 본다 — Write Error 가 아니라 알람.
+        CHECK(get_process(c1).Rewrite == 2 && !lcd_has("Write Error") && rtc.HasAlarm(2),
+              "5차C: 카드에 커밋됐으면 확인 읽기가 실패해도 성공(Write Error 아님·알람 있음)");
         touch(c1, 1, 4);                                // 1초 안 재접촉
         const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(c1, SECTOR6_DISINFECTION_END)) -
                              DefaultRtc::ToDateTime(get_ldt(c1, SECTOR5_DISINFECTION_START))).totalseconds();

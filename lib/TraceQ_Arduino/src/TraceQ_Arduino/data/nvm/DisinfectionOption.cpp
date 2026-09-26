@@ -91,7 +91,7 @@ void DisinfectionOption::IncrementClearCount() { SetClearCount(GetClearCount() +
 bool DisinfectionOption::IsClearDateTimeEmpty() const
 {
     const auto dt = GetClearDateTime();
-    return (dt.Date.Year + dt.Date.Month + dt.Date.Day) == 0;
+    return dt.Date.Year == 0 && dt.Date.Month == 0 && dt.Date.Day == 0;   // 합이 0 인 손상값을 '빔' 으로 오판하지 않게
 }
 
 LocalDateTime DisinfectionOption::GetClearDateTime() const

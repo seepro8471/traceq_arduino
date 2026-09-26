@@ -78,6 +78,10 @@ uint32_t g_btnIdleLimit = 30000;   // 메뉴 시한(60초=약 18만 회 읽기)�
 static char     s_btnAtChar;
 static uint32_t s_btnAtMs;
 void buttons_at(char btn, uint32_t atMs) { s_btnAtChar = btn; s_btnAtMs = atMs; }
+// 버튼 붙잡기: g_ms < untilMs 동안 그 버튼이 매 읽기마다 LOW(붙은 채 고장·길게 누름).
+static char     s_btnHoldChar;
+static uint32_t s_btnHoldUntil;
+void buttons_hold(char btn, uint32_t untilMs) { s_btnHoldChar = btn; s_btnHoldUntil = untilMs; }
 void buttons_script(const char *seq)
 {
     const size_t n = strlen(seq);
@@ -105,6 +109,11 @@ int digitalRead(uint8_t pin)
     if (s_btnAtChar == want && g_ms >= s_btnAtMs)
     {
         s_btnAtChar = 0;
+        s_btnIdleReads = 0;
+        return LOW;
+    }
+    if (s_btnHoldChar == want && g_ms < s_btnHoldUntil)
+    {
         s_btnIdleReads = 0;
         return LOW;
     }

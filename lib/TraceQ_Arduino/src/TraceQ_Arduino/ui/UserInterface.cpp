@@ -286,43 +286,47 @@ UserInterface::MenuFunction UserInterface::edit_number(Line &line, const __Flash
     return edit_number_impl(line);
 }
 
-UserInterface::MenuFunction UserInterface::select(Line &line, const char *title, const char *p1, const char *p2)
+UserInterface::MenuFunction UserInterface::select(Line &line, const char *title, const char *p1, const char *p2, uint8_t start)
 {
     // print option and title
     print_option_nagivation();
+    InvalidateHome();   // 화면을 지웠으니 홈 캐시도(형제 display_line/display_screen 과 같이)
     print_title(title);
 
-    return select_impl(line, p1, p2);
+    return select_impl(line, p1, p2, start);
 }
 
 UserInterface::MenuFunction UserInterface::select(Line &line, const __FlashStringHelper *title,
-                                                  const char *p1, const char *p2)
+                                                  const char *p1, const char *p2, uint8_t start)
 {
     // print option and title
     print_option_nagivation();
+    InvalidateHome();   // 화면을 지웠으니 홈 캐시도(형제 display_line/display_screen 과 같이)
     print_title(title);
 
-    return select_impl(line, p1, p2);
+    return select_impl(line, p1, p2, start);
 }
 
 UserInterface::MenuFunction UserInterface::select(Line &line, const char *title, const char *p1, const char *p2,
-                                                  const char *p3, const char *p4)
+                                                  const char *p3, const char *p4, uint8_t start)
 {
     // print option and title
     print_option_nagivation();
+    InvalidateHome();   // 화면을 지웠으니 홈 캐시도(형제 display_line/display_screen 과 같이)
     print_title(title);
 
-    return select_impl(line, p1, p2, p3, p4);
+    return select_impl(line, p1, p2, p3, p4, start);
 }
 
 UserInterface::MenuFunction UserInterface::select(Line &line, const __FlashStringHelper *title, const char *p1,
-                                                  const char *p2, const char *p3, const char *p4)
+                                                  const char *p2, const char *p3, const char *p4, uint8_t start)
 {
     // print option and title
     print_option_nagivation();
+    InvalidateHome();   // 화면을 지웠으니 홈 캐시도(형제 display_line/display_screen 과 같이)
     print_title(title);
 
-    return select_impl(line, p1, p2, p3, p4);
+    return select_impl(line, p1, p2, p3, p4, start);
 }
 
 UserInterface::MenuFunction UserInterface::edit_number_impl(Line &line)
@@ -407,18 +411,14 @@ UserInterface::MenuFunction UserInterface::edit_number_impl(Line &line)
     }
 }
 
-UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p1, const char *p2)
+UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p1, const char *p2, uint8_t start)
 {
-    // print parameter
-    mLcd.setCursor(3, 1);
-    mLcd.print(p1);
-
-    // parameter position
-    uint8_t currentParam{0};
+    // ★현재값부터 시작한다 — 종전엔 늘 p1 이라 고르지 않고 저장하면 값이 바뀌었다(5차 A1·A2).
+    uint8_t currentParam{static_cast<uint8_t>(start > 1 ? 0 : start)};
     uint8_t maximumParam{1};
-
-    // copy
-    const char *var{p1};
+    const char *var{currentParam == 1 ? p2 : p1};
+    mLcd.setCursor(3, 1);
+    mLcd.print(var);
 
     // loop — 60초 무조작이면 저장 없이 나간다(Exit 는 handle_menu 가 홈으로 돌린다).
     menu_touch();
@@ -518,18 +518,14 @@ UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p
 }
 
 UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p1, const char *p2,
-                                                       const char *p3, const char *p4)
+                                                       const char *p3, const char *p4, uint8_t start)
 {
-    // print parameter
-    mLcd.setCursor(3, 1);
-    mLcd.print(p1);
-
-    // parameter position
-    uint8_t currentParam{0};
+    // ★현재값부터 시작한다 — 종전엔 늘 p1(Gateway) 이라 타입 D 에서 고르지 않고 저장하면 게이트웨이로 재시작했다.
+    uint8_t currentParam{static_cast<uint8_t>(start > 3 ? 0 : start)};
     uint8_t maximumParam{3};
-
-    // copy
-    const char *var{p1};
+    const char *var{currentParam == 1 ? p2 : currentParam == 2 ? p3 : currentParam == 3 ? p4 : p1};
+    mLcd.setCursor(3, 1);
+    mLcd.print(var);
 
     // loop — 60초 무조작이면 저장 없이 나간다(Exit 는 handle_menu 가 홈으로 돌린다).
     menu_touch();

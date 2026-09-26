@@ -33,6 +33,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
             printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
             return;
         }
+        consume_disposability();   // 일회성 담당자는 커밋된 시작에만 쓰인다
         rtc.SetAlarm(1, alarmOption.GetTimeSlot1(), 0);
     }
     complete_delay();

@@ -93,8 +93,11 @@ void DefaultRtc::FromString(const char *string)
     }
 }
 
-void DefaultRtc::FromInternalString(char *string, const DateTime &dateTime, DefaultRtc::Format format)
+void DefaultRtc::FromInternalString(char *string, const DateTime & /*unused*/, DefaultRtc::Format format)
 {
+    // ★빠진 절반(날짜 편집이면 시·분·초)은 **저장하는 지금** 의 시계에서 가져온다. 종전엔 메뉴 진입 때
+    //  스냅샷을 써서, 편집에 걸린 시간만큼 시계가 되돌아갔다(5차 A2·E 독립 확인).
+    const DateTime dateTime = GetCurrentDateTime();
     // date
     uint16_t year;
     uint8_t month;
@@ -129,9 +132,9 @@ void DefaultRtc::FromInternalString(char *string, const DateTime &dateTime, Defa
         year = str_atoi_range(string, 0, 1) + 2000;
         month = str_atoi_range(string, 2, 3);
         day = str_atoi_range(string, 4, 5);
-        hour = str_atoi_range(string, 0, 1);
-        minute = str_atoi_range(string, 2, 3);
-        second = str_atoi_range(string, 4, 5);
+        hour = str_atoi_range(string, 6, 7);     // 호출자 없음(죽은 갈래) — 오프셋만 바로잡아 둔다
+        minute = str_atoi_range(string, 8, 9);
+        second = str_atoi_range(string, 10, 11);
         // set and break
         SetDateTime({year, month, day, hour, minute, second});
         break;

@@ -38,6 +38,7 @@ int8_t AlarmOption::GetTimeSlot1() const
 
 void AlarmOption::SetTimeSlot1(int minute)
 {
+    // [5차 판정 · 재론 금지] 0분은 허용(1.0 동일) — 즉시 알람·자동 종료=시작 시각. 최소값 강제는 설정 프로그램 몫.
     const int8_t v = static_cast<int8_t>(constrain(minute, 0, 127));
     EEPROM.put(mTimeSlot1Addr, v);
     EEPROM.get(mTimeSlot1Addr, mTimeSlot1);

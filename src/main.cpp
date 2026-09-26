@@ -131,7 +131,7 @@ static bool __attribute__((noinline)) ask_erase_settings()
             for (uint8_t i = 0; i < 100 && digitalRead(PIN_SELECT_BUTTON) == LOW; ++i) delay(20);
             return erase;
         }
-        else if (lft || rgt)
+        else if (lft != rgt)     // 둘이 같은 표본에 읽히면 무시 — 종전엔 초기화 쪽이 골라졌다
         {
             erase = rgt;         // 왼쪽=유지, 오른쪽=완전 초기화 (확정은 MENU)
             util_buzzer(30);
@@ -218,6 +218,15 @@ void setup()
             // 기기이므로 그대로 둬야 한다.
             if (disinfectionOption.GetClearPending() > DisinfectionOption::kPendingDefault)
                 disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
+            // 클리어 태그를 안 쓰던 기기는 교환일 칸이 비어 있어 소독마다 그날이 교환일로 찍혔다 —
+            // 완전 초기화와 같이 '1개월 전' 을 넣는다(사장님 09-27). 값이 있으면 그대로.
+            if (disinfectionOption.IsClearDateTimeEmpty() && !disinfectionOption.HasPendingClear())
+            {
+                if (rtc.IsUnsynced())
+                    disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
+                else
+                    disinfectionOption.SetClearDateTime(DisinfectionOption::OneMonthBefore(rtc.GetCurrentLocalDateTime()));
+            }
         }
         EEPROM.put(FIRMWARE_STAMP_ADDR, currentStamp);
     }
@@ -279,12 +288,14 @@ void loop()
     {
         const auto slot = deviceType == WASHING_TYPE_DEVICE ? 1 : 2;
         rtc.HandleAlarm(slot, alarmOption.GetFlag());
-        char alarmBuffer[20]{};
+        char alarmBuffer[21]{};   // "120 Min Alarm 119:59" = 20자 + NUL
         const auto alarmTime = slot == 1 ? alarmOption.GetTimeSlot1() : alarmOption.GetTimeSlot2();
         // 남은 시간은 절대 시각 차 — 자정 넘김에서 음수, 60분 초과에서 나머지만 보이던 것(4차 G).
         const int32_t rem = rtc.GetAlarmRemainingSeconds(slot);
         snprintf_P(alarmBuffer, sizeof(alarmBuffer), PSTR("%02d Min Alarm %02ld:%02ld"),
                    alarmTime, static_cast<long>(rem / 60), static_cast<long>(rem % 60));
+        for (uint8_t i = static_cast<uint8_t>(strlen(alarmBuffer)); i < 20; ++i) alarmBuffer[i] = ' ';   // 20자 채움 — 자릿수가 줄어도 잔상 없음
+        alarmBuffer[20] = 0;
         ui.InfoRow1_cstr(alarmBuffer);
         break;
     }
@@ -349,8 +360,10 @@ void loop()
     case WASHING_TYPE_DEVICE:
         if (company.TagType == SCOPE_TYPE_TAG)
             washingProcessor.WashingProcess(deviceOption.GetNumber(), alarmOption, managerOption, recordOption, rtc, ui);
-        if (company.TagType == MANAGER_TYPE_TAG)
+        else if (company.TagType == MANAGER_TYPE_TAG)
             washingProcessor.SaveManagerData(recordOption, managerOption, ui);
+        else
+            ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 안 되는 태그(클리어 등) — 무음이던 것을 거부음으로 통일(사장님 09-27)
         break;
     case DISINFECTION_TYPE_DEVICE:
         if (company.TagType == SCOPE_TYPE_TAG)
@@ -358,6 +371,8 @@ void loop()
                                                      managerOption, recordOption, rtc, ui);
         if (company.TagType == MANAGER_TYPE_TAG)
             disinfectionProcessor.SaveManagerData(recordOption, managerOption, ui);
+        if (company.TagType != SCOPE_TYPE_TAG && company.TagType != MANAGER_TYPE_TAG && company.TagType != CLEAR_TYPE_TAG)
+            ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 무음이던 것을 거부음으로 통일(사장님 09-27)
         if (company.TagType == CLEAR_TYPE_TAG)
         {
             disinfectionOption.SetCount(0);
@@ -455,7 +470,7 @@ void handle_menu(UserInterface::MenuFunction function)
 
         switch (function)
         {
-        case UserInterface::MenuFunction::Home: ui.DisplayHome(rtc, deviceOption.GetNumber()); return;
+        case UserInterface::MenuFunction::Home: return;   // 그리지 않는다 — 다음 loop 이 정본 값(게이트웨이 본체번호 포함)으로 그린다
         case UserInterface::MenuFunction::Next:   function = ui.DisplayNextMenu(); continue;
         case UserInterface::MenuFunction::Prev:   function = ui.DisplayPrevMenu(); continue;
         case UserInterface::MenuFunction::Date:   function = ui.SetDeviceDate(rtc); continue;

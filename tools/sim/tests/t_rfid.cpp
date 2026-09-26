@@ -146,7 +146,8 @@ int main()
         rtc.ClearAlarm(1);
         logs_clear();
         touch(v, 1, 4);
-        CHECK(get_process(v).Rewrite == 1 && lcd_has("Write Error"), "3차B(W): 카드엔 커밋됐지만 Write Error");
+        CHECK(get_process(v).Rewrite == 1 && !lcd_has("Write Error") && rtc.HasAlarm(1),
+              "5차C(W): 카드에 커밋됐으면 확인 읽기가 실패해도 성공(Write Error 아님·알람 있음)");
         touch(v, 1, 4);
         const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(v, SECTOR3_WASHING_END)) -
                              DefaultRtc::ToDateTime(get_ldt(v, SECTOR2_WASHING_START))).totalseconds();

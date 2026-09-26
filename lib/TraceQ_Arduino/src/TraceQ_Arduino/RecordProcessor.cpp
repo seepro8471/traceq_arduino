@@ -67,7 +67,8 @@ bool RecordProcessor::try_load_manager_data(const ManagerOption &managerOption,
             printer.Reject(0, 2, F("No Manager Info"));
             return false;
         }
-        mDisposabilityFlag = false;
+        // ★여기서 소모하지 않는다 — 시작 커밋이 성공한 뒤 consume_disposability() 로. 종전엔 실패한 시작·
+        //  종료 터치에도 소모돼 Write Error 뒤 재접촉이 "No Manager Info" 가 됐다(5차 C).
     }
     load_manager_data(managerOption);
     return true;
@@ -85,6 +86,8 @@ bool RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc)
     const auto started = DefaultRtc::ToDateTime(record.DateTime);
     if (!started.isValid()) return false;
     const int32_t gap = (rtc.GetCurrentDateTime() - started).totalseconds();
+    // [5차 판정 · 재론 금지] 2초 창은 그대로(사장님 09-27). 커밋 뒤 확인 실패로 'Write Error' 가 난 태그를
+    //  2초 넘겨 다시 대면 종료가 되는 경우는, write_process 의 재확인(5차)으로 거의 사라지고 나머지는 감수.
     return gap > -2 && gap < 2;
 }
 

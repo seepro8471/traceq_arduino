@@ -47,6 +47,8 @@ void DisinfectionProcessor::DisinfectionProcess(
         }
     }
 
+    // [5차 판정 · 재론 금지] 이동 플래그는 새 시작에서만 내린다(1.0 동일) — 액교환 뒤 욕조 안 스코프 여럿을
+    //  차례로 이동시키는 것이 의도. 이미 끝난 스코프를 다시 대면 이동으로 처리되는 것은 조작 오류 범위.
     if (mMovable && !isEnd) mMovable = false;
 
     if (isEnd)
@@ -67,8 +69,10 @@ void DisinfectionProcessor::DisinfectionProcess(
             printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
             return;
         }
+        // ★자기 슬롯만 비운다 — 슬롯이 없는 스코프(다른 스코프에 host 를 넘겨준 뒤 끝나는 것)의 종료가
+        //  현재 host 의 슬롯·시간창을 지우면, 그 창 안에 온 다음 스코프가 guest 가 아닌 host 로 기록됐다(5차 C P1-1).
         if (isGuest) mGuestScopeNumber = kNoScope;
-        else { mHostScopeNumber = kNoScope; mStartTime = DateTime{}; }
+        else if (is_host(mCachedTag.Number)) { mHostScopeNumber = kNoScope; mStartTime = DateTime{}; }
         rtc.ClearAlarm(2);
     }
     else
@@ -91,6 +95,7 @@ void DisinfectionProcessor::DisinfectionProcess(
             printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
             return;
         }
+        consume_disposability();   // 일회성 담당자는 커밋된 시작에만 쓰인다
         if (isGuest) set_guest(mCachedTag.Number);
         else         set_host(mCachedTag.Number, rtc.GetCurrentDateTime());
         rtc.SetAlarm(2, alarmOption.GetTimeSlot2(), 0);
@@ -130,6 +135,8 @@ bool DisinfectionProcessor::disinfection_start(
 {
     // 재시작(더블터치)은 커밋된 시작을 지우지 않는다 — 지운 뒤 중간에 실패하면 RW=2 인데 시작이 0 인 태그가
     // 남아 서버가 빈 시각을 등록한다. 세 블록과 자동 종료를 전부 다시 쓰므로 지울 이유도 없다.
+    // [5차 판정 · 재론 금지] 성공 경로에선 아래 쓰기가 두 섹터를 전부 덮어 소거가 중복(≈100ms)이지만,
+    //  중간 실패 시 지난 주기 기록이 새 시작과 섞여 남지 않게 하는 방어라 둔다(4차 B 도 유지 권고).
     if (!isMoved && !isRestart)
     {
         mScanner.ClearSector(5);
@@ -221,6 +228,7 @@ DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, Default
         return DateTime{static_cast<uint32_t>(0)};
 
     const auto startTime = DefaultRtc::ToDateTime(record.DateTime);
+    if (!startTime.isValid()) return current;   // 손상 기록(연도 0xFFFF 등)으로 RTC 를 2047 로 만들지 않는다
     // 세척 시작 시각이 현재 시각보다 늦으면 소독기 RTC가 초기화된 것으로 판단,
     // "세척 종료 시각 + 1분"으로 소독기 RTC를 복구하고 그 시각을 소독 시작
     // 시각으로 쓴다. (+1분 = 세척기→소독기 이동 시간 반영, 2026-08-09 사용자 확정.

@@ -65,6 +65,7 @@ SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
     // '{' .. '}' 범위만 추출 — 길이 명시.
     const size_t start = str_index_of(buffer, '{');
     if (start == static_cast<size_t>(-1)) return ProcessKind::NotJson;
+    // [5차 판정 · 재론 금지] 한 버퍼에 JSON 이 둘이면 둘째는 버린다 — 세 PC 모두 명령을 하나씩 보내고 응답을 기다린다.
     const size_t end = str_index_of_range(buffer, '}', start + 1);
     if (end == static_cast<size_t>(-1)) return ProcessKind::NotJson;
     if (end + 1 > length) return ProcessKind::NotJson;
@@ -154,9 +155,10 @@ void SerialProcessor::WriteOptionData(
     doc["washing_time"]  = alarmOption.GetTimeSlot1();
     doc["df_time"]       = alarmOption.GetTimeSlot2();
 
-    unsigned char key[ManagerOption::KEY_SIZE]{};
+    // +1 = NUL 자리 — 1.4.1 이 16바이트를 꽉 채워 저장한 기기에서 JSON 직렬화가 스택 밖을 읽었다(5차 E3).
+    unsigned char key[ManagerOption::KEY_SIZE + 1]{};
     managerOption.GetKey(key, ManagerOption::KEY_SIZE);
-    unsigned char name[ManagerOption::NAME_SIZE]{};
+    unsigned char name[ManagerOption::NAME_SIZE + 1]{};
     managerOption.GetName(name, ManagerOption::NAME_SIZE);
     doc["manager_key"]  = key;
     doc["manager_name"] = name;
@@ -566,7 +568,9 @@ int SerialProcessor::legacy_parse_scope_tag(const char *buffer)
     const auto idx = static_cast<int>(str_index_of(buffer, ';'));
     if (idx == -1) return -1;
     str_substring_safe(buffer, string, 16, 1, idx);
-    mCachedTag.Number = str_atoi(string);
+    const int number = str_atoi(string);
+    if (number < 0) return -1;   // 빈값·비숫자·범위 밖은 발급 실패 — 종전엔 -1(0xFFFF) 번호 태그가 'new tag' 됐다(5차 D)
+    mCachedTag.Number = number;
 
     // serial: 두 번째 ';'까지.
     memset(string, 0, sizeof(string));

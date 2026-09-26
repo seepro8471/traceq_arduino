@@ -24,8 +24,8 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
     //  없어 아래에서 폴백된다(스테일·혼합 환자를 기록하지 않는다). 모든 필드가 같은 레코드에서 오므로
     //  서로 다른 환자의 조각이 섞이지 않는다.
     const char *rec = buffer;
-    for (size_t at = str_index_of_cstr(buffer, "G1"); at != static_cast<size_t>(-1);
-         at = str_index_of_cstr_range(buffer, "G1", at + 1))
+    for (size_t at = find_marker(buffer, "G1", 0); at != static_cast<size_t>(-1);
+         at = find_marker(buffer, "G1", at + 1))
         rec = buffer + at;
 
     // G1 = 본체번호 (2.2.6, 사용자 확정). `G1{gate};G2…` 형식.
@@ -87,6 +87,8 @@ void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
 
 bool GatewayProcessor::write_no_patient_info(const Gateway &gateway, const char *stringDateTime)
 {
+    // [5차 판정 · 재론 금지] Status=0 을 **먼저** 쓴다 — 뒤 소거가 실패해도 세척기가 '환자정보 없음' 을 알린다.
+    //  Status 를 마지막에 두면 실패 시 Status=1(직전 환자) 이 남아 세척기가 남의 환자로 통과시킨다(더 나쁨).
     if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return false;
     if (!write_process()) return false;
 
@@ -100,6 +102,15 @@ bool GatewayProcessor::write_no_patient_info(const Gateway &gateway, const char 
 
 bool GatewayProcessor::write_patient_info(int deviceNumber)
 {
+    // ★이미 '환자정보 있음'(Status=1) 인 태그면 먼저 내린다 — 아래 쓰기가 중간에 실패하면 "Status=1 +
+    //  새 키 + 옛 이름" 같은 혼합 태그가 남았다(5차 D). 내려 두면 실패 시 세척기가 '환자정보 없음' 을 알린다.
+    if (mCachedProcess.Status == 1)
+    {
+        mCachedProcess.Status = 0;
+        if (!write_process()) return false;
+        unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};   // 옛 환자 블록도 비운다 — PC 는 Status 와 무관하게 블록 8 을 등록번호로 쓴다
+        if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
+    }
     // 본체번호는 PC 가 G1 로 준 값 (기기 설정은 미수신 시 폴백일 뿐).
     Gateway gateway{effective_number(deviceNumber), mDateTime};
     if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return false;
@@ -167,14 +178,29 @@ bool GatewayProcessor::is_valid(LcdPrinter &printer)
     return true;
 }
 
+// ★마커(G1~G5)는 **필드 경계**에서만 인정한다 — 맨 앞, ';' 바로 뒤, 값 없는 G1 바로 뒤(세척관리 `G1G2…`).
+//  값 안의 같은 글자(등록키 "G1234", 이름 "KIG4M", 검사명 속 "G5")를 마커로 집어 환자정보가 통째로
+//  유실되거나 검사명이 오염되던 것(5차 D). 세 PC 의 실제 형식: 델파이·SeePro 는 전부 ';' 뒤, 세척관리만 G1G2 인접.
+size_t GatewayProcessor::find_marker(const char *src, const char *marker, size_t begin)
+{
+    for (size_t at = str_index_of_cstr_range(src, marker, begin); at != static_cast<size_t>(-1);
+         at = str_index_of_cstr_range(src, marker, at + 1))
+    {
+        // 경계: 맨 앞 · ';' 뒤 · 값 없는 G1 뒤(G1G2) · 앞 패킷 끝 G5 뒤(세척관리는 ';' 없이 G5 로 끝난다). 'G+숫자' 일반화는
+        // 값 "G3G1234" 를 다시 잡으므로 금지.
+        if (at == 0 || src[at - 1] == ';' ||
+            (at >= 2 && src[at - 2] == 'G' && (src[at - 1] == '1' || src[at - 1] == '5'))) return at;
+    }
+    return static_cast<size_t>(-1);
+}
+
 bool GatewayProcessor::find_string(const char *src, char *dst, size_t dstSize, const char *from, const char *to)
 {
     if (src == nullptr || dst == nullptr || from == nullptr || to == nullptr) return false;
-    // ★한 레코드 안에서는 **첫 일치**를 쓴다 — 값에 `G3` 같은 마커가 들어 있어도(예: 등록키 "G3PAT")
-    //  뒤에서 잘못 집지 않게. 여러 레코드가 한 버퍼에 온 경우는 호출 전에 마지막 레코드로 좁혀 둔다.
-    const auto fromIdx = str_index_of_cstr(src, from);
+    // 한 레코드 안에서는 첫 경계 일치. 여러 레코드는 호출 전에 마지막 레코드로 좁혀 둔다.
+    const auto fromIdx = find_marker(src, from, 0);
     if (fromIdx == static_cast<size_t>(-1)) return false;
-    const auto toIdx = str_index_of_cstr_range(src, to, fromIdx + str_strlen(from));
+    const auto toIdx = find_marker(src, to, fromIdx + str_strlen(from));
     if (toIdx == static_cast<size_t>(-1)) return false;
     str_substring_safe(src, dst, dstSize, fromIdx + str_strlen(from), toIdx);
     return true;
@@ -254,6 +280,9 @@ void GatewayProcessor::substring_for_local_date_time(char *string)
     if (minute == -1) return;
     const int second = str_atoi(strtok(nullptr, ";"));
     if (second == -1) return;
+    // 범위 밖(월 13·시 25 …)은 검사일시 없음으로 — RTC 를 엉뚱한 해로 맞추지 않는다(5차 D).
+    if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour > 23 || minute > 59 || second > 59) return;
 
     mDateTime = LocalDateTime{
         LocalDate{static_cast<uint16_t>(year), static_cast<uint8_t>(month), static_cast<uint8_t>(day)},

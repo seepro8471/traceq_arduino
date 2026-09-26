@@ -6,7 +6,7 @@ UserInterface::MenuFunction UserInterface::SetRecordAlarmFlag(AlarmOption &optio
     // line
     auto line = Line{0, 0, ""};
     // by flag
-    const auto eResult = flag ? select(line, F("Alarm Sound (Yes)"), "Yes", "No") : select(line, F("Alarm Sound (No)"), "Yes", "No");
+    const auto eResult = flag ? select(line, F("Alarm Sound (Yes)"), "Yes", "No", 0) : select(line, F("Alarm Sound (No)"), "Yes", "No", 1);
     switch (eResult)
     {
     case MenuFunction::Exit:
@@ -37,7 +37,7 @@ UserInterface::MenuFunction UserInterface::SetRecordAlarmTimeSlot(char deviceTyp
     const int8_t current = isWashingType ? option.GetTimeSlot1() : option.GetTimeSlot2();
     snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Alarm Time (NN)" = 15자+NUL (1.0은 [14]라 2바이트 스택 오버런).
-    char title[16]{};
+    char title[18]{};   // "Alarm Time (120)" 16자 + NUL — [16] 은 닫는 괄호가 잘렸다
     snprintf(title, sizeof(title), "Alarm Time (%s)", numberBuffer);
     // line
     auto line = Line{0, 2, numberBuffer};
@@ -76,7 +76,7 @@ UserInterface::MenuFunction UserInterface::SetRecordPatientCheck(RecordOption &o
     // line
     auto line = Line{0, 0, ""};
     // by flag
-    const auto eResult = flag ? select(line, F("Patient Check (Yes)"), "Yes", "No") : select(line, F("Patient Check (No)"), "Yes", "No");
+    const auto eResult = flag ? select(line, F("Patient Check (Yes)"), "Yes", "No", 0) : select(line, F("Patient Check (No)"), "Yes", "No", 1);
     switch (eResult)
     {
     case MenuFunction::Exit:
@@ -105,7 +105,7 @@ UserInterface::MenuFunction UserInterface::SetRecordManagerDisposability(RecordO
     // line
     auto line = Line{0, 0, ""};
     // by flag
-    const auto eResult = flag ? select(line, F("Manager Check(Yes)"), "Yes", "No") : select(line, F("Manager Check (No)"), "Yes", "No");
+    const auto eResult = flag ? select(line, F("Manager Check(Yes)"), "Yes", "No", 0) : select(line, F("Manager Check (No)"), "Yes", "No", 1);
     switch (eResult)
     {
     case MenuFunction::Exit:

@@ -55,7 +55,7 @@ void BaseUserInterface::print_title(const __FlashStringHelper *title)
 
 void BaseUserInterface::print_option_nagivation()
 {
-    // clear
+    // clear — 홈 캐시 무효화는 호출자(UserInterface::select)가 한다
     mLcd.clear();
     // print
     print_screen(mOptionNavigation);

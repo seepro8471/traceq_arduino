@@ -6,7 +6,11 @@ static SimCard fac, fac2;
 static void factory(SimCard &c, uint8_t uid)
 {
     card_init_traceq(c, uid);
-    for (uint8_t s = 0; s < 16; ++s) { memset(c.keyB[s], 0xFF, 6); c.keyBAuth[s] = false; }   // 공장 트레일러
+    for (uint8_t s = 0; s < 16; ++s)
+    {
+        memset(c.keyB[s], 0xFF, 6); c.keyBAuth[s] = false;   // 공장 트레일러(운송 접근조건 FF 07 80)
+        c.data[s * 4 + 3][6] = 0xFF; c.data[s * 4 + 3][7] = 0x07; c.data[s * 4 + 3][8] = 0x80;
+    }
 }
 static void json(const char *s)
 {

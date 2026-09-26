@@ -95,7 +95,9 @@ UserInterface::MenuFunction UserInterface::SetDeviceType(DeviceOption &option)
     sprintf(title, "Type (%c)", current);
     // line
     auto line = Line{0, 0, ""};
-    switch (select(line, title, "Gateway", "Washing", "Disinfection", "Server"))
+    const uint8_t startAt = current == WASHING_TYPE_DEVICE ? 1 : current == DISINFECTION_TYPE_DEVICE ? 2
+                          : current == SERVER_TYPE_DEVICE ? 3 : 0;
+    switch (select(line, title, "Gateway", "Washing", "Disinfection", "Server", startAt))
     {
     case MenuFunction::Exit:
     {
@@ -127,7 +129,7 @@ UserInterface::MenuFunction UserInterface::SetDeviceNumber(DeviceOption &option)
     const auto current{option.GetNumber()};
     snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Number (NN)" = 11자+NUL (1.0은 [10]이라 2바이트 스택 오버런).
-    char title[12]{};
+    char title[16]{};   // "Number (32767)" 14자 + NUL
     snprintf(title, sizeof(title), "Number (%s)", numberBuffer);
     // line
     auto line = Line{0, 2, numberBuffer};

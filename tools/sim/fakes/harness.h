@@ -62,7 +62,8 @@ void buzz_clear();
 
 // ── 버튼 스크립트 (LOW=눌림) ──
 void buttons_script(const char *seq);
-void buttons_at(char btn, uint32_t atMs);   // g_ms 가 atMs 에 이르면 그 버튼('S','L','R')이 한 번 눌린다
+void buttons_at(char btn, uint32_t atMs);        // g_ms 가 atMs 에 이르면 그 버튼('S','L','R')이 한 번 눌린다
+void buttons_hold(char btn, uint32_t untilMs);   // g_ms < untilMs 동안 그 버튼이 계속 눌린 채(붙은 채 고장·길게 누름)
 extern uint32_t g_btnIdleLimit;        // 스크립트 소진 뒤 이만큼 더 읽으면 시험을 끊는다(기본 30000)   // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
 extern uint16_t g_minSP;                // 버튼 읽는 자리에서 본 최저 SP
 

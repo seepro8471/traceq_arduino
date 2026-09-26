@@ -12,6 +12,7 @@ SimCard *g_card;
 SimCardState g_cardState = CARD_OFF;
 bool g_readerCrypto;
 static int8_t s_authSector = -1;
+static bool   s_authKeyB;   // 마지막 인증이 KEY_B 였나 — 트레일러 쓰기 규칙에 쓴다
 
 static const uint8_t kTraceQKey[6] = {0x90, 0x25, 0x84, 0x71, 0x84, 0x72};
 
@@ -27,12 +28,20 @@ static void card_common(SimCard &c, uint8_t uidLast)
 void card_init_traceq(SimCard &c, uint8_t uidLast)
 {
     card_common(c, uidLast);
-    for (uint8_t s = 0; s < 16; ++s) { memcpy(c.keyB[s], kTraceQKey, 6); c.keyBAuth[s] = true; }
+    for (uint8_t s = 0; s < 16; ++s)
+    {
+        memcpy(c.keyB[s], kTraceQKey, 6); c.keyBAuth[s] = true;
+        c.data[s * 4 + 3][6] = 0x0F; c.data[s * 4 + 3][7] = 0x00; c.data[s * 4 + 3][8] = 0xFF;   // 접근조건 011 바이트(실물과 같게)
+    }
 }
 void card_init_foreign(SimCard &c, uint8_t uidLast)
 {
     card_common(c, uidLast);
-    for (uint8_t s = 0; s < 16; ++s) { memset(c.keyB[s], 0xA5, 6); c.keyBAuth[s] = true; }
+    for (uint8_t s = 0; s < 16; ++s)
+    {
+        memset(c.keyB[s], 0xA5, 6); c.keyBAuth[s] = false;   // 공장 운송 접근조건(FF 07 80): KEY_A 로 전부 쓰기 가능
+        c.data[s * 4 + 3][6] = 0xFF; c.data[s * 4 + 3][7] = 0x07; c.data[s * 4 + 3][8] = 0x80;
+    }
 }
 void card_place(SimCard *c) { g_card = c; g_cardState = CARD_IDLE; }
 void card_remove() { g_card = nullptr; g_cardState = CARD_OFF; }
@@ -149,6 +158,7 @@ MFRC522::StatusCode MFRC522::PCD_Authenticate(byte cmd, byte block, MIFARE_Key *
     }
     g_cardState = CARD_AUTH;
     s_authSector = (int8_t)sector;
+    s_authKeyB = (cmd == PICC_CMD_MF_AUTH_KEY_B);
     g_readerCrypto = true;
     return STATUS_OK;
 }
@@ -188,6 +198,8 @@ MFRC522::StatusCode MFRC522::MIFARE_Write(byte block, byte *buffer, byte size)
     ++c.writeCount;
     if (!card_can_rw(block)) { card_idle(); return STATUS_TIMEOUT; }
     if (c.failWriteAt && c.writeCount == (uint16_t)c.failWriteAt) { card_idle(); return STATUS_MIFARE_NACK; }
+    // MF1S50 표7: 접근조건 011(TraceQ) 트레일러는 KEY_B 인증에서만 쓸 수 있다 — KEY_A 면 NACK.
+    if ((block & 3) == 3 && c.keyBAuth[block / 4] && !s_authKeyB) return STATUS_MIFARE_NACK;
     // 특정 블록만 NACK — 카드 상태는 유지(다음 블록 쓰기는 성공한다).
     if (c.nackBlock == (int16_t)block)
     {

@@ -75,8 +75,8 @@ void RfidController::pcdSoftReset()
     mMfrc522.PCD_WriteRegister(MFRC522::CommandReg, MFRC522::PCD_SoftReset);
     // 데이터시트 기준 soft reset 후 PowerDown 비트가 클리어될 때까지 대기.
     // 1.0은 delay(50)*3로 최대 150ms 고정. 2.0은 마이크로초 폴링으로 보통 수 ms 안에 종료.
-    const unsigned long deadline = millis() + TRACEQ_RFID_SOFTRESET_TIMEOUT_MS;
-    while (millis() < deadline)
+    const unsigned long start = millis();   // 뺄셈형 — 49.7일 랩에서 대기가 0 이 되던 것
+    while (millis() - start < TRACEQ_RFID_SOFTRESET_TIMEOUT_MS)
     {
         if ((mMfrc522.PCD_ReadRegister(MFRC522::CommandReg) & (1 << 4)) == 0)
         {
@@ -142,10 +142,16 @@ RfidController::TagStatus RfidController::Poll(bool wakeHalted)
         // 지원 안 하는 카드도 반드시 정지시킨다 — 안 그러면 두 폴링마다 응답해 present 가 참으로 굳고,
         // 그 위에 올린 스코프 태그가 KeepAlive 로 먹혀 화면·소리·전송이 전부 무음이 된다(교통·출입카드).
         mMfrc522.PICC_HaltA();
+        // ★Invalid 는 세션이 아니다 — 표시를 남기면 출입카드와 스코프가 **같이** 있을 때 스코프의 첫
+        //  Poll 이 prev=참으로 KeepAlive 가 되어 카드를 치울 때까지 무음(5차 B).
+        mTagPresent = false;
+        mTagPresentPrev = false;
+        mMissCount = 0;
         return TagStatus::Invalid;
     }
 
-    // UID가 이전과 다르면 새로 들어온 태그 → 이전 세션을 완전히 정리.
+    // UID 가 이전과 다르면 인증 캐시만 정리(반환은 prev 로 정한다 — 제품 경로에서 sameUid 는 사실상 늘 거짓,
+    // EndSession 이 매 처리 뒤 mAuthUidSize 를 0 으로 두기 때문. 5차 B 계수 1,500회 중 참 0).
     bool sameUid = (mAuthUidSize != 0) &&
                    (mAuthUidSize == mMfrc522.uid.size) &&
                    (memcmp(mAuthUid, mMfrc522.uid.uidByte, mAuthUidSize) == 0);
@@ -322,6 +328,7 @@ RfidResult RfidController::writeVerified(uint8_t block, const uint8_t buffer[16]
         {
             lastError = RfidResult::WriteFailed;   // 쓰기 자체 실패 → nested 재인증 후 재시도.
         }
+        if (attempt + 1 == TRACEQ_RFID_MAX_WRITE_RETRIES) break;   // 마지막 실패 뒤 재인증은 낭비 + 진짜 원인을 AuthFailed 로 가린다
         dropAuthCache();
         if (!ensureAuthenticated(block)) return RfidResult::AuthFailed;
     }
@@ -442,6 +449,14 @@ RfidResult RfidController::InstallTraceQKeys()
             MFRC522::PICC_CMD_MF_AUTH_KEY_A, trailer, &mDefaultKey, &mMfrc522.uid);
         if (mLastStatus != MFRC522::STATUS_OK) return RfidResult::AuthFailed;
         mCryptoOn = true;
+
+        // ★멱등 — 발급 도중 전원이 나가 반만 바뀐 태그는 접근조건(011)이 이미 TraceQ 라 KEY_A 로는
+        //  트레일러를 다시 쓸 수 없다(MF1S50 표7 → NACK). 이미 그 접근비트면 건너뛰어 재시도가 통과하게.
+        uint8_t cur[MIFARE_READ_BUFFER_SIZE]{};
+        byte curSize = sizeof(cur);
+        if (mMfrc522.MIFARE_Read(trailer, cur, &curSize) == MFRC522::STATUS_OK &&
+            memcmp(&cur[6], &trailerBuffer[6], 3) == 0)
+            continue;
 
         mLastStatus = mMfrc522.MIFARE_Write(trailer, trailerBuffer, MIFARE_BLOCK_SIZE);
         if (mLastStatus != MFRC522::STATUS_OK) return RfidResult::WriteFailed;

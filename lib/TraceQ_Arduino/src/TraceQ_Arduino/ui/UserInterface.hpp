@@ -154,26 +154,20 @@ protected:
     inline void menu_touch() { mMenuActiveAt = millis(); }
     inline bool menu_idle_expired() const { return millis() - mMenuActiveAt >= kMenuIdleMs; }
 
-    inline bool read_select_button()
+    // ★활동 갱신은 '눌린 채' 가 아니라 **누르는 순간(HIGH→LOW 에지)** 에만 — 붙은 채 고장난 버튼이 시한을
+    //  영영 미루던 것(5차 A2). 눌린 동안 반환값은 종전과 같다(메뉴 조작 불변).
+    uint8_t mBtnHeld{0};   // bit0=SELECT bit1=LEFT bit2=RIGHT
+    inline bool read_button_edge(uint8_t pin, uint8_t bit)
     {
-        if (digitalRead(PIN_SELECT_BUTTON) != LOW) return false;
-        menu_touch();
-        return true;
+        const bool low = digitalRead(pin) == LOW;
+        const bool was = (mBtnHeld & bit) != 0;
+        if (low && !was) menu_touch();
+        if (low) mBtnHeld |= bit; else mBtnHeld &= static_cast<uint8_t>(~bit);
+        return low;
     }
-
-    inline bool read_left_button()
-    {
-        if (digitalRead(PIN_LEFT_BUTTON) != LOW) return false;
-        menu_touch();
-        return true;
-    }
-
-    inline bool read_right_button()
-    {
-        if (digitalRead(PIN_RIGHT_BUTTON) != LOW) return false;
-        menu_touch();
-        return true;
-    }
+    inline bool read_select_button() { return read_button_edge(PIN_SELECT_BUTTON, 0x01); }
+    inline bool read_left_button()   { return read_button_edge(PIN_LEFT_BUTTON,   0x02); }
+    inline bool read_right_button()  { return read_button_edge(PIN_RIGHT_BUTTON,  0x04); }
 
     /**
      * Line과 option navigation을 표시한다.
@@ -216,7 +210,7 @@ protected:
      * \param p2 parameter 2
      * \return 옵션의 실행 결과
      */
-    MenuFunction select(Line &line, const char *title, const char *p1, const char *p2);
+    MenuFunction select(Line &line, const char *title, const char *p1, const char *p2, uint8_t start = 0);
 
     /**
      * \brief 넘겨받은 parameter 중 하나를 선택하여 line에 저장한다.
@@ -227,7 +221,7 @@ protected:
      * \param p2 parameter 2
      * \return 옵션의 실행 결과
      */
-    MenuFunction select(Line &line, const __FlashStringHelper *title, const char *p1, const char *p2);
+    MenuFunction select(Line &line, const __FlashStringHelper *title, const char *p1, const char *p2, uint8_t start = 0);
 
     /**
      * \brief 넘겨받은 parameter 중 하나를 선택하여 line에 저장한다.
@@ -241,7 +235,7 @@ protected:
      * \return 옵션의 실행 결과
      */
     MenuFunction select(Line &line, const char *title, const char *p1, const char *p2,
-                        const char *p3, const char *p4);
+                        const char *p3, const char *p4, uint8_t start = 0);
 
     /**
      * \brief 넘겨받은 parameter 중 하나를 선택하여 line에 저장한다.
@@ -255,7 +249,7 @@ protected:
      * \return 옵션의 실행 결과
      */
     MenuFunction select(Line &line, const __FlashStringHelper *title, const char *p1, const char *p2,
-                        const char *p3, const char *p4);
+                        const char *p3, const char *p4, uint8_t start = 0);
 
 private:
     /**
@@ -294,7 +288,7 @@ private:
      * \param p2 parameter 2
      * \return 옵션의 실행 결과
      */
-    MenuFunction select_impl(Line &line, const char *p1, const char *p2);
+    MenuFunction select_impl(Line &line, const char *p1, const char *p2, uint8_t start);
 
     /**
      * \brief 넘겨받은 parameter 중 하나를 선택하여 line에 저장한다.
@@ -306,7 +300,7 @@ private:
      * \param p4 parameter 4
      */
     MenuFunction select_impl(Line &line, const char *p1, const char *p2,
-                             const char *p3, const char *p4);
+                             const char *p3, const char *p4, uint8_t start);
 
     /**
      * \brief 0 ~ 9 사이의 정수를 저장하는 문자를 parameter decrement의 값에 따라 증감시킨다.
