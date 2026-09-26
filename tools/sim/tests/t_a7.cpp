@@ -44,10 +44,10 @@ int main()
 
     // ═══ A1 P2-1: 세척기에 클리어 태그 → 거부음(무음 아님) ═══
     {
-        static SimCard clr;
-        make_tag(clr, 0x02, CLEAR_TYPE_TAG, 0, "", "");
+
+        make_tag(c, 0x02, CLEAR_TYPE_TAG, 0, "", "");
         buzz_clear();
-        touch(clr);
+        touch(c);
         tlog("  A1 세척기+클리어: 600=%u 60=%u\n", buzz_count(600), buzz_count(60));
         CHECK(buzz_count(600) == 1 && buzz_count(60) == 2, "A1 P2-1 세척기에 처리 못 하는 태그 → 거부음(삐삐+긴삐)");
     }
@@ -267,30 +267,75 @@ int main()
 
     // ═══ B P2-2: 반만 바뀐 태그(전원 상실)도 type 0 재발급이 통과한다 ═══
     {
-        static SimCard half;
-        card_init_foreign(half, 0x40);                   // 공장 키(KEY_A FF) 카드
+
+        card_init_foreign(c, 0x40);                   // 공장 키(KEY_A FF) 카드
         for (uint8_t s = 0; s < 16; ++s)
         {
-            memset(half.keyB[s], 0xFF, 6); half.keyBAuth[s] = false;
-            half.data[s * 4 + 3][6] = 0xFF; half.data[s * 4 + 3][7] = 0x07; half.data[s * 4 + 3][8] = 0x80;   // 공장 운송 접근조건
+            memset(c.keyB[s], 0xFF, 6); c.keyBAuth[s] = false;
+            c.data[s * 4 + 3][6] = 0xFF; c.data[s * 4 + 3][7] = 0x07; c.data[s * 4 + 3][8] = 0x80;   // 공장 운송 접근조건
         }
         // 앞 3섹터만 TraceQ 로 바뀐 상태(접근조건 011 + KEY_B = TraceQ 키)
         static const uint8_t kKey[6] = {0x90, 0x25, 0x84, 0x71, 0x84, 0x72};   // fake 의 TraceQ 키
         for (uint8_t s = 0; s < 3; ++s)
         {
-            memcpy(half.keyB[s], kKey, 6); half.keyBAuth[s] = true;
-            half.data[s * 4 + 3][6] = 0x0F; half.data[s * 4 + 3][7] = 0x00; half.data[s * 4 + 3][8] = 0xFF;   // 접근조건 011 바이트
+            memcpy(c.keyB[s], kKey, 6); c.keyBAuth[s] = true;
+            c.data[s * 4 + 3][6] = 0x0F; c.data[s * 4 + 3][7] = 0x00; c.data[s * 4 + 3][8] = 0xFF;   // 접근조건 011 바이트
         }
         logs_clear();
         const char nt[] = "{\"cmd\":\"cfg_new_tag\",\"type_id\":0}";
         serial_inject(nt, sizeof(nt) - 1);
-        card_place(&half);
+        card_place(&c);
         GUARDED(serialEvent());
         card_remove(); run_loops(4);
         tlog("  B P2-2 반만 바뀐 태그 재발급: lcd=[%.40s]\n", g_lcdLog);
         CHECK(lcd_has("tag created"), "B P2-2 발급 도중 전원이 나간 태그도 type 0 재발급이 통과한다(멱등)");
     }
 
+    // ═══ P3 마무리 잠금 ═══
+    // 미인증 서버 + 스코프 → 거부음(무음 아님)
+    reboot_as('S');
+    {
+        fresh_scope(a, 0x51, 51);
+        set_process(a, Process{1, 1, 1, 1, 1, false, 0, 2});
+        logs_clear(); buzz_clear();
+        touch(a);                                        // 'Z' 없이
+        tlog("  P3 미인증 서버: 600=%u Ok!=%d\n", buzz_count(600), serial_has("Ok!"));
+        CHECK(buzz_count(600) == 1 && !serial_has("Ok!"), "P3 미인증 서버에 스코프 → 거부음(덤프는 없음)");
+    }
+    serial_inject("Z", 1); GUARDED(serialEvent()); run_loops(1);
+    {
+        // device_type "" 은 무시(W 로 바뀌며 재시작하던 것)
+        deviceOption.SetType('S');
+        const uint16_t r0 = g_resetCount;
+        json("{\"cmd\":\"cfg_set_config\",\"device_type\":\"\"}");
+        tlog("  P3 device_type '': type=%c resets %u→%u\n", deviceOption.GetType(), r0, g_resetCount);
+        CHECK(deviceOption.GetType() == 'S' && g_resetCount == r0, "P3 device_type \"\" 은 무시 — 타입 유지·재시작 없음");
+        // 파싱 실패 발급 명령은 4초를 기다리지 않는다
+        const unsigned long t0 = millis();
+        logs_clear();
+        serial_inject("S99;", 4);                       // 세미콜론 하나 = 파싱 실패
+        GUARDED(serialEvent());
+        tlog("  P3 파싱 실패 발급: 경과=%lums lcd=[%.30s]\n", millis() - t0, g_lcdLog);
+        CHECK(millis() - t0 < 2000UL && lcd_has("timeout or error"), "P3 파싱 실패 발급은 즉시 실패(4초 대기 없음)");
+        // ClearSector 범위
+        CHECK(rfid.ClearSector(16) == RfidResult::InvalidArgument, "P3 ClearSector(16) 은 거부");
+    }
+    // 최대 횟수 뒤에도 환자정보 경고가 난다
+    reboot_as('D');
+    touch(mgr);
+    {
+        recordOption.SetPatientCheck(true);
+        disinfectionOption.SetMaximumCount(1);
+        disinfectionOption.SetCount(5);
+        washed_scope(b, 0x52, 52);
+        set_process(b, Process{0, 0, 1, 0, 1, false, 0, 0});   // 환자정보 없음
+        logs_clear(); buzz_clear();
+        touch(b);
+        tlog("  P3 MaxCount+환자없음: MaxCount=%d NoPatient=%d\n", lcd_has("MaxCount Over"), lcd_has("No Patient Info"));
+        CHECK(lcd_has("MaxCount Over") && lcd_has("No Patient Info"), "P3 최대 횟수 안내가 환자정보 경고를 가리지 않는다");
+        recordOption.SetPatientCheck(false);
+        disinfectionOption.SetMaximumCount(0);
+    }
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

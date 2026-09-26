@@ -45,6 +45,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
         util_buzzer();
 }
 
+// [5차 판정 · 재론 금지] Status==2 레거시 갈래의 Clear×4 반환 무시 — 2.0 은 Status 에 0·1 만 쓴다(델파이 2/3 기록 자리 없음).
 void WashingProcessor::update_process(int deviceNumber)
 {
     auto current = mCachedProcess.Status;

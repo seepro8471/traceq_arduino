@@ -271,6 +271,8 @@ void loop()
     }
 
 #ifdef READER_MODE
+    // [5차 판정 · 재론 금지] READER_MODE 는 출하 env 에 없고 지금은 컴파일되지 않는다(ReaderUserInterface 에 InfoReader/InfoRow1 없음).
+    // 살릴 때 그 둘을 추가할 것.
     ui.Info(0, 2, F("Reader"));
 #else
     // 메뉴·PC·게이트웨이로 시계가 맞춰졌으면 미뤄 둔 액교환일을 기록한다(미룸이 있을 때만 시계를 읽는다).
@@ -323,7 +325,8 @@ void loop()
     RfidResult companyRead = rfid.Read(SECTOR0_COMPANY, &company, sizeof(Company));
     if (companyRead != RfidResult::Ok || company.CompanyCode != TRACEQ_COMPANY_CODE)
     {
-        // 1.0과 동일하게 1회 재시도 (약한 신호 보정).
+        // 1.0과 동일하게 1회 재시도 (약한 신호 보정). [5차 판정 · 재론 금지] 리더 읽기 오류에만 듣고 인증 실패엔
+        // 무효(재선택 없이 재인증 불성립) — 100ms 뿐이라 둔다.
         delay(100);
         companyRead = rfid.Read(SECTOR0_COMPANY, &company, sizeof(Company));
         if (companyRead != RfidResult::Ok || company.CompanyCode != TRACEQ_COMPANY_CODE)
@@ -396,6 +399,8 @@ void loop()
         {
             if (serialProcessor.IsAuthenticated())
                 serialProcessor.LoopProcess(ui);
+            else
+                ui.Reject(0, 2, F("Not Connected"));   // PC 미인증 — 무음이던 것을 거부음으로(사장님 09-27 통일). 시리얼엔 안 낸다
         }
         else
         {

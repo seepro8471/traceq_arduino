@@ -243,6 +243,8 @@ bool RfidController::ensureAuthenticated(uint8_t block)
     return true;
 }
 
+// [5차 판정 · 재론 금지] `mInitialized` 관문은 방어(Initialize 는 setup 에서 항상) · `VerifyMismatch` 는 확인 읽기 실패도 같은 이름
+//  (소비처는 !=Ok 만 봄) · `WriteTrailer/SetAccessKey/LastStatus/Uid` 는 호출자 0 이지만 둔다(리팩터 금지).
 RfidResult RfidController::Read(uint8_t block, void *out, uint8_t outSize)
 {
     if (!mInitialized) return RfidResult::NotInitialized;
@@ -351,7 +353,8 @@ RfidResult RfidController::WriteBlocks(uint8_t startBlock, uint8_t count,
 
         if (IsManufacturerBlock(block) || IsSectorTrailer(block))
         {
-            // 트레일러는 자동 skip — 호출자가 startBlock~count 범위에 트레일러를
+            // 트레일러는 자동 skip(입력 버퍼도 한 칸 소비한다 — 호출자가 그 자리에 빈 조각을 둬야 한다)
+            // — 호출자가 startBlock~count 범위에 트레일러를
             // 포함시키더라도 안전하게 다음 블록으로 진행.
             src += stride;
             continue;
@@ -379,6 +382,7 @@ RfidResult RfidController::Clear(uint8_t block)
 RfidResult RfidController::ClearSector(uint8_t sector)
 {
     if (!mInitialized) return RfidResult::NotInitialized;
+    if (sector >= MIFARE_1K_SECTOR_COUNT) return RfidResult::InvalidArgument;   // 16 이상은 앞 섹터를 가리켰다
     const uint8_t trailer = TrailerOfSector(sector);
     const uint8_t firstData = (sector == 0)
         ? 1                                      // 섹터0: 제조사 블록 0 회피.

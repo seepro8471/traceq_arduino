@@ -62,6 +62,8 @@ SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
 {
     if (buffer == nullptr || length == 0) return ProcessKind::NotJson;
 
+    // [5차 판정 · 재론 금지] 중첩 JSON 은 파싱 실패(2초 안내) · null 값은 0 저장 · 날짜만 온 시각은 00:00 · 'Z' 와 명령이
+    //  한 버퍼면 명령 유실 · `end+1>length` 는 항상 거짓 — 세 PC 는 어느 것도 보내지 않는다.
     // '{' .. '}' 범위만 추출 — 길이 명시.
     const size_t start = str_index_of(buffer, '{');
     if (start == static_cast<size_t>(-1)) return ProcessKind::NotJson;
@@ -215,7 +217,7 @@ bool SerialProcessor::update_device_option(DeviceOption &deviceOption, DefaultRt
     //  ② 같은 JSON 을 보낼 때마다 매번 재시작했다.
     const char *type = mDocument["device_type"].as<const char *>();
     bool typeChanged = false;
-    if (type != nullptr && type[0] != deviceOption.GetType())
+    if (type != nullptr && type[0] != 0 && type[0] != deviceOption.GetType())   // "" 는 무시 — 종전엔 W 로 바뀌며 재시작
     {
         const char before = deviceOption.GetType();
         deviceOption.SetType(type[0]);
@@ -327,6 +329,7 @@ void SerialProcessor::LegacySerialEvent(const char *buffer, size_t length, LcdPr
     }
 }
 
+// [5차 판정 · 재론 금지] LoopProcess 가 읽은 블록 2·4·6 을 여기서 다시 읽는다(1.0 동일·덤프 함수 자족) — 읽기 3회 ≈ 10ms.
 bool SerialProcessor::legacy_loop_process(LcdPrinter &printer)
 {
     // 서버에서 필요한 데이터가 제대로 기록되어 있는지 검사한다.
@@ -423,15 +426,20 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
     unsigned long interval{timeout};
     bool isHandled{false};
 
+    // 파싱이 안 되는 명령은 태그를 기다리지 않는다 — 종전엔 4초 기다린 뒤에야 실패했다.
+    const int parsedType{legacy_parse_tag(buffer)};
+    if (parsedType == -1)
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("timeout or error"));
+        return;
+    }
+
     // 4초 동안 태그 대기 (1초 간격 비프). 먼저 올려 둔 태그도 잡는다.
     mScanner.ForgetTag();
     while (millis() - timeout < 4000)
     {
         if (mScanner.Poll(true) == RfidController::TagStatus::Connected)   // 정지된 태그도 깨운다(발급 대기)
         {
-            const int parsedType{legacy_parse_tag(buffer)};
-            if (parsedType == -1) break;
-
             // 태그 타입만 교체해 Company 재기록.
             Company company{};
             if (mScanner.Read(SECTOR0_COMPANY, &company, sizeof(company)) != RfidResult::Ok) break;

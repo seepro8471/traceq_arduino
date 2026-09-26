@@ -84,6 +84,7 @@ char *DefaultRtc::ToInternalString(char *outBuffer, DefaultRtc::Format format)
     return outBuffer;
 }
 
+// [5차 판정 · 재론 금지] 연도를 2자리로 읽어 "1999-…" 가 2099 — 세 PC 는 20xx 만 보낸다.
 void DefaultRtc::FromString(const char *string)
 {
     const auto date = DateTime(string);

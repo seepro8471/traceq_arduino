@@ -5,7 +5,9 @@
 #include "TraceQ_Arduino/avr/AvrUtil.hpp"
 
 /**
- * \class LcdPrinter
+ * \// [5차 판정 · 재론 금지] 호출자 0 인 함수 7(print_and_blink·InfoForWhile(F)·Debug·Debug_cstr·Warning_cstr·CustomDebug_cstr·
+//  CustomWarning_cstr)은 gc-sections 로 비용 0 — 리팩터 금지 규칙에 따라 둔다.
+class LcdPrinter
  * \brief Lcd에 문자열을 표시하는 기능을 구현하는 추상 클래스.
  *
  * \since 1.2

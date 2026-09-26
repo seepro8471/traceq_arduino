@@ -14,6 +14,7 @@ bool BaseProcessor::print_tag_number(LcdPrinter &printer)
     return true;
 }
 
+// [5차 판정 · 재론 금지] read_tag 는 호출자 0(태그 번호는 print_tag_number 가 읽는다) · complete_delay 는 1ms — 둘 다 둔다.
 bool BaseProcessor::read_tag()
 {
     return mScanner.Read(SECTOR0_TAG, &mCachedTag, sizeof(Tag)) == RfidResult::Ok;
@@ -26,7 +27,7 @@ bool BaseProcessor::read_tag_serial()
 
 bool BaseProcessor::read_process()
 {
-    // 1.0과 동일하게 9바이트만 읽음 (Process는 패딩 포함 >9이나 의미있는 데이터는 9).
+    // 1.0과 동일하게 9바이트 — AVR 에서 sizeof(Process) 는 정확히 9(패딩 없음, 4차 F static_assert).
     return mScanner.Read(SECTOR1_PROCESS, &mCachedProcess, 9) == RfidResult::Ok;
 }
 

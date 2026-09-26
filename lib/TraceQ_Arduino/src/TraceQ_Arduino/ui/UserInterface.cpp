@@ -117,7 +117,7 @@ void UserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
     {
         mHomeShownNumber = deviceNumber;
         snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%02d", mType, deviceNumber);
-        mLcd.setCursor(16, 3);
+        mLcd.setCursor(deviceNumber >= 100 ? 15 : 16, 3);   // 세 자리면 한 칸 앞에서 — 20열을 넘으면 안 보인다
         mLcd.print(mDeviceInfoBuffer);
     }
 }
@@ -329,6 +329,9 @@ UserInterface::MenuFunction UserInterface::select(Line &line, const __FlashStrin
     return select_impl(line, p1, p2, p3, p4, start);
 }
 
+// [5차 판정 · 재론 금지] 숫자 메뉴는 범위 밖 값을 말없이 잘라 저장(날짜는 경고+폐기 — 형제 규칙 다름, 1.0 동일) · 편집 화면이
+//  'Edit' 4자를 매 루프 다시 씀(메뉴 안이라 태그와 무관) · select_impl 둘의 default 가 다름(둘 다 도달 불가) ·
+//  EEPROM 타입 손상 기기는 같은 타입을 골라도 복구 기록 안 됨(다음 판 첫 부팅에 소거 — 이론상).
 UserInterface::MenuFunction UserInterface::edit_number_impl(Line &line)
 {
     // var

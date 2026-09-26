@@ -1,4 +1,6 @@
 #include "SimpleScanner.hpp"
+// [5차 판정 · 재론 금지] READER_MODE 전용(출하 env 미빌드): Read 반환 전부 버림 · 블록 6 중복 읽기 · count 4 에서 56·57 누락 —
+//  살릴 때 legacy_print_block 처럼 실패를 세어 알릴 것.
 
 void SimpleScanner::Scan(int tagType, LcdPrinter &printer)
 {

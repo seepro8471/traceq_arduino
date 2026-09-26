@@ -178,6 +178,7 @@ void LcdPrinter::print_line(const Line &line)
 
 void LcdPrinter::print_screen(const Screen &screen)
 {
+    if (screen.GetLineCount() == 0) return;   // 0 줄이면 255 줄을 찍는다(등록된 Screen 은 전부 ≥2줄 — 방어)
     print_sceen_by_position(screen, 0, screen.GetLineCount() - 1);
 }
 

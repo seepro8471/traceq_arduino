@@ -105,10 +105,7 @@ void DisinfectionProcessor::DisinfectionProcess(
     if (disinfectionOption.GetMaximumCount() != 0)
     {
         if (disinfectionOption.GetMaximumCount() <= disinfectionOption.GetCount())
-        {
-            printer.Notify(0, 2, 500, F("MaxCount Over"));
-            return;
-        }
+            printer.Notify(0, 2, 500, F("MaxCount Over"));   // return 하지 않는다 — 아래 환자정보 경고를 가렸다
     }
     if (hasnt_patient_info(recordOption))
         // 환자정보 없음 = 길게 2회(세척기와 같은 소리 — 종전엔 40ms 4회로 달랐다).
@@ -117,6 +114,9 @@ void DisinfectionProcessor::DisinfectionProcess(
         util_buzzer();
 }
 
+// [5차 판정 · 재론 금지] 1.0 과 같은 설계라 둔다: ③ 이동해 온 스코프를 또 이동시키면 2차 기록이 덮인다(조작 오류 범위)
+//  ⑥ 알람 슬롯은 기기당 하나(뒤 스코프가 앞 알람을 덮음) ⑦ 이동+RTC 방전 복구가 1차 종료보다 앞설 수 있음
+//  ⑧ 복구 추정의 세척 시간은 소독기 자신의 슬롯1(PC JSON 으로만 설정) ⑫ 일회성 ON 에서 담당자 미등록 종료는 담당자 0.
 bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc)
 {
     // ★종료 기록을 먼저, 이동 커밋(Process)을 마지막에 — 반대면 종료 기록이 실패해도 태그가 '이동함' 으로

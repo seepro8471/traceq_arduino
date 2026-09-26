@@ -2,6 +2,7 @@
 
 #include "TraceQ_Arduino/version.hpp"
 
+// [5차 판정 · 재론 금지] begin() 실패(시계 모듈 없음)는 표지 없이 진행 — 하드웨어 결함이고 IsUnsynced 가 방전 표지로 잡는다.
 void BaseRtc::RtcInitialize()
 {
     if (!mRtc.begin())

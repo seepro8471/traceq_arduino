@@ -42,7 +42,7 @@ UserInterface::MenuFunction UserInterface::SetDeviceDate(DefaultRtc &rtc)
         if (!is_valid_date(line.GetContent()))
         {
             // 저장하지 않고 폐기 — 경고(비프 4회) 후 홈 복귀.
-            Warning(0, 2, F("Invalid Date"));
+            Warning(0, 2, F("Invalid Date"));   // [5차 판정 · 재론 금지] 320ms 로 짧지만 소리 규칙(실패=짧게 4회)에 묶여 있다 — 길게 하면 규칙 밖 소리
             return MenuFunction::Exit;
         }
         // set

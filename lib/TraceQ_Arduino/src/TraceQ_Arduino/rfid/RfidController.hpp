@@ -24,7 +24,7 @@
  *
  *  3) 트레일러/제조사 블록 보호
  *     `Write/Clear` 진입 시 IsSectorTrailer/IsManufacturerBlock 검사.
- *     트레일러는 `WriteTrailer()`로만 변경 가능.
+ *     트레일러는 InstallTraceQKeys/RestoreFactoryKeys 가 바꾼다(WriteTrailer 는 호출자 0).
  *
  *  4) 쓰기 검증 + 재시도
  *     TRACEQ_RFID_VERIFY_WRITES=1 이면 쓰기 후 같은 블록을 read-back 비교.

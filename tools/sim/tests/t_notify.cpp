@@ -146,7 +146,8 @@ int main()
         touch(b);
         tlog("  폴백 실패: lcd=[%.60s] 경고음=%u 폴백완료음=%u\n",
              g_lcdLog, buzz_count(100), buzz_count(40));
-        CHECK(serial_has("Not Patient Info"), "폴백 경로를 탔다");
+        // 5차: 'Not Patient Info' 는 기록이 된 뒤에만 나간다 — 실패했으니 안 나가고 Write Error 만.
+        CHECK(!serial_has("Not Patient Info") && lcd_has("Write Error"), "폴백 기록 실패 → PC 에 'Not Patient Info' 를 보내지 않는다(음성 오보 방지)");
         CHECK(warned("Write Error", 40), "게이트웨이 폴백 기록 실패 → Write Error + 경고음, 완료음 없음");
     }
 

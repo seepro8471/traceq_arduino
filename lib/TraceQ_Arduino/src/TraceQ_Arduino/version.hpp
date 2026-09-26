@@ -23,6 +23,15 @@
  *         (사용자 확정). 비어 있으면 소독 기록마다 현재시각이 교환일로
  *         찍혀 통계 주기가 흩어지던 것 방지 — 클리어 태그 등록 전까지
  *         안정된 기준일 제공.
+ * 2.2.14 — 5차 P3 마무리(09-27): 남은 P3 43건 전부 처리 — 고침 11 · 코드에 재론 금지 31 · 소리 규칙 위반 되돌림 1.
+ *         [고침] 기기번호·스코프번호 ≥100 표시 · 미인증 서버에 스코프 → 거부음(사장님 통일) · 최대 횟수 안내가 환자정보
+ *           경고를 가림 · 폴백 'Not Patient Info' 를 기록 뒤에 송신 · "device_type":"" 이 W 로 바뀌며 재시작 · 파싱 실패
+ *           발급의 4초 대기 · ClearSector(≥16)·Screen 0줄 방어 · 거짓 헤더/주석 3.
+ *         [재론 금지] 죽은 함수·호출자 0·READER_MODE·범위 밖 무통지·select default·EEPROM 손상 복구·VerifyMismatch 이름·
+ *           SimpleScanner·재이동·Status==2·알람 슬롯 하나·이동+방전·복구 세척시간·담당자 0·read_tag·complete_delay·
+ *           G1 8자리·중첩 JSON·null·날짜만·Z+명령·48 인덱스·중복 읽기·end+1·2자리 연도·RTC begin·회사코드 재시도·
+ *           Invalid Date 320ms(소리 규칙에 묶임).
+ *         시험 t_a7 +6 · 되돌린 변이 6/6 빨강 · 288/288.
  * 2.2.13 — 5차 전체 로직 추적 감사(09-27): 모듈 6갈래가 함수 219개를 줄 단위 표로 추적 + 독립 재추적.
  *         [태그 기록] 동시소독에서 슬롯 없는 스코프의 종료가 host 슬롯을 지워 다음 스코프가 guest 대신 host 로
  *           기록되던 것 · 커밋됐는데 확인 읽기만 실패하면 'Write Error'(→ 재접촉이 4초 종료·횟수 0) → 한 번 더
@@ -122,8 +131,8 @@
  */
 #define TRACEQ_VERSION_MAJOR 2
 #define TRACEQ_VERSION_MINOR 2
-#define TRACEQ_VERSION_PATCH 13
-#define TRACEQ_VERSION_STRING "2.2.13"
+#define TRACEQ_VERSION_PATCH 14
+#define TRACEQ_VERSION_STRING "2.2.14"
 // 이 판을 만든 날 — 시계가 이보다 앞서면 실제 시각일 수 없다(BaseRtc::IsUnsynced). 버전을 올릴 때 같이 올린다.
 // ★출시일은 **오늘 또는 과거**여야 한다 — 미래로 적으면 모든 기기가 영구 '미동기'(IsUnsynced) 가 되어 액교환일이
 //  계속 미뤄진다. 시험은 이 값에서 파생(rel_date)하므로 이 실수를 못 잡는다(5차 E16) — 올릴 때 사람이 확인할 것.

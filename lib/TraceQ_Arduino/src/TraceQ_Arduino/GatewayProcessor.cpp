@@ -80,7 +80,7 @@ void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
     complete_delay();
     util_buzzer();
 
-    char buffer[11]{};
+    char buffer[14]{};   // "Scope : 32767" 13자 + NUL
     snprintf(buffer, sizeof(buffer), "Scope : %02d", mCachedTag.Number);
     printer.InfoForWhile_cstr(0, 2, 500, buffer);
 }
@@ -139,7 +139,6 @@ bool GatewayProcessor::write_patient_info(int deviceNumber)
 void GatewayProcessor::GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc, LcdPrinter &printer)
 {
     if (!is_valid(printer)) return;
-    Serial.println(F("Not Patient Info"));
     mCachedProcess.Status = 0;
 
     const auto dateTime = rtc.GetCurrentDateTime();
@@ -153,6 +152,7 @@ void GatewayProcessor::GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc,
         printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
         return;
     }
+    Serial.println(F("Not Patient Info"));   // 기록이 된 뒤에 — 종전엔 기록 전에 보내 실패해도 PC 가 음성을 냈다
 
     complete_delay();
     // 환자정보 없이 기록했다 — 기록은 됐으므로 실패음(짧게 4회)과 달라야 한다. 길게 2회로 구분 (사장님 09-23).
@@ -206,6 +206,8 @@ bool GatewayProcessor::find_string(const char *src, char *dst, size_t dstSize, c
     return true;
 }
 
+// [5차 판정 · 재론 금지] G1 본체번호는 7자리까지(8자리 잘림) · 검사명 파서의 48 은 "3×16" 뜻의 절대 인덱스 —
+//  알려진 송신자(델파이·세척관리·SeePro) 는 어느 쪽도 보내지 않는다. 바꾸면 wire 호환 검증이 다시 필요.
 bool GatewayProcessor::substring_for_patient(const char *string)
 {
     // [17] = 블록 16바이트를 다 담기 위한 크기(str_substring_safe 는 NUL 자리를 남긴다).

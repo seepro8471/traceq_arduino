@@ -184,6 +184,7 @@ void BaseUserInterface::emphasis(const Line &line)
 
 void BaseUserInterface::emphasis_off(const Screen &screen)
 {
+    if (screen.GetLineCount() == 0) return;   // 0 줄 방어(LcdPrinter::print_screen 과 같이)
     emphasis_off_by_position(screen, 0, screen.GetLineCount() - 1);
 }
 
