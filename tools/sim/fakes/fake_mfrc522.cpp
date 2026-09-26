@@ -48,7 +48,7 @@ void card_remove() { g_card = nullptr; g_cardState = CARD_OFF; }
 
 static bool card_op()   // 인증·읽기·쓰기 1회. false = 카드가 이미 없다
 {
-    if (g_card == nullptr) return false;
+    if (g_card == nullptr || g_powerCut) return false;
     ++g_card->opCount;
     if (g_card->removeAfterOps && g_card->opCount > (uint16_t)g_card->removeAfterOps)
     {
@@ -86,7 +86,7 @@ void MFRC522::PCD_StopCrypto1() { g_readerCrypto = false; }
 
 MFRC522::StatusCode MFRC522::PICC_RequestA(byte *atqa, byte *size)
 {
-    if (g_card == nullptr) return STATUS_TIMEOUT;
+    if (g_card == nullptr || g_powerCut) return STATUS_TIMEOUT;
     if (g_readerCrypto) { card_idle(); return STATUS_TIMEOUT; }
     if (g_cardState == CARD_IDLE)
     {
@@ -101,7 +101,7 @@ MFRC522::StatusCode MFRC522::PICC_RequestA(byte *atqa, byte *size)
 MFRC522::StatusCode MFRC522::PICC_WakeupA(byte *atqa, byte *size)
 {
     // WUPA: IDLE 뿐 아니라 HALT 카드도 응답한다(ISO14443-3 6.3). 그 밖은 REQA 와 같다.
-    if (g_card == nullptr) return STATUS_TIMEOUT;
+    if (g_card == nullptr || g_powerCut) return STATUS_TIMEOUT;
     if (g_readerCrypto) { card_idle(); return STATUS_TIMEOUT; }
     if (g_cardState == CARD_IDLE || g_cardState == CARD_HALT)
     {

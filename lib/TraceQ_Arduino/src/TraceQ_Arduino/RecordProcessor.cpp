@@ -14,8 +14,7 @@ void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
     // 1.0은 인접 2바이트를 함께 읽는 OOB였음. 16바이트 버퍼로 0패딩 후 전달.
     unsigned char key[ManagerOption::KEY_SIZE]{};
     memcpy(key, mCachedTag.ID, sizeof(mCachedTag.ID));
-    managerOption.SetKey(key);
-    managerOption.SetName(mCachedTagSerial.Serial);
+    managerOption.SetData(key, mCachedTagSerial.Serial);
 
     if (recordOption.GetManagerDisposability()) mDisposabilityFlag = true;
 

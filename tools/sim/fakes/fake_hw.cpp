@@ -193,7 +193,17 @@ HardwareSerial Serial(&UBRR0H, &UBRR0L, &UCSR0A, &UCSR0B, &UCSR0C, &UDR0);
 // ── EEPROM (RAM) ──
 static uint8_t s_eeprom[4096];
 uint8_t eeprom_read_byte(const uint8_t *p) { return s_eeprom[(uint16_t)(uintptr_t)p & 0x0FFF]; }
-void eeprom_write_byte(uint8_t *p, uint8_t v) { s_eeprom[(uint16_t)(uintptr_t)p & 0x0FFF] = v; }
+int32_t  g_eepromCutAfter = -1;
+uint32_t g_eepromWrites;
+bool     g_powerCut;
+void power_restore() { g_powerCut = false; g_eepromCutAfter = -1; g_eepromWrites = 0; }
+void eeprom_write_byte(uint8_t *p, uint8_t v)
+{
+    if (g_powerCut) return;
+    if (g_eepromCutAfter >= 0 && g_eepromWrites >= (uint32_t)g_eepromCutAfter) { g_powerCut = true; return; }
+    ++g_eepromWrites;
+    s_eeprom[(uint16_t)(uintptr_t)p & 0x0FFF] = v;
+}
 
 // ── LCD ──
 char g_lcdLog[1536];
@@ -227,7 +237,7 @@ void rtc_set(const DateTime &dt) { s_rtcBase = dt; s_rtcSetMs = g_ms; }
 DateTime rtc_now_sim() { return s_rtcBase + TimeSpan((int32_t)((g_ms - s_rtcSetMs) / 1000UL)); }
 bool RTC_DS3231::begin(TwoWire *) { return true; }
 bool RTC_DS3231::lostPower() { return g_rtcLostPower; }
-void RTC_DS3231::adjust(const DateTime &dt) { rtc_set(dt); g_rtcLostPower = false; }
+void RTC_DS3231::adjust(const DateTime &dt) { if (g_powerCut) return; rtc_set(dt); g_rtcLostPower = false; }
 DateTime RTC_DS3231::now() { return rtc_now_sim(); }
 void RTC_DS3231::writeSqwPinMode(Ds3231SqwPinMode) {}
 void RTC_DS3231::disableAlarm(uint8_t) {}

@@ -24,20 +24,18 @@ void ManagerOption::GetKey(unsigned char *outBuffer, uint8_t size) const
     memcpy(outBuffer, mKey, size);
 }
 
-void ManagerOption::SetKey(const unsigned char *buffer)
+void ManagerOption::SetData(const unsigned char *key, const unsigned char *name)
 {
+    setManagerFlag(false);              // 먼저 내린다 — 이 아래에서 끊기면 '담당자 없음'(안전한 쪽)
     memset(mKey, 0, KEY_SIZE);
-    if (buffer == nullptr)
-    {
-        setManagerFlag(false);
-    }
-    else
-    {
-        memcpy(mKey, buffer, KEY_SIZE);
-        setManagerFlag(true);
-    }
+    if (key != nullptr) memcpy(mKey, key, KEY_SIZE);
     EEPROM.put(mKeyAddr, mKey);
     EEPROM.get(mKeyAddr, mKey);
+    memset(mName, 0, NAME_SIZE);
+    if (name != nullptr) memcpy(mName, name, NAME_SIZE);
+    EEPROM.put(mNameAddr, mName);
+    EEPROM.get(mNameAddr, mName);
+    if (key != nullptr && name != nullptr) setManagerFlag(true);
 }
 
 void ManagerOption::GetName(unsigned char *outBuffer, uint8_t size) const
@@ -47,22 +45,6 @@ void ManagerOption::GetName(unsigned char *outBuffer, uint8_t size) const
     memset(outBuffer, 0, size);
     EEPROM.get(mNameAddr, mName);
     memcpy(outBuffer, mName, size);
-}
-
-void ManagerOption::SetName(const unsigned char *buffer)
-{
-    memset(mName, 0, NAME_SIZE);
-    if (buffer == nullptr)
-    {
-        setManagerFlag(false);
-    }
-    else
-    {
-        memcpy(mName, buffer, NAME_SIZE);
-        setManagerFlag(true);
-    }
-    EEPROM.put(mNameAddr, mName);
-    EEPROM.get(mNameAddr, mName);
 }
 
 bool ManagerOption::HasData() const

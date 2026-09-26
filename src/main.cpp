@@ -187,6 +187,9 @@ void setup()
             lcd.init();
             lcd.backlight();
             ui.Info(0, 0, F("Initializing...     "));
+            // ★도장을 먼저 무효로 — 소거 중 리셋이면 도장이 그대로라 다음 부팅이 이 블록을 건너뛰고
+            //  반쯤 지워진 설정(타입 W·번호 0)으로 기동했다(Y2 P3-4).
+            EEPROM.put(FIRMWARE_STAMP_ADDR, static_cast<uint32_t>(0));
             const int len = EEPROM.length();
             for (int i = 0; i < len; ++i)
             {
@@ -382,11 +385,10 @@ void loop()
         {
             disinfectionOption.SetCount(0);
             // 시계가 방전 표지 시각이면 교환일은 시계가 맞춰질 때(첫 소독·메뉴·PC) 기록한다.
-            if (rtc.IsUnsynced())
-            {
-                disinfectionOption.SetClearPending(DisinfectionOption::kPendingNow);
-            }
-            else
+            // ★미룸을 **먼저** 세운다 — 교환일 8바이트를 쓰는 중 전원이 끊기면 옛 값과 섞인 날짜가 남아
+            //  그 뒤 소독 기록에 실렸다(Y2 P3-1). 미룸이 남아 있으면 다음 부팅이 다시 쓴다.
+            disinfectionOption.SetClearPending(DisinfectionOption::kPendingNow);
+            if (!rtc.IsUnsynced())
             {
                 disinfectionOption.SetClearDateTime(rtc.GetCurrentLocalDateTime());
                 disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);

@@ -48,6 +48,11 @@ void sim_advance_ms(uint32_t ms);
 void rtc_set(const DateTime &dt);
 DateTime rtc_now_sim();
 extern bool g_rtcLostPower;
+// 전원 차단 주입 — EEPROM 바이트 쓰기 N번까지만 남고 그 뒤는 전부 사라진다(카드 op·RTC adjust 도 막힌다).
+extern int32_t  g_eepromCutAfter;   // -1 = 끔
+extern uint32_t g_eepromWrites;     // 실제로 써진 바이트 수
+extern bool     g_powerCut;
+void power_restore();               // 차단 해제(시험이 hard_reset 앞에 부른다)
 
 // ── LCD·시리얼·부저 기록 ──
 extern char g_lcdLog[1536];

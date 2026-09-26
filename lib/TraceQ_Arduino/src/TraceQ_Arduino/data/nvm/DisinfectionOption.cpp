@@ -124,6 +124,8 @@ void DisinfectionOption::SetClearPending(uint8_t kind)
 
 void DisinfectionOption::ApplyPendingClear(const LocalDateTime &now)
 {
+    // [5차 판정 · 재론 금지] 날짜를 쓴 뒤 미룸을 지우기 전에 전원이 끊기면 다음 부팅이 다시 적용해
+    //  교환일이 '재부팅 시각' 이 된다(Y2 P3-3). 순서를 바꾸면 날짜가 아예 안 남으니 이쪽이 최선이다.
     const uint8_t kind = GetClearPending();
     if (kind == kPendingNone) return;
     SetClearDateTime(kind == kPendingDefault ? OneMonthBefore(now) : now);

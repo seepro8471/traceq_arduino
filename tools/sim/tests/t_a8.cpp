@@ -303,6 +303,14 @@ int main()
         tlog("  X2 P3-1 count=%d\n", disinfectionOption.GetCount());
         CHECK(disinfectionOption.GetCount() == 32767 && lcd_has("MaxCount Over"),
               "X2 P3-1 소독 횟수 32767 에서 +1 은 0 으로 돌지 않는다(MaxCount Over 유지)");
+        // 경계 32766→32767 은 아직 센다(포화점이 한 칸 낮으면 상한 32767 을 영영 못 채운다 — Y1 P3-1 잠금 구멍)
+        disinfectionOption.SetMaximumCount(32767);
+        disinfectionOption.SetCount(32766);
+        washed_scope(b, 0x96, 96);
+        logs_clear();
+        touch(b);
+        CHECK(disinfectionOption.GetCount() == 32767 && lcd_has("MaxCount Over"),
+              "Y1 P3-1 32766 에서 +1 은 32767(상한 도달 → MaxCount Over)");
         disinfectionOption.SetCount(0);
         disinfectionOption.SetMaximumCount(0);
         // X2 P2-1(판정 · 1.0 유지): 동기된 소독기도 세척기가 세척 시간 넘게 앞서면 "세척 종료 + 1분" 으로 따라간다
