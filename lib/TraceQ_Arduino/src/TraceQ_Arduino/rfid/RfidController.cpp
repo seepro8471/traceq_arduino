@@ -58,9 +58,9 @@ void RfidController::Reinitialize()
 {
     EndSession();
     mInitialized = false;
-    mTagPresent = false;
-    mTagPresentPrev = false;
-    mMissCount = 0;
+    // ★present/prev/missCount 를 지우면 안 된다 — 칩 리셋은 안테나를 끄므로 올려 둔 카드가 전원을 잃고
+    //  정지가 풀린다. 거기에 표시까지 지우면 같은 태그가 '새 태그' 가 되어 세척·소독이 곧바로 종료로
+    //  기록된다(2초 더블터치 가드 밖). EndSession 주석이 말하는 그 실기 확인 사례 그대로다.
     Initialize();
 }
 
@@ -139,6 +139,9 @@ RfidController::TagStatus RfidController::Poll(bool wakeHalted)
     const auto pt = MFRC522::PICC_GetType(mMfrc522.uid.sak);
     if (pt != MFRC522::PICC_TYPE_MIFARE_1K && pt != MFRC522::PICC_TYPE_MIFARE_4K)
     {
+        // 지원 안 하는 카드도 반드시 정지시킨다 — 안 그러면 두 폴링마다 응답해 present 가 참으로 굳고,
+        // 그 위에 올린 스코프 태그가 KeepAlive 로 먹혀 화면·소리·전송이 전부 무음이 된다(교통·출입카드).
+        mMfrc522.PICC_HaltA();
         return TagStatus::Invalid;
     }
 

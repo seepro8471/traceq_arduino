@@ -6,17 +6,32 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
 {
     if (buffer == nullptr) return;
 
-    // G2(검사일시) 구간이 없는 패킷이 오면 이전 검사의 날짜가 그대로 남아
-    // 태그에 기록됐다 — 매 수신마다 초기화한다 (1.0 승계 결함, 2.2.5).
+    // ★환자정보 한 벌(키·이름·검사항목·검사일시)은 **같은 패킷에서 온 것만** 쓴다.
+    //  2.2.5 는 검사일시만 비웠는데, 그래서 G3 구간이 없는 패킷 하나가 오면 형제(키·이름·검사항목)는
+    //  직전 검사 것이 남아 "남의 환자 + 검사일시 0" 이 성공음과 함께 다음 스코프에 기록됐다.
+    mHasPatientInformation = false;
     mDateTime = LocalDateTime{};
+    memset(mPatientKey, 0, sizeof(mPatientKey));
+    memset(mPatientName, 0, sizeof(mPatientName));
+    memset(mExaminationSubject, 0, sizeof(mExaminationSubject));
+    memset(mExaminationSubject2, 0, sizeof(mExaminationSubject2));
+    memset(mExaminationSubject3, 0, sizeof(mExaminationSubject3));
 
     char string[64]{};
 
+    // ★여러 레코드가 한 버퍼에 오면(수신 대기 1초 · 부팅 선택 화면 10초) **마지막 레코드**만 본다.
+    //  마지막 `G1`(가장 최근 레코드 시작)부터로 좁힌다. 그 레코드가 도중에 잘렸으면 뒤 마커(G3..G4 등)가
+    //  없어 아래에서 폴백된다(스테일·혼합 환자를 기록하지 않는다). 모든 필드가 같은 레코드에서 오므로
+    //  서로 다른 환자의 조각이 섞이지 않는다.
+    const char *rec = buffer;
+    for (size_t at = str_index_of_cstr(buffer, "G1"); at != static_cast<size_t>(-1);
+         at = str_index_of_cstr_range(buffer, "G1", at + 1))
+        rec = buffer + at;
+
     // G1 = 본체번호 (2.2.6, 사용자 확정). `G1{gate};G2…` 형식.
     // 0(=`0000`)이면 "지정 없음"으로 보고 기기 자체 번호를 쓴다(effective_number).
-    // TraceQ_Python 변형(`G1G2…`)처럼 값 자체가 없으면 직전 수신값을 유지한다.
     // 1.0 은 이 구간을 아예 읽지 않고 항상 기기 자체 번호를 썼다.
-    if (find_string(buffer, string, sizeof(string), "G1", "G2"))
+    if (find_string(rec, string, sizeof(string), "G1", "G2"))
     {
         const size_t sep = str_index_of(string, ';');
         if (sep != static_cast<size_t>(-1))
@@ -28,17 +43,17 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
         }
     }
     memset(string, 0, sizeof(string));
-    if (!find_string(buffer, string, sizeof(string), "G3", "G4")) return;
+    if (!find_string(rec, string, sizeof(string), "G3", "G4")) return;
 
     mHasPatientInformation = substring_for_patient(string);
     if (!mHasPatientInformation) return;
 
     memset(string, 0, sizeof(string));
-    if (find_string(buffer, string, sizeof(string), "G4", "G5"))
+    if (find_string(rec, string, sizeof(string), "G4", "G5"))
         substring_for_examination_subject(string);
 
     memset(string, 0, sizeof(string));
-    if (find_string(buffer, string, sizeof(string), "G2", "G3"))
+    if (find_string(rec, string, sizeof(string), "G2", "G3"))
         substring_for_local_date_time(string);
 
     const auto respDateTime = DefaultRtc::ToDateTime(mDateTime);
@@ -155,9 +170,12 @@ bool GatewayProcessor::is_valid(LcdPrinter &printer)
 bool GatewayProcessor::find_string(const char *src, char *dst, size_t dstSize, const char *from, const char *to)
 {
     if (src == nullptr || dst == nullptr || from == nullptr || to == nullptr) return false;
+    // ★한 레코드 안에서는 **첫 일치**를 쓴다 — 값에 `G3` 같은 마커가 들어 있어도(예: 등록키 "G3PAT")
+    //  뒤에서 잘못 집지 않게. 여러 레코드가 한 버퍼에 온 경우는 호출 전에 마지막 레코드로 좁혀 둔다.
     const auto fromIdx = str_index_of_cstr(src, from);
-    const auto toIdx   = str_index_of_cstr(src, to);
-    if (fromIdx == static_cast<size_t>(-1) || toIdx == static_cast<size_t>(-1)) return false;
+    if (fromIdx == static_cast<size_t>(-1)) return false;
+    const auto toIdx = str_index_of_cstr_range(src, to, fromIdx + str_strlen(from));
+    if (toIdx == static_cast<size_t>(-1)) return false;
     str_substring_safe(src, dst, dstSize, fromIdx + str_strlen(from), toIdx);
     return true;
 }

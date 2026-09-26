@@ -21,6 +21,7 @@ static void card_common(SimCard &c, uint8_t uidLast)
     c.uid[0] = 0x11; c.uid[1] = 0x22; c.uid[2] = 0x33; c.uid[3] = uidLast;
     c.sak = 0x08;
     c.readErrBlock = -1;
+    c.nackBlock = -1;
     for (uint8_t s = 0; s < 16; ++s) memset(c.keyA[s], 0xFF, 6);
 }
 void card_init_traceq(SimCard &c, uint8_t uidLast)
@@ -50,10 +51,25 @@ static bool card_op()   // 인증·읽기·쓰기 1회. false = 카드가 이미
 static void card_idle() { if (g_card) g_cardState = CARD_IDLE; s_authSector = -1; }
 
 MFRC522::MFRC522(byte, byte) {}
-void MFRC522::PCD_WriteRegister(byte, byte) {}
+// 죽은 리더 흉내(0x00/0xFF) → 제품이 Reinitialize() 를 탄다.
+uint8_t g_versionReg = 0x92;
+// RC522 소프트 리셋은 TxControlReg 를 초기값(안테나 OFF)으로 되돌린다 → 올려 둔 카드가 전원을 잃고
+// 정지(HALT)가 풀린다. 실물 데이터시트 근거(4차 B 갈래). 횟수는 g_fieldDrop.
+uint16_t g_fieldDrop;
+void sim_field_drop()
+{
+    ++g_fieldDrop;
+    if (g_card != nullptr) g_cardState = CARD_IDLE;
+    g_readerCrypto = false;
+    s_authSector = -1;
+}
+void MFRC522::PCD_WriteRegister(byte reg, byte val)
+{
+    if (reg == CommandReg && val == PCD_SoftReset) sim_field_drop();
+}
 byte MFRC522::PCD_ReadRegister(byte reg)
 {
-    if (reg == VersionReg) return 0x92;
+    if (reg == VersionReg) return g_versionReg;
     return 0x00;   // CommandReg: PowerDown 해제 = soft reset 완료
 }
 void MFRC522::PCD_AntennaOn() {}
@@ -172,6 +188,12 @@ MFRC522::StatusCode MFRC522::MIFARE_Write(byte block, byte *buffer, byte size)
     ++c.writeCount;
     if (!card_can_rw(block)) { card_idle(); return STATUS_TIMEOUT; }
     if (c.failWriteAt && c.writeCount == (uint16_t)c.failWriteAt) { card_idle(); return STATUS_MIFARE_NACK; }
+    // 특정 블록만 NACK — 카드 상태는 유지(다음 블록 쓰기는 성공한다).
+    if (c.nackBlock == (int16_t)block)
+    {
+        if (c.nackBlockSkip) { --c.nackBlockSkip; }
+        else return STATUS_MIFARE_NACK;
+    }
     memcpy(c.data[block], buffer, 16);
     if ((block & 3) == 3)
     {

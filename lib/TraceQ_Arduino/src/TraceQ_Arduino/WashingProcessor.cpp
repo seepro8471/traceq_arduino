@@ -82,17 +82,21 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
     if (mScanner.Write(SECTOR2_WASHING_START, &record, 10) != RfidResult::Ok) return false;
     if (!write_manager_key(SECTOR3_WASHING_START_MANAGER_KEY)) return false;
     if (!write_manager_name(SECTOR3_WASHING_START_MANAGER_NAME)) return false;
-    if (!write_process()) return false;
 
-    record.DateTime = add_datetime(current, alarmOption.GetTimeSlot1(), record.DateTime.Time.Second);
-    (void)washing_end(record);
-    return true;   // 커밋됨(자동 종료 기록 실패는 종료 터치가 다시 쓴다)
+    // ★미리 채우는 자동 종료도 **커밋 앞**에 둔다 — "종료 시각이 빌 수 없다"(사장님 09-23)가 안전망인데,
+    //  커밋 뒤에 두면 실패해도 성공음이 나서 "시작은 있고 종료는 0" 인 태그가 조용히 나갔다.
+    WashingRecord autoEnd{record};
+    autoEnd.DateTime = add_datetime(current, alarmOption.GetTimeSlot1(), record.DateTime.Time.Second);
+    if (!washing_end(autoEnd)) return false;
+
+    return write_process();   // 커밋은 마지막
 }
 
 bool WashingProcessor::washing_end(WashingRecord &record)
 {
-    if (mScanner.Write(SECTOR3_WASHING_END, &record, 10) != RfidResult::Ok) return false;
+    // ★담당자를 먼저, **시각을 마지막에** — 반대면 담당자 블록만 실패했을 때 "오늘 종료 시각 + 지난
+    //  주기 담당자" 쌍이 남는다(그 블록들은 서버 덤프도 안 지워 옛 담당자가 늘 남아 있다).
     if (!write_manager_key(SECTOR4_WASHING_END_MANAGER_KEY)) return false;
     if (!write_manager_name(SECTOR4_WASHING_END_MANAGER_NAME)) return false;
-    return true;
+    return mScanner.Write(SECTOR3_WASHING_END, &record, 10) == RfidResult::Ok;
 }

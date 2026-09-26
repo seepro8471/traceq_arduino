@@ -31,6 +31,22 @@ extern WashingProcessor washingProcessor;
 #define GUARDED(stmt) ([&]() -> int { g_resetArmed = true; int _r = setjmp(g_resetJmp); \
     if (_r == 0) { stmt; } g_resetArmed = false; return _r; }())
 
+// "동기된 시계" 표본은 출시일(version.hpp)에서 유도한다 — 날짜를 박아 두면 출시일을 올릴 때마다
+// IsUnsynced() 판정이 뒤집혀 시험이 깨진다(09-26 재발).
+static inline DateTime rel_date(uint8_t h, uint8_t m, uint8_t s)
+{
+    return DateTime(TRACEQ_RELEASE_YEAR, TRACEQ_RELEASE_MONTH, TRACEQ_RELEASE_DAY, h, m, s);
+}
+
+// PC 가 보내는 시계 맞춤 JSON 도 출시일 기준으로 만든다(출시일보다 앞이면 '미동기' 로 판정된다).
+static inline const char *rel_json_set_time(char *buf, size_t n, uint8_t h, uint8_t m, uint8_t s)
+{
+    snprintf(buf, n, "{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"%04u-%02u-%02u %02u:%02u:%02u\"}",
+             (unsigned)TRACEQ_RELEASE_YEAR, (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY, h, m, s);
+    return buf;
+}
+#define REL_YMD TRACEQ_RELEASE_YEAR, TRACEQ_RELEASE_MONTH, TRACEQ_RELEASE_DAY
+
 static inline void run_loops(uint8_t n)
 {
     for (uint8_t i = 0; i < n; ++i) { GUARDED(loop()); sim_advance_ms(30); }

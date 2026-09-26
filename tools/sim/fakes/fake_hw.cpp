@@ -73,6 +73,11 @@ static char s_btn[256];
 uint16_t g_minSP = 0xFFFF;
 static uint16_t s_btnHead, s_btnLen;
 static uint32_t s_btnIdleReads;
+uint32_t g_btnIdleLimit = 30000;   // 메뉴 시한(60초=약 18만 회 읽기)을 보려면 시험에서 올린다
+// 시각 지정 버튼: g_ms 가 atMs 에 이르면 그 버튼이 한 번 눌린 것으로 읽힌다(스크립트와 별개).
+static char     s_btnAtChar;
+static uint32_t s_btnAtMs;
+void buttons_at(char btn, uint32_t atMs) { s_btnAtChar = btn; s_btnAtMs = atMs; }
 void buttons_script(const char *seq)
 {
     const size_t n = strlen(seq);
@@ -97,6 +102,12 @@ int digitalRead(uint8_t pin)
         s_btnIdleReads = 0;
         return LOW;
     }
+    if (s_btnAtChar == want && g_ms >= s_btnAtMs)
+    {
+        s_btnAtChar = 0;
+        s_btnIdleReads = 0;
+        return LOW;
+    }
     // 소문자('s','l','r') = 그 버튼이 "안 눌린 것"으로 한 번 읽힌다 — 눌렀다 뗐다 다시 누르는 순서를 표현한다.
     if (s_btnHead < s_btnLen && s_btn[s_btnHead] == static_cast<char>(want + 32))
     {
@@ -105,7 +116,7 @@ int digitalRead(uint8_t pin)
         return HIGH;
     }
     // 스크립트가 끝났는데 UI 가 계속 버튼을 기다리면 시험을 끊는다.
-    if (s_btnHead >= s_btnLen && s_btnLen != 0 && ++s_btnIdleReads > 30000 && g_resetArmed)
+    if (s_btnHead >= s_btnLen && s_btnLen != 0 && ++s_btnIdleReads > g_btnIdleLimit && g_resetArmed)
         longjmp(g_resetJmp, 2);
     return HIGH;
 }

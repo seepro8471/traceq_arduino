@@ -15,17 +15,15 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     if (mLegacyReadFailures != 0) return;
 
     // 초기화가 실패했는데 완료음을 내면, 이전 환자 정보가 남은 태그가 그대로 다음 검사로 나간다.
-    // 순서에 세 가지를 동시에 만족시켜야 한다:
-    //  ① 환자정보 있음(Status)을 **먼저** 내린다 — 중간에 멈춰도 "환자정보 있음인데 블록은 빈" 태그가 남지
-    //     않는다(그런 태그는 세척기의 미기재 경고를 무력화한다).
-    //  ② 세척·소독 표시(W/D)는 완료 커밋 때까지 남긴다 — 그래야 재접촉이 거부되지 않고 복구된다.
-    //     단 마지막 환자 블록 소거는 커밋 뒤라 예외 — 거기서 실패하면 환자정보가 태그에 남는다(2.2.8 도 동일).
-    //  ③ 환자 블록은 **완료 커밋 뒤에** 지운다 — 그 전에 지우면 재접촉의 2차 덤프가 환자정보 없이 나가
-    //     PC 에 이미 저장된 검사기록을 빈 값으로 덮어쓴다(구형 델파이는 등록번호로 중복을 가린다).
-    mCachedProcess.Status = 0;
-    const bool ok = write_process()
+    // ★순서: **완료 커밋을 먼저**, 소거를 전부 그 뒤에 (사장님 09-25 판정 — PC 기록을 지키는 쪽).
+    //  커밋 전에는 아무것도 안 지워졌으므로, 커밋이 실패해 재접촉하면 2차 덤프가 1차와 **완전히 같다**
+    //  → PC 는 중복으로 걸러낸다. 소거를 커밋 앞에 두면 일부만 지워진 상태로 2차 덤프가 나가
+    //  PC 에 이미 저장된 행의 그 칸들(검사일시·검사항목·환자)이 빈 값으로 덮어써진다.
+    //  Status 를 커밋과 같은 쓰기로 내려 "환자정보 있음인데 블록은 빈" 태그도 생기지 않는다.
+    //  대가: 커밋 뒤 소거가 실패하면 태그에 지난 환자정보·검사항목이 남고 재접촉으로는 못 지운다
+    //  (다음 검사의 게이트웨이 기록이 덮고, 게이트웨이를 안 쓰면 세척기가 '환자정보 없음' 을 알린다).
+    const bool ok = commit_dump_done()
                  && clear_gateway_and_subject()
-                 && commit_dump_done()
                  && clear_patient();
     if (!ok)
     {
@@ -210,15 +208,22 @@ void SerialProcessor::UpdateDateTime(DefaultRtc &rtc, LcdPrinter &printer)
 
 bool SerialProcessor::update_device_option(DeviceOption &deviceOption, DefaultRtc &rtc)
 {
+    // ★재시작 여부는 **저장된 뒤 실제 값**으로 판정한다. 요청값과 비교하면, 알 수 없는 타입("s" 등)을
+    //  받았을 때 SetType 은 기본값 'W' 로 폴백하는데 비교는 계속 어긋나 ① 서버가 세척기가 되고
+    //  ② 같은 JSON 을 보낼 때마다 매번 재시작했다.
     const char *type = mDocument["device_type"].as<const char *>();
     bool typeChanged = false;
     if (type != nullptr && type[0] != deviceOption.GetType())
     {
+        const char before = deviceOption.GetType();
         deviceOption.SetType(type[0]);
-        typeChanged = true;
+        typeChanged = (deviceOption.GetType() != before);
     }
-    const int number = mDocument["device_number"].as<int>();
-    if (number != deviceOption.GetNumber()) deviceOption.SetNumber(number);
+    if (mDocument.containsKey("device_number"))
+    {
+        const int number = mDocument["device_number"].as<int>();
+        if (number != deviceOption.GetNumber()) deviceOption.SetNumber(number);
+    }
 
     const char *dateTime = mDocument["device_date_time"].as<const char *>();
     if (dateTime != nullptr) rtc.FromString(dateTime);
@@ -227,37 +232,63 @@ bool SerialProcessor::update_device_option(DeviceOption &deviceOption, DefaultRt
 
 void SerialProcessor::update_alarm_option(AlarmOption &alarmOption)
 {
-    const bool alarmSound = mDocument["alarm_sound"].as<bool>();
-    if (alarmSound != alarmOption.GetFlag()) alarmOption.SetFlag(alarmSound);
+    // ★없는 키는 건드리지 않는다 — 종전엔 빠진 키가 0/false 로 저장돼, 설정 일부만 보내면
+    //  세척시간이 0 이 되고 자동 종료가 시작과 같은 초로 태그에 박혔다.
+    if (mDocument.containsKey("alarm_sound"))
+    {
+        const bool alarmSound = mDocument["alarm_sound"].as<bool>();
+        if (alarmSound != alarmOption.GetFlag()) alarmOption.SetFlag(alarmSound);
+    }
 
-    const int washingTime = mDocument["washing_time"].as<int>();
-    if (washingTime != alarmOption.GetTimeSlot1()) alarmOption.SetTimeSlot1(washingTime);
+    if (mDocument.containsKey("washing_time"))
+    {
+        const int washingTime = mDocument["washing_time"].as<int>();
+        if (washingTime != alarmOption.GetTimeSlot1()) alarmOption.SetTimeSlot1(washingTime);
+    }
 
-    const int dfTime = mDocument["df_time"].as<int>();
-    if (dfTime != alarmOption.GetTimeSlot2()) alarmOption.SetTimeSlot2(dfTime);
+    if (mDocument.containsKey("df_time"))
+    {
+        const int dfTime = mDocument["df_time"].as<int>();
+        if (dfTime != alarmOption.GetTimeSlot2()) alarmOption.SetTimeSlot2(dfTime);
+    }
 }
 
 void SerialProcessor::update_disinfection_option(DisinfectionOption &d)
 {
-    const int maxCnt = mDocument["df_max_cnt"].as<int>();
-    if (maxCnt != d.GetMaximumCount()) d.SetMaximumCount(maxCnt);
+    if (mDocument.containsKey("df_max_cnt"))
+    {
+        const int maxCnt = mDocument["df_max_cnt"].as<int>();
+        if (maxCnt != d.GetMaximumCount()) d.SetMaximumCount(maxCnt);
+    }
 
     // int 그대로 넘긴다 — setter 가 범위를 먼저 자르고 좁힌다(300 이 44 가 되던 것).
-    const int delay = mDocument["df_sim_delay"].as<int>();
-    if (delay != d.GetSimultaneousDisinfectionDelay()) d.SetSimultaneousDisinfectionDelay(delay);
+    if (mDocument.containsKey("df_sim_delay"))
+    {
+        const int delay = mDocument["df_sim_delay"].as<int>();
+        if (delay != d.GetSimultaneousDisinfectionDelay()) d.SetSimultaneousDisinfectionDelay(delay);
+    }
 
-    const int slot = mDocument["df_sim_slot"].as<int>();
-    if (slot != d.GetSimultaneousDisinfectionSlot()) d.SetSimultaneousDisinfectionSlot(slot);
+    if (mDocument.containsKey("df_sim_slot"))
+    {
+        const int slot = mDocument["df_sim_slot"].as<int>();
+        if (slot != d.GetSimultaneousDisinfectionSlot()) d.SetSimultaneousDisinfectionSlot(slot);
+    }
 
-    const int clearCnt = mDocument["df_clear_cnt"].as<int>();
-    if (clearCnt != d.GetClearCount()) d.SetClearCount(clearCnt);
+    if (mDocument.containsKey("df_clear_cnt"))
+    {
+        const int clearCnt = mDocument["df_clear_cnt"].as<int>();
+        if (clearCnt != d.GetClearCount()) d.SetClearCount(clearCnt);
+    }
 }
 
 void SerialProcessor::update_record_option(RecordOption &recordOption)
 {
-    const bool patientCheck = mDocument["patient_check"].as<bool>();
-    if (patientCheck != recordOption.GetPatientCheck())
-        recordOption.SetPatientCheck(patientCheck);
+    if (mDocument.containsKey("patient_check"))
+    {
+        const bool patientCheck = mDocument["patient_check"].as<bool>();
+        if (patientCheck != recordOption.GetPatientCheck())
+            recordOption.SetPatientCheck(patientCheck);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -407,10 +438,12 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
             if (mScanner.Write(SECTOR0_TAG, &mCachedTag, 16) != RfidResult::Ok) break;
             if (mScanner.Write(SECTOR1_TAG_SERIAL, &mCachedTagSerial, 16) != RfidResult::Ok) break;
 
-            // 공정/환자 정보 소거.
-            mScanner.Clear(SECTOR1_PROCESS);
-            mScanner.Clear(SECTOR2_PATIENT_KEY);
-            mScanner.Clear(SECTOR2_PATIENT_NAME);
+            // 공정/환자 정보 소거 — ★실패를 무시하면 안 된다. 갓 발급한 스코프가 **지난 환자와 지난
+            // 완료 상태(W/D)를 품은 채** "new tag" 로 안내되고, 그 태그를 서버에 대면 어제 날짜
+            // 세척·소독 기록이 그대로 저장된다(구형 델파이·세척관리 둘 다 받는다).
+            if (mScanner.Clear(SECTOR1_PROCESS) != RfidResult::Ok) break;
+            if (mScanner.Clear(SECTOR2_PATIENT_KEY) != RfidResult::Ok) break;
+            if (mScanner.Clear(SECTOR2_PATIENT_NAME) != RfidResult::Ok) break;
 
             isHandled = true;
             break;

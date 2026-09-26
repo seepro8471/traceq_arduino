@@ -114,11 +114,13 @@ void DisinfectionProcessor::DisinfectionProcess(
 
 bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc)
 {
+    // ★종료 기록을 먼저, 이동 커밋(Process)을 마지막에 — 반대면 종료 기록이 실패해도 태그가 '이동함' 으로
+    //  굳어, 재접촉이 2호기 시작으로 넘어가 1호기 종료 시각을 영영 못 남긴다(프로젝트 "커밋은 마지막" 규칙).
+    DisinfectionRecord record{deviceNumber, rtc.GetCurrentLocalDateTime()};
+    if (!disinfection_end(isMoved, record)) return false;
     mCachedProcess.MovementNeeded = true;
     mCachedProcess.Rewrite        = 0;
-    if (!write_process()) return false;
-    DisinfectionRecord record{deviceNumber, rtc.GetCurrentLocalDateTime()};
-    return disinfection_end(isMoved, record);
+    return write_process();
 }
 
 bool DisinfectionProcessor::disinfection_start(
@@ -179,7 +181,13 @@ bool DisinfectionProcessor::disinfection_start(
     if (mScanner.Write(nameBlk,  mCachedTagSerial.Serial, 16) != RfidResult::Ok) return false;
     if (mScanner.Write(detailBlock, &detail, 10) != RfidResult::Ok) return false;
 
-    // Process(소독 시작 플래그)는 **커밋** — 기록 4종이 모두 성공한 뒤에 쓴다.
+    // ★미리 채우는 자동 종료도 **커밋 앞**에 둔다 — "종료 시각이 빌 수 없다"(사장님 09-23)가 안전망인데,
+    //  커밋 뒤에 두면 실패해도 성공음이 나서 "시작은 있고 종료는 0" 인 태그가 조용히 나갔다.
+    DisinfectionRecord autoEnd{record};
+    autoEnd.DateTime = add_datetime(current, alarmOption.GetTimeSlot2(), record.DateTime.Time.Second);
+    if (!disinfection_end(isMoved, autoEnd)) return false;
+
+    // Process(소독 시작 플래그)는 **커밋** — 기록이 모두 성공한 뒤에 쓴다.
     // 앞에 두면 중간 실패 시 "소독했다"는 플래그만 서고 시작·종료 기록이 0 인
     // 태그가 남아, 서버가 3단 거부를 통과해 빈 시각을 등록한다
     // (1.0 승계 결함 — 2.2.5 수정). 세척 경로는 원래 이 순서였다.
@@ -188,10 +196,7 @@ bool DisinfectionProcessor::disinfection_start(
     // 더블터치 가드로 "시작"이 재실행된 경우에는 횟수를 다시 올리지 않는다
     // (2초 안에 두 번 대면 소독 1회에 횟수 2가 되던 것 — 2.2.5 수정).
     if (!isGuest && !isRestart) disinfectionOption.IncrementCount();
-
-    record.DateTime = add_datetime(current, alarmOption.GetTimeSlot2(), record.DateTime.Time.Second);
-    (void)disinfection_end(isMoved, record);
-    return true;   // 커밋됨(자동 종료 기록 실패는 종료 터치가 다시 쓴다)
+    return true;
 }
 
 bool DisinfectionProcessor::disinfection_end(bool isMoved, DisinfectionRecord &record)
@@ -200,10 +205,11 @@ bool DisinfectionProcessor::disinfection_end(bool isMoved, DisinfectionRecord &r
     const uint8_t keyBlk  = isMoved ? SECTOR8_DISINFECTION_END_MANAGER_KEY  : SECTOR6_DISINFECTION_END_MANAGER_KEY;
     const uint8_t nameBlk = isMoved ? SECTOR8_DISINFECTION_END_MANAGER_NAME : SECTOR6_DISINFECTION_END_MANAGER_NAME;
 
-    if (mScanner.Write(recBlk,  &record, 10) != RfidResult::Ok) return false;
+    // ★담당자를 먼저, **시각을 마지막에** — 반대면 담당자 블록만 실패했을 때 "오늘 종료 시각 + 지난
+    //  주기 담당자" 쌍이 남는다(그 블록들은 서버 덤프도 안 지워 옛 담당자가 늘 남아 있다).
     if (mScanner.Write(keyBlk,  mCachedTag.ID, 14) != RfidResult::Ok) return false;
     if (mScanner.Write(nameBlk, mCachedTagSerial.Serial, 16) != RfidResult::Ok) return false;
-    return true;
+    return mScanner.Write(recBlk, &record, 10) == RfidResult::Ok;
 }
 
 DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, DefaultRtc &rtc, int8_t washingMinutes)

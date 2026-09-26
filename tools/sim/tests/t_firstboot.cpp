@@ -6,6 +6,13 @@ static bool clear_is(uint16_t y, uint8_t mo, uint8_t d, uint8_t h, uint8_t mi)
     const LocalDateTime t = disinfectionOption.GetClearDateTime();
     return t.Date.Year == y && t.Date.Month == mo && t.Date.Day == d && t.Time.Hour == h && t.Time.Minute == mi;
 }
+
+// 출시일 h:mi 의 한 달 전 — 정본 OneMonthBefore 로 유도(말일 보정 자체는 아래 10/31→9/30 검사가 명시값으로 본다).
+static bool clear_is_rel_minus_month(uint8_t h, uint8_t mi)
+{
+    const LocalDateTime e = DisinfectionOption::OneMonthBefore(DefaultRtc::ToLocalDateTime(rel_date(h, mi, 0)));
+    return clear_is(e.Date.Year, e.Date.Month, e.Date.Day, h, mi);
+}
 static bool clear_from_marker()   // 표지(2026-01-01)에서 파생된 기본값(2025-12-01)인가 — 시각과 무관
 {
     const LocalDateTime t = disinfectionOption.GetClearDateTime();
@@ -27,10 +34,10 @@ int main()
     tlog_ldt("첫 부팅 뒤 교환일", disinfectionOption.GetClearDateTime());
     CHECK(!clear_from_marker(), "첫 부팅(방전): 2025-12-01 을 기본값으로 쓰지 않음");
 
-    json("{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-23 09:00:00\"}");
+    { char jb[96]; json(rel_json_set_time(jb, sizeof(jb), 9, 0, 0)); }
     run_loops(2);
     tlog_ldt("시계 맞춘 뒤 교환일", disinfectionOption.GetClearDateTime());
-    CHECK(clear_is(2026, 8, 23, 9, 0), "첫 부팅(방전): 시계 복구 때 현재-1개월");
+    CHECK(clear_is_rel_minus_month(9, 0), "첫 부팅(방전): 시계 복구 때 현재-1개월");
 
     // [회귀] 시계 정상인 공장 기기에 새 버전 첫 부팅 → 즉시 현재-1개월
     eeprom_factory();
@@ -48,14 +55,14 @@ int main()
     sim_advance_ms(3UL * 1000);
     tlog_ldt("방전 첫 부팅 + DTR 리셋 뒤 교환일", disinfectionOption.GetClearDateTime());
     CHECK(!clear_from_marker() && disinfectionOption.HasPendingClear(), "첫 부팅(방전)+DTR 리셋: 여전히 미룸");
-    json("{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-23 09:00:00\"}");
+    { char jb[96]; json(rel_json_set_time(jb, sizeof(jb), 9, 0, 0)); }
     run_loops(2);
-    CHECK(clear_is(2026, 8, 23, 9, 0), "첫 부팅(방전)+DTR 리셋 뒤 시계 맞춤 → 현재-1개월");
+    CHECK(clear_is_rel_minus_month(9, 0), "첫 부팅(방전)+DTR 리셋 뒤 시계 맞춤 → 현재-1개월");
     // ── [2.2.9] 쓰던 기기에 새 버전 업로드 — 묻고, 무응답이면 유지 ──
     {
         eeprom_factory();
         g_rtcLostPower = false;
-        rtc_set(DateTime(2026, 9, 23, 10, 0, 0));
+        rtc_set(rel_date(10, 0, 0));
         GUARDED(setup());                              // 공장 → 묻지 않고 초기화
         run_loops(2);
         deviceOption.SetType('D');

@@ -18,6 +18,9 @@ struct SimCard
     // 고장 주입
     int16_t failAuthAt;       // n번째 인증 시도를 실패시킨다(카드 → IDLE). 0=없음
     int16_t failWriteAt;      // n번째 쓰기를 실패시킨다(카드 → IDLE). 0=없음
+    int16_t nackBlock;        // 이 블록 쓰기만 NACK — **카드는 살아 있다**(실물의 쓰기 거부·ACK 유실).
+                              //   가정 ③ 및 "한 블록만 실패해도 나머지는 성공" 을 표현한다. -1=없음
+    uint8_t nackBlockSkip;    // 그 블록의 처음 n회 쓰기는 통과(검증 재기록 뒤부터 실패시킬 때)
     int16_t removeAfterOps;   // 인증·읽기·쓰기 n회 뒤 필드 이탈. 0=없음
     int16_t readErrBlock;     // 이 블록 읽기를 리더 쪽 오류로(카드 상태 유지). -1=없음
     uint8_t readErrTimes;     // 위 오류 횟수
@@ -30,6 +33,9 @@ struct SimCard
 extern SimCard *g_card;            // 필드 위 카드(없으면 nullptr)
 extern SimCardState g_cardState;
 extern bool g_readerCrypto;
+extern uint8_t  g_versionReg;      // 0x00·0xFF = 죽은 리더(제품이 Reinitialize 를 탄다)
+extern uint16_t g_fieldDrop;       // 리더 소프트 리셋으로 카드가 전원을 잃은 횟수
+void sim_field_drop();
 
 void card_init_traceq(SimCard &c, uint8_t uidLast);   // TraceQ 키 태그(데이터 0)
 void card_init_foreign(SimCard &c, uint8_t uidLast);  // 키가 다른 MIFARE 카드
@@ -55,7 +61,9 @@ uint8_t buzz_count(uint16_t pulseMs);   // 길이가 pulseMs 인 부저 펄스 �
 void buzz_clear();
 
 // ── 버튼 스크립트 (LOW=눌림) ──
-void buttons_script(const char *seq);   // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
+void buttons_script(const char *seq);
+void buttons_at(char btn, uint32_t atMs);   // g_ms 가 atMs 에 이르면 그 버튼('S','L','R')이 한 번 눌린다
+extern uint32_t g_btnIdleLimit;        // 스크립트 소진 뒤 이만큼 더 읽으면 시험을 끊는다(기본 30000)   // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
 extern uint16_t g_minSP;                // 버튼 읽는 자리에서 본 최저 SP
 
 // ── soft reset 가로채기 ──

@@ -85,7 +85,8 @@ SimpleScanner simpleScanner{rfid};
 #endif
 
 // 전원을 켤 때 RIGHT 을 누르고 있으면 같은 판이어도 다시 고를 수 있다 — 유지를 고른 뒤 되돌릴 유일한 길.
-static bool right_held_at_boot()
+// 부팅 전용 둘은 인라인 금지 — main 의 상주 프레임(스택)에 안 얹히게(4차 F).
+static bool __attribute__((noinline)) right_held_at_boot()
 {
     for (uint8_t i = 0; i < 4; ++i)
     {
@@ -98,7 +99,7 @@ static bool right_held_at_boot()
 // 업로드 직후 1회 — 설정을 지울지 묻는다. 조작은 리더기 메뉴와 같다: `<` `>` 로 고르고 MENU 로 확정.
 // 10초 무응답이면 유지(안전한 쪽). 1.4.1 과 EEPROM 주소가 같아 유지하면 기기번호·세척시간·담당자·
 // 소독 횟수·액교환일이 그대로 남는다.
-static bool ask_erase_settings()
+static bool __attribute__((noinline)) ask_erase_settings()
 {
     lcd.init();
     lcd.backlight();
@@ -148,7 +149,7 @@ static bool ask_erase_settings()
         {
             shownSec = left;
             char buf[21]{};
-            snprintf(buf, sizeof(buf), "<>move  MENU=OK %2us", left);
+            snprintf_P(buf, sizeof(buf), PSTR("<>move  MENU=OK %2us"), left);   // 서식은 플래시에(RAM −20B)
             ui.Info_cstr(0, 3, buf);
         }
         delay(50);
@@ -238,11 +239,11 @@ void loop()
     // 1.0과 달리 매번 Rc522Initialize() 호출하지 않음. 죽었을 때만 재초기화.
     if (rfid.IsAlive())
     {
-        ui.Info(12, 3, F("R-O"));
+        ui.InfoReader(true);
     }
     else
     {
-        ui.Info(12, 3, F("R-X"));
+        ui.InfoReader(false);
         rfid.Reinitialize();
     }
 
@@ -256,7 +257,7 @@ void loop()
     switch (deviceType)
     {
     case GATEWAY_TYPE_DEVICE:
-        ui.Info(0, 1, gatewayProcessor.HasPatientInformation()
+        ui.InfoRow1(gatewayProcessor.HasPatientInformation()
             ? F("has patient info    ") : F("no patient info     "));
         break;
     case WASHING_TYPE_DEVICE:
@@ -277,12 +278,12 @@ void loop()
             snprintf(alarmBuffer, sizeof(alarmBuffer), "%02d Min Alarm %02d:%02d",
                      alarmTime, ts.minutes(), ts.seconds());
         }
-        ui.Info_cstr(0, 1, alarmBuffer);
+        ui.InfoRow1_cstr(alarmBuffer);
         break;
     }
     case SERVER_TYPE_DEVICE:
     {
-        ui.Info(0, 1, serialProcessor.IsAuthenticated() ? F("connected           ") : F("not connected       "));
+        ui.InfoRow1(serialProcessor.IsAuthenticated() ? F("connected           ") : F("not connected       "));
         break;
     }
     default: break;

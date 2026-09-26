@@ -127,6 +127,34 @@ void UserInterface::InvalidateHome()
     // 메뉴·경고 등으로 화면을 지운 뒤에는 다음 DisplayHome 이 전부 다시 그리게 한다.
     mHomeShownDateTime[0] = '\0';
     mHomeStaticShown = false;
+    mHomeShownRow1[0] = '\0';   // ★1행·R-O 캐시도 무효화 — 안 하면 지운 화면이 그대로 빈 채 남는다.
+    mHomeShownReader  = 0;
+}
+
+void UserInterface::InfoRow1_cstr(const char *string)
+{
+    if (strncmp(mHomeShownRow1, string, sizeof(mHomeShownRow1) - 1) == 0) return;
+    strncpy(mHomeShownRow1, string, sizeof(mHomeShownRow1) - 1);
+    mHomeShownRow1[sizeof(mHomeShownRow1) - 1] = '\0';
+    mLcd.setCursor(0, 1);
+    mLcd.print(string);
+}
+
+void UserInterface::InfoRow1(const __FlashStringHelper *string)
+{
+    char buf[sizeof(mHomeShownRow1)];
+    strncpy_P(buf, reinterpret_cast<PGM_P>(string), sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    InfoRow1_cstr(buf);
+}
+
+void UserInterface::InfoReader(bool alive)
+{
+    const char want = alive ? 'O' : 'X';
+    if (mHomeShownReader == want) return;
+    mHomeShownReader = want;
+    mLcd.setCursor(12, 3);
+    mLcd.print(alive ? F("R-O") : F("R-X"));
 }
 
 UserInterface::MenuFunction UserInterface::DisplayMenu(uint8_t index)
@@ -135,9 +163,11 @@ UserInterface::MenuFunction UserInterface::DisplayMenu(uint8_t index)
     const Screen &s = mOptionMenu.GetScreen(index);
     display_screen(s);
 
-    // loop
+    // loop — 60초 무조작이면 저장 없이 나간다(Exit 는 handle_menu 가 홈으로 돌린다).
+    menu_touch();
     while (true)
     {
+        if (menu_idle_expired()) return MenuFunction::Exit;
         if (read_select_button())
         {
             switch (compare_position())
@@ -301,9 +331,11 @@ UserInterface::MenuFunction UserInterface::edit_number_impl(Line &line)
     char *content{line.GetContent()};
     bool editable{false};
 
-    // loop
+    // loop — 60초 무조작이면 저장 없이 나간다(Exit 는 handle_menu 가 홈으로 돌린다).
+    menu_touch();
     while (true)
     {
+        if (menu_idle_expired()) return MenuFunction::Exit;
         if (editable)
         {
             mLcd.setCursor(16, 0);
@@ -388,9 +420,11 @@ UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p
     // copy
     const char *var{p1};
 
-    // loop
+    // loop — 60초 무조작이면 저장 없이 나간다(Exit 는 handle_menu 가 홈으로 돌린다).
+    menu_touch();
     while (true)
     {
+        if (menu_idle_expired()) return MenuFunction::Exit;
         if (read_select_button())
         {
             switch (compare_position())
@@ -497,9 +531,11 @@ UserInterface::MenuFunction UserInterface::select_impl(Line &line, const char *p
     // copy
     const char *var{p1};
 
-    // loop
+    // loop — 60초 무조작이면 저장 없이 나간다(Exit 는 handle_menu 가 홈으로 돌린다).
+    menu_touch();
     while (true)
     {
+        if (menu_idle_expired()) return MenuFunction::Exit;
         if (read_select_button())
         {
             switch (compare_position())

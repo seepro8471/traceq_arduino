@@ -196,7 +196,7 @@ int main()
         CHECK(warned("Read Error", 150), "서버 스코프 읽기 실패 → Read Error + 실패음");
         CHECK(!serial_has("Ok!"), "서버 읽기 실패 → 덤프를 보내지 않는다");
     }
-    for (uint8_t off = 3; off <= 10; ++off)   // 덤프 뒤 쓰기 8개(Process·게이트웨이·섹터15 x3·커밋·환자 x2) 전수
+    for (uint8_t off = 3; off <= 9; ++off)   // 덤프 뒤 쓰기 7개: 3=완료커밋 · 4=게이트웨이 · 5~7=섹터15 · 8~9=환자
     {
         fresh_scope(b, static_cast<uint8_t>(0x28 + off), 28 + off);
         set_process(b, Process{1, 1, 1, 1, 1, false, 0, 2});
@@ -205,6 +205,8 @@ int main()
         set_record(b, SECTOR5_DISINFECTION_START, 2, DateTime(2026, 9, 23, 9, 5, 0));
         set_record(b, SECTOR6_DISINFECTION_END,   2, DateTime(2026, 9, 23, 9, 23, 0));
         memcpy(b.data[SECTOR2_PATIENT_KEY], "P0001", 6);
+        memcpy(b.data[SECTOR15_EXAMINATION_SUBJECT], "EGD", 4);
+        set_record(b, SECTOR1_GATEWAY, 7, DateTime(2026, 9, 23, 8, 55, 0));   // 검사일시 — 소거 대상
         logs_clear(); buzz_clear();
         serial_inject("Z", 1);
         b.failWriteAt = b.writeCount + off;
@@ -217,22 +219,28 @@ int main()
         // ★"환자정보 있음(Status=1)인데 환자 블록은 빈" 태그가 남으면 세척기의 미기재 경고가 무력화된다.
         CHECK(!(p.Status == 1 && b.data[SECTOR2_PATIENT_KEY][0] == 0),
               "서버 초기화 실패 → '환자정보 있음 + 빈 블록' 태그를 남기지 않는다");
-        // ★재접촉이 가능하면(W/D 남음) 2차 덤프가 나간다 — 그 덤프에 환자키가 비어 있으면 PC 의
-        //  이미 저장된 검사기록을 빈 값으로 덮어쓴다. 되므로 "재덤프 가능 → 환자키 살아 있음" 이어야 한다.
+        // ★★사장님 09-25 판정: 재덤프가 가능한 창(=완료 커밋이 실패)에서는 **아직 아무것도 지워지지
+        //  않아야** 한다. 그래야 2차 덤프가 1차와 같아 PC 가 중복으로 걸러낸다. 하나라도 지워진 채
+        //  2차가 나가면 구형 델파이가 저장된 행의 그 칸(검사일시·검사항목·환자)을 빈 값으로 덮어쓴다.
         const bool redumpable = (p.WashingStatus != 0 && p.DisinfectionCount != 0);
-        CHECK(!redumpable || b.data[SECTOR2_PATIENT_KEY][0] != 0,
-              "서버 초기화 실패 → 재덤프가 가능하면 환자키가 살아 있다(빈 덤프로 덮어쓰기 금지)");
+        CHECK(!redumpable || (b.data[SECTOR2_PATIENT_KEY][0] != 0 &&
+                              b.data[SECTOR15_EXAMINATION_SUBJECT][0] != 0 &&
+                              b.data[SECTOR1_GATEWAY][0] != 0),
+              "서버 커밋 실패 → 소거는 아직 하나도 안 됐다(2차 덤프 = 1차와 동일)");
         b.failWriteAt = 0;
         logs_clear(); buzz_clear();
         serial_inject("Z", 1);
         touch(b);
         const Process p2 = get_process(b);
         tlog("    재접촉: WS=%u 환자키=[%.5s]\n", p2.WashingStatus, (const char *)b.data[SECTOR2_PATIENT_KEY]);
-        // 재덤프가 가능한 창(커밋 전 실패)에서만 재접촉으로 소거까지 끝난다. 커밋 뒤(환자 블록) 실패는
-        // 이미 완료 처리돼 재접촉이 거부되고 환자정보가 남는다 — 2.2.8 도 같아 회귀는 아니다.
-        CHECK(p2.WashingStatus == 0 && p2.Status == 0, "서버 초기화 실패 → 완료 처리는 유지된다");
-        CHECK(!redumpable || b.data[SECTOR2_PATIENT_KEY][0] == 0,
-              "서버 초기화 실패 → 재덤프 가능했으면 재접촉으로 환자정보까지 지워진다");
+        // 커밋 전 실패면 재접촉으로 전부 마무리된다. 커밋 뒤 실패면 이미 완료 처리라 재접촉이 거부되고
+        // 잔재가 남는다 — 사장님 09-25 판정에 따른 **의도된 대가**이므로 되돌리지 못하게 여기 박아 둔다.
+        if (redumpable)
+            CHECK(p2.WashingStatus == 0 && b.data[SECTOR2_PATIENT_KEY][0] == 0,
+                  "서버 커밋 실패 → 재접촉하면 완료·소거가 모두 끝난다");
+        else
+            CHECK(p2.Status == 0 && p2.WashingStatus == 0,
+                  "서버 소거 실패 → 완료 처리는 유지된다(재접촉 거부는 의도된 대가)");
     }
 
     // ── 서버: 소거만 실패하고 Process 쓰기는 되는 경우(카드는 살아 있고 확인 읽기만 실패) ──
@@ -255,16 +263,14 @@ int main()
         tlog("  서버 소거만 실패: lcd=[%.40s] 경고음=%u 완료음=%u WS=%u\n",
              g_lcdLog, buzz_count(100), buzz_count(150), p.WashingStatus);
         CHECK(warned("Write Error", 150), "서버 소거 실패 → Write Error + 경고음, 완료음 없음");
-        CHECK(p.WashingStatus != 0, "서버 소거 실패 → 재접촉이 가능한 상태로 보존");
-        // ★소거가 실패했는데 완료 플래그만 지워지면 재접촉이 "Not W and D" 로 거부되어 환자정보가 영구히 남는다.
+        // 새 순서에서는 완료 커밋이 이미 끝나 있다 — 완료 처리는 살아 있고 2차 덤프는 나가지 않는다.
+        CHECK(p.WashingStatus == 0 && p.Status == 0, "서버 소거 실패 → 완료 처리는 유지된다");
         b.readErrBlock = -1; b.readErrTimes = 0;
         logs_clear(); buzz_clear();
         serial_inject("Z", 1);
         touch(b);
-        tlog("  재접촉 뒤: WS=%u 환자키=[%.6s]\n", get_process(b).WashingStatus,
-             (const char *)b.data[SECTOR2_PATIENT_KEY]);
-        CHECK(get_process(b).WashingStatus == 0 && b.data[SECTOR2_PATIENT_KEY][0] == 0,
-              "서버 소거 실패 → 재접촉하면 환자정보까지 실제로 지워진다");
+        tlog("  재접촉 뒤: Ok!=%d (거부되어야 한다)\n", serial_has("Ok!"));
+        CHECK(!serial_has("Ok!"), "서버 소거 실패 → 재접촉은 2차 덤프를 내지 않는다(PC 기록 보호)");
     }
 
     // ── 거부는 실패와 다른 리듬(삐삐 + 긴 삐) — 화면을 못 봐도 갈린다 ──

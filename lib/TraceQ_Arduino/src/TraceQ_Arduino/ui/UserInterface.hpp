@@ -82,8 +82,14 @@ public:
      */
     void DisplayHome(DefaultRtc &rtc, int deviceNumber);
 
-    /// 화면을 지운 뒤(메뉴 진입/복귀 등) 다음 DisplayHome 이 전부 다시 그리도록.
+    /// 화면을 지운 뒤(메뉴 진입/복귀 등) 다음 DisplayHome·InfoRow1·InfoReader 이 전부 다시 그리도록.
     void InvalidateHome();
+
+    /// 홈 1행(알람/연결 상태) — 내용이 바뀌었을 때만 다시 그린다(표시 결과 동일).
+    void InfoRow1(const __FlashStringHelper *string);
+    void InfoRow1_cstr(const char *string);
+    /// RFID 상태 표시(R-O/R-X) — 상태가 바뀔 때만.
+    void InfoReader(bool alive);
 
     /**
      * \brief 인자로 넘어온 인덱스의 메뉴를 표시하고 해당 메뉴에서 선택한 기능(eFuntion)을/를 반환한다.
@@ -140,19 +146,33 @@ public:
     MenuFunction SetDisinfectionRange(DisinfectionOption &option);
 
 protected:
-    static inline bool read_select_button()
+    // 메뉴 무조작 시한(사장님 09-25): 60초 동안 아무 버튼도 안 누르면 저장 없이 홈으로 나간다.
+    // 메뉴에 머무는 동안은 태그를 전혀 읽지 않으므로, 열어 두고 자리를 비우거나 버튼이 붙어 고장나도
+    // 기기가 영영 멈추지 않게. 눌린 버튼을 읽을 때마다 활동 시각을 갱신한다.
+    static constexpr unsigned long kMenuIdleMs{60000UL};
+    unsigned long mMenuActiveAt{0};
+    inline void menu_touch() { mMenuActiveAt = millis(); }
+    inline bool menu_idle_expired() const { return millis() - mMenuActiveAt >= kMenuIdleMs; }
+
+    inline bool read_select_button()
     {
-        return digitalRead(PIN_SELECT_BUTTON) == LOW;
+        if (digitalRead(PIN_SELECT_BUTTON) != LOW) return false;
+        menu_touch();
+        return true;
     }
 
-    static inline bool read_left_button()
+    inline bool read_left_button()
     {
-        return digitalRead(PIN_LEFT_BUTTON) == LOW;
+        if (digitalRead(PIN_LEFT_BUTTON) != LOW) return false;
+        menu_touch();
+        return true;
     }
 
-    static inline bool read_right_button()
+    inline bool read_right_button()
     {
-        return digitalRead(PIN_RIGHT_BUTTON) == LOW;
+        if (digitalRead(PIN_RIGHT_BUTTON) != LOW) return false;
+        menu_touch();
+        return true;
     }
 
     /**
@@ -318,6 +338,10 @@ private:
     char mHomeShownDateTime[20]{};
     int  mHomeShownNumber{-1};
     bool mHomeStaticShown{false};
+    // 1행(알람/상태)·R-O 표시도 매 루프 다시 쓰면 그만큼 I2C 지연이다 — 바뀐 것만 그린다.
+    // ★InvalidateHome 이 이 캐시도 지운다(메뉴·경고로 화면을 지운 뒤 반드시 다시 그리게).
+    char mHomeShownRow1[21]{};
+    char mHomeShownReader{0};
 
     /// \brief 어떠한 컨텐츠를 '선택'한 다음의 딜레이.
     unsigned long mInterval{300};
