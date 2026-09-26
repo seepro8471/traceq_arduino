@@ -101,7 +101,7 @@ private:
     void legacy_print_sector(uint8_t sector);
 
     /// 블록 1개를 "TTBB{32자 hex};" 37자+CRLF로 출력 (읽기 실패 시 0 덤프 — 1.0과 동일).
-    void legacy_print_block(uint8_t sectorTrailer, uint8_t block);
+    void legacy_print_block(uint8_t sectorTrailer, uint8_t block, bool zeroOnly = false);
 
     /// buffer[0](C/M/S)에 따라 태그 타입 파싱. 실패 시 -1.
     int legacy_parse_tag(const char *buffer);

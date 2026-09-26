@@ -72,6 +72,9 @@ public:
      */
     bool HasAlarm(uint8_t slot);
 
+    /// 알람까지 남은 초 — 절대 시각 차(자정 넘김·60분 초과에서도 맞다). 미설정·이미 지남은 0.
+    int32_t GetAlarmRemainingSeconds(uint8_t slot);
+
 protected:
     BaseRtc() = default;
 

@@ -128,6 +128,19 @@ bool BaseRtc::HasAlarm(const uint8_t slot)
     return slot == 1 ? mAlarmSlot1Flag : mAlarmSlot2Flag;
 }
 
+int32_t BaseRtc::GetAlarmRemainingSeconds(const uint8_t slot)
+{
+    // ★남은 시간은 **절대 시각 차**로 — GetAlarmTimeSpan 은 하루 안 시각으로 잘라 자정을 넘으면 음수가 됐고,
+    //  TimeSpan::minutes() 는 (초/60)%60 이라 60분 넘는 설정에서 나머지만 보였다(표시 전용, 발화는 무관).
+    if (slot > 3) return 0;
+    const bool flag = slot == 1 ? mAlarmSlot1Flag : mAlarmSlot2Flag;
+    if (!flag) return 0;
+    const DateTime alarm = slot == 1 ? mAlarmSlot1 : mAlarmSlot2;
+    const DateTime now   = mRtc.now();
+    if (now >= alarm) return 0;
+    return (alarm - now).totalseconds();
+}
+
 bool BaseRtc::is_alarm_fired(uint8_t slot)
 {
     const auto alarmFlag = slot == 1 ? mAlarmSlot1Flag : mAlarmSlot2Flag;

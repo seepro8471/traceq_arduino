@@ -51,7 +51,7 @@ void DeviceOption::SetType(char type)
 int DeviceOption::GetNumber() const
 {
     EEPROM.get(mNumberAddr, mNumber);
-    return mNumber;
+    return mNumber < 0 ? 0 : mNumber;   // 세터 범위 밖 값은 돌려주지 않는다
 }
 
 void DeviceOption::SetNumber(int number)

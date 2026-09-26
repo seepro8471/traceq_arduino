@@ -27,7 +27,7 @@ void DisinfectionOption::Load()
 int  DisinfectionOption::GetCount() const
 {
     EEPROM.get(mCountAddr, mCount);
-    return mCount;
+    return mCount < 0 ? 0 : mCount;   // 세터 범위 밖 값은 돌려주지 않는다
 }
 void DisinfectionOption::SetCount(int count)
 {
@@ -40,7 +40,7 @@ void DisinfectionOption::IncrementCount() { SetCount(GetCount() + 1); }
 int  DisinfectionOption::GetMaximumCount() const
 {
     EEPROM.get(mMaximumCountAddr, mMaximumCount);
-    return mMaximumCount;
+    return mMaximumCount < 0 ? 0 : mMaximumCount;
 }
 void DisinfectionOption::SetMaximumCount(int maximumCount)
 {
@@ -52,7 +52,7 @@ void DisinfectionOption::SetMaximumCount(int maximumCount)
 uint8_t DisinfectionOption::GetSimultaneousDisinfectionDelay() const
 {
     EEPROM.get(mSimultaneousDelayAddr, mSimultaneousDelay);
-    return mSimultaneousDelay;
+    return static_cast<uint8_t>(constrain(mSimultaneousDelay, 0, 120));
 }
 void DisinfectionOption::SetSimultaneousDisinfectionDelay(int delay)
 {
@@ -66,7 +66,7 @@ void DisinfectionOption::SetSimultaneousDisinfectionDelay(int delay)
 uint8_t DisinfectionOption::GetSimultaneousDisinfectionSlot() const
 {
     EEPROM.get(mSimultaneousSlotAddr, mSimultaneousSlot);
-    return mSimultaneousSlot;
+    return static_cast<uint8_t>(constrain(mSimultaneousSlot, 0, 2));
 }
 void DisinfectionOption::SetSimultaneousDisinfectionSlot(int range)
 {
@@ -78,7 +78,7 @@ void DisinfectionOption::SetSimultaneousDisinfectionSlot(int range)
 int  DisinfectionOption::GetClearCount() const
 {
     EEPROM.get(mClearCountAddr, mClearCount);
-    return mClearCount;
+    return mClearCount < 0 ? 0 : mClearCount;
 }
 void DisinfectionOption::SetClearCount(int clearCount)
 {

@@ -366,9 +366,10 @@ bool SerialProcessor::legacy_loop_process(LcdPrinter &printer)
     legacy_print_sector(14);
 
     // 이전 소독기 정보 (deprecated — 구버전이 출력하므로 Clear 후 0 덤프 유지).
-    mScanner.Clear(SECTOR4_DISINFECTION);
+    // 소거 실패면 옛 바이트를 읽어 보내지 않는다 — 계약은 "Clear 후 0 덤프" 다.
+    const bool b19 = mScanner.Clear(SECTOR4_DISINFECTION) == RfidResult::Ok;
     Serial.println(F("B;"));
-    legacy_print_block(19, SECTOR4_DISINFECTION);
+    legacy_print_block(19, SECTOR4_DISINFECTION, !b19);
 
     // company
     Serial.println(F("C;"));
@@ -390,8 +391,8 @@ bool SerialProcessor::legacy_loop_process(LcdPrinter &printer)
     legacy_print_sector(15);
 
     // 더 이상 사용하지 않으나 구버전에서 출력하였음.
-    mScanner.Clear(52);
-    legacy_print_block(55, 52);
+    const bool b52 = mScanner.Clear(52) == RfidResult::Ok;
+    legacy_print_block(55, 52, !b52);
 
     // washing
     Serial.println(F("W;"));
@@ -505,14 +506,15 @@ void SerialProcessor::legacy_print_sector(const uint8_t sector)
     }
 }
 
-void SerialProcessor::legacy_print_block(const uint8_t sectorTrailer, const uint8_t block)
+void SerialProcessor::legacy_print_block(const uint8_t sectorTrailer, const uint8_t block, const bool zeroOnly)
 {
     // 읽기 실패 시 0으로 덤프 (1.0과 동일 — 라인 자체는 항상 출력).
     // ★와이어 포맷은 계약이라 바꾸지 않되, 실패 사실은 기억해 두었다가
     //  전송 후 LCD 로 알린다. 그러지 않으면 "정상적으로 보이는 0 데이터"가
     //  서버에 저장되고 아무 흔적도 남지 않는다 (2.2.5).
     memset(mLegacyBuffer, 0, MIFARE_BLOCK_SIZE);
-    if (mScanner.Read(block, mLegacyBuffer, MIFARE_BLOCK_SIZE) != RfidResult::Ok)
+    // zeroOnly: 폐기 블록의 소거가 실패한 경우 — 읽지 않고 0 줄을 낸다(옛 값을 보내지 않는다).
+    if (!zeroOnly && mScanner.Read(block, mLegacyBuffer, MIFARE_BLOCK_SIZE) != RfidResult::Ok)
         ++mLegacyReadFailures;
 
     Serial.print(sectorTrailer < 0x10 ? "0" : "");

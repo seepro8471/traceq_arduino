@@ -136,9 +136,11 @@ bool DisinfectionProcessor::disinfection_start(
         mScanner.ClearSector(6);
     }
 
+    // ★읽지 않는다 — DisinfectionDetail 은 정확히 10바이트(일시 8 + 그룹 2)이고 아래에서 둘 다 무조건
+    //  덮어쓴다. 종전엔 읽기 실패가 시작을 취소했는데, 그 앞에서 이미 옛 기록을 지웠으므로
+    //  "옛 기록 없음 + 새 시작 없음" 태그가 남았다. 성공 경로 바이트는 같다.
     DisinfectionDetail detail{};
     const uint8_t detailBlock = isMoved ? SECTOR14_DISINFECTION_DETAIL2 : SECTOR14_DISINFECTION_DETAIL;
-    if (mScanner.Read(detailBlock, &detail, 10) != RfidResult::Ok) return false;
 
     detail.GroupNumber = isGuest ? 2 : 1;
 

@@ -281,17 +281,10 @@ void loop()
         rtc.HandleAlarm(slot, alarmOption.GetFlag());
         char alarmBuffer[20]{};
         const auto alarmTime = slot == 1 ? alarmOption.GetTimeSlot1() : alarmOption.GetTimeSlot2();
-        if (!rtc.HasAlarm(slot))
-        {
-            snprintf(alarmBuffer, sizeof(alarmBuffer), "%02d Min Alarm %02d:%02d", alarmTime, 0, 0);
-        }
-        else
-        {
-            const auto alarmTimeSpan = rtc.GetAlarmTimeSpan(slot);
-            const auto ts = alarmTimeSpan - rtc.GetCurrentTimeSpan();
-            snprintf(alarmBuffer, sizeof(alarmBuffer), "%02d Min Alarm %02d:%02d",
-                     alarmTime, ts.minutes(), ts.seconds());
-        }
+        // 남은 시간은 절대 시각 차 — 자정 넘김에서 음수, 60분 초과에서 나머지만 보이던 것(4차 G).
+        const int32_t rem = rtc.GetAlarmRemainingSeconds(slot);
+        snprintf_P(alarmBuffer, sizeof(alarmBuffer), PSTR("%02d Min Alarm %02ld:%02ld"),
+                   alarmTime, static_cast<long>(rem / 60), static_cast<long>(rem % 60));
         ui.InfoRow1_cstr(alarmBuffer);
         break;
     }

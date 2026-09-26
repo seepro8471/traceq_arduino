@@ -31,7 +31,9 @@ void AlarmOption::SetFlag(bool flag)
 int8_t AlarmOption::GetTimeSlot1() const
 {
     EEPROM.get(mTimeSlot1Addr, mTimeSlot1);
-    return mTimeSlot1;
+    // ★세터가 저장하지 않는 값은 돌려주지 않는다(GetType 폴백과 같은 규칙) — 손상·구판 바이트가 음수면
+    //  자동 종료가 시작보다 앞선 시각으로 태그에 찍혔다.
+    return static_cast<int8_t>(constrain(mTimeSlot1, 0, 127));
 }
 
 void AlarmOption::SetTimeSlot1(int minute)
@@ -44,7 +46,9 @@ void AlarmOption::SetTimeSlot1(int minute)
 int8_t AlarmOption::GetTimeSlot2() const
 {
     EEPROM.get(mTimeSlot2Addr, mTimeSlot2);
-    return mTimeSlot2;
+    // ★세터가 저장하지 않는 값은 돌려주지 않는다(GetType 폴백과 같은 규칙) — 손상·구판 바이트가 음수면
+    //  자동 종료가 시작보다 앞선 시각으로 태그에 찍혔다.
+    return static_cast<int8_t>(constrain(mTimeSlot2, 0, 127));
 }
 
 void AlarmOption::SetTimeSlot2(int minute)
