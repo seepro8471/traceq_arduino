@@ -455,6 +455,9 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
             if (mScanner.Clear(SECTOR1_PROCESS) != RfidResult::Ok) break;
             if (mScanner.Clear(SECTOR2_PATIENT_KEY) != RfidResult::Ok) break;
             if (mScanner.Clear(SECTOR2_PATIENT_NAME) != RfidResult::Ok) break;
+            // 검사일시·본체번호·검사명도 — PC 는 Status 와 무관하게 그 블록을 저장하므로 재발급 태그에 옛 검사가 붙었다(5차 V2)
+            if (mScanner.Clear(SECTOR1_GATEWAY) != RfidResult::Ok) break;
+            if (mScanner.ClearSector(15) != RfidResult::Ok) break;
 
             isHandled = true;
             break;

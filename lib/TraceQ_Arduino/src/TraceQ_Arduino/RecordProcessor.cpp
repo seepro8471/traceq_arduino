@@ -79,12 +79,12 @@ bool RecordProcessor::hasnt_patient_info(const RecordOption &recordOption)
     return recordOption.GetPatientCheck() && mCachedProcess.Status != 1;
 }
 
-bool RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc)
+int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc)
 {
     WashingRecord record{};   // 세척·소독 시작 기록은 레이아웃이 같다(번호 2 + 일시 8)
-    if (mScanner.Read(startBlock, &record, 10) != RfidResult::Ok) return false;
+    if (mScanner.Read(startBlock, &record, 10) != RfidResult::Ok) return -1;   // 판정 불가 — '종료' 로 떨어뜨리지 않는다
     const auto started = DefaultRtc::ToDateTime(record.DateTime);
-    if (!started.isValid()) return false;
+    if (!started.isValid()) return 0;
     const int32_t gap = (rtc.GetCurrentDateTime() - started).totalseconds();
     // [5차 판정 · 재론 금지] 2초 창은 그대로(사장님 09-27). 커밋 뒤 확인 실패로 'Write Error' 가 난 태그를
     //  2초 넘겨 다시 대면 종료가 되는 경우는, write_process 의 재확인(5차)으로 거의 사라지고 나머지는 감수.

@@ -7,10 +7,9 @@ void DisinfectionProcessor::DisinfectionProcess(
 {
     if (!is_valid(recordOption, managerOption, printer))
     {
-        // 거부로 끝나면 클리어 태그로 세운 이동 플래그도 함께 내린다 —
-        // 남겨두면 한참 뒤 종료 상태 태그가 의도치 않게 이동 처리된다
-        // (1.0 승계 결함, 2.2.5).
-        mMovable = false;
+        // 거부(담당자 없음)로 끝나면 이동 플래그도 내린다(2.2.5). ★읽기 실패(Read Error)에는 지킨다 — 내리면 재접촉이
+        //  이동이 아니라 종료로 기록돼 2차 소독이 사라졌다(5차 V2). 담당자 일회성과 같은 규칙: 실패는 소모하지 않는다.
+        if (!recordOption.GetManagerDisposability() && !managerOption.HasData()) mMovable = false;
         return;
     }
     if (!mCachedProcess.WashingStatus)
@@ -39,7 +38,13 @@ void DisinfectionProcessor::DisinfectionProcess(
     if (isEnd)
     {
         // 더블터치 = 태그에 적힌 시작이 2초 안(host·guest 공통, 기록 실패·재부팅 뒤에도 태그가 답한다).
-        if (started_just_now(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START, rtc))
+        const int8_t just = started_just_now(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START, rtc);
+        if (just < 0)
+        {
+            printer.CustomWarning(0, 2, 100, 4, F("Read Error"));   // 판정 불가 — 알람·슬롯·이동 플래그 그대로, 다시 대게
+            return;
+        }
+        if (just)
         {
             simultaneously = false;
             isEnd = false;
@@ -166,7 +171,7 @@ bool DisinfectionProcessor::disinfection_start(
     mCachedProcess = newProcess;
 
     const auto current = get_adjuest_start_time(rtc.GetCurrentDateTime(), rtc, alarmOption.GetTimeSlot1());
-    if (current == DateTime{static_cast<uint32_t>(0)}) return false;
+    if (current == DateTime{static_cast<uint32_t>(0)}) return false;   // [5차 판정 · 재론 금지] 호출자가 'Write Error' 로 알린다(실은 읽기) — 커밋 없음·조치 동일(다시 댐)
 
     // 방금 시계가 복구됐으면 미뤄 둔 교환일을 먼저 기록 — 이 스코프 태그에도 맞는 교환일이 들어가게.
     if (disinfectionOption.HasPendingClear() && !rtc.IsUnsynced())

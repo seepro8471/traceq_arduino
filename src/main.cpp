@@ -213,11 +213,6 @@ void setup()
         }
         else
         {
-            // 유지 — 177번지(액교환일 미룸)에 **알 수 없는 값**만 정리한다. 옛 판이 안 쓰던 자리라
-            // 쓰레기값이면 첫 소독에서 액교환일을 오늘로 덮어쓴다. 정상 미룸(1·2)은 시계를 아직 못 맞춘
-            // 기기이므로 그대로 둬야 한다.
-            if (disinfectionOption.GetClearPending() > DisinfectionOption::kPendingDefault)
-                disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
             // 클리어 태그를 안 쓰던 기기는 교환일 칸이 비어 있어 소독마다 그날이 교환일로 찍혔다 —
             // 완전 초기화와 같이 '1개월 전' 을 넣는다(사장님 09-27). 값이 있으면 그대로.
             if (disinfectionOption.IsClearDateTimeEmpty() && !disinfectionOption.HasPendingClear())
@@ -230,6 +225,10 @@ void setup()
         }
         EEPROM.put(FIRMWARE_STAMP_ADDR, currentStamp);
     }
+    // 177번지(액교환일 미룸)의 **알 수 없는 값**(3~255)은 매 부팅에 정리한다 — 같은 판 재부팅에서도 손상값이면 다음 loop 의
+    // ApplyPendingClear 가 교환일을 '지금' 으로 덮었다(5차 V3). 정상 미룸(1·2)은 시계를 아직 못 맞춘 기기라 그대로.
+    if (disinfectionOption.GetClearPending() > DisinfectionOption::kPendingDefault)
+        disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
 
     deviceType = deviceOption.GetType();
     // readBytes 는 마지막 바이트 뒤 이만큼 조용해야 끝난다. 올눈(ALLNuN)은 G2~G5 를 250ms 간격으로
@@ -313,6 +312,9 @@ void loop()
     {
         util_buzzer();
         delay(500);
+        // ★손을 뗄 때까지 기다린다(붙은 채 고장나도 멈추지 않게 2초까지) — 0.6초 넘게 누르면 메뉴 첫 항목(기기번호
+        //  편집)이 곧장 선택되던 것(5차 V3). 부팅 선택창(ask_erase_settings)과 같은 규칙.
+        for (uint8_t i = 0; i < 100 && digitalRead(PIN_SELECT_BUTTON) == LOW; ++i) delay(20);
         handle_menu(ui.DisplayMenu());
     }
 #endif

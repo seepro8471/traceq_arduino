@@ -2,7 +2,8 @@
 
 #include "TraceQ_Arduino/version.hpp"
 
-// [5차 판정 · 재론 금지] begin() 실패(시계 모듈 없음)는 표지 없이 진행 — 하드웨어 결함이고 IsUnsynced 가 방전 표지로 잡는다.
+// [5차 판정 · 재론 금지] begin() 실패(시계 모듈 없음·I2C 불량)는 표지 없이 진행 — 그때 now() 는 정의되지 않은 값이라
+//  IsUnsynced 로도 못 잡는다. 하드웨어 결함은 화면 시각이 엉뚱한 것으로 사람이 안다.
 void BaseRtc::RtcInitialize()
 {
     if (!mRtc.begin())
@@ -91,6 +92,8 @@ TimeSpan BaseRtc::GetAlarmTimeSpan(uint8_t slot)
     return get_time_span(slot == 1 ? mAlarmSlot1 : mAlarmSlot2);
 }
 
+// [5차 판정 · 재론 금지] 알람은 절대 시각(now+분) — 세척·소독 중에 시계를 바꾸면 그만큼 어긋난다(기록은 무관, 알람만).
+//  상대 시각으로 바꾸려면 상태가 는다. 세척 중 시계를 맞추는 일은 조작 규칙으로 막는다.
 void BaseRtc::SetAlarm(const uint8_t slot, const int8_t minute, const int8_t seconds)
 {
     if (slot != 1 && slot != 2)

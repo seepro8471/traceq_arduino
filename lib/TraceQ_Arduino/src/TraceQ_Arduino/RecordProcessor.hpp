@@ -25,7 +25,9 @@ protected:
 
     /// 더블터치 판정 — 태그에 적힌 시작 시각이 지금과 2초 안이면 "방금 시작한 그 태그" 다.
     /// 태그가 말해 주므로 RAM 에 마지막 시작을 기억할 필요가 없다(재부팅·기록 실패 뒤에도 옳다).
-    bool started_just_now(uint8_t startBlock, DefaultRtc &rtc);
+    /// 더블터치 판정. 1 = 시작이 2초 안(재시작) · 0 = 아니다(종료) · -1 = 시작 블록을 못 읽음(판정 불가 — 호출자가
+    /// Read Error 로 알리고 아무것도 바꾸지 않는다). 종전엔 못 읽으면 조용히 0 이 되어 1초짜리 종료가 기록됐다(5차 V4).
+    int8_t started_just_now(uint8_t startBlock, DefaultRtc &rtc);
 
     static LocalDateTime add_datetime(const DateTime &current, uint8_t minute, uint8_t seconds);
 

@@ -51,12 +51,13 @@ void DeviceOption::SetType(char type)
 int DeviceOption::GetNumber() const
 {
     EEPROM.get(mNumberAddr, mNumber);
-    return mNumber < 0 ? 0 : mNumber;   // 세터 범위 밖 값은 돌려주지 않는다
+    return mNumber < 0 ? 0 : mNumber > 999 ? 999 : mNumber;   // 세터 범위 밖 값은 돌려주지 않는다
 }
 
 void DeviceOption::SetNumber(int number)
 {
     if (number < 0) number = 0;
+    if (number > 999) number = 999;   // 화면 5칸(" W:99"/"W:999") 상한 — PC 설정기는 0~99 만 보낸다
     EEPROM.put(mNumberAddr, number);
     EEPROM.get(mNumberAddr, mNumber);
 }

@@ -27,7 +27,7 @@ bool BaseProcessor::read_tag_serial()
 
 bool BaseProcessor::read_process()
 {
-    // 1.0과 동일하게 9바이트 — AVR 에서 sizeof(Process) 는 정확히 9(패딩 없음, 4차 F static_assert).
+    // 1.0과 동일하게 9바이트 — sizeof(Process) == 9 는 Process.hpp 의 static_assert 가 지킨다.
     return mScanner.Read(SECTOR1_PROCESS, &mCachedProcess, 9) == RfidResult::Ok;
 }
 

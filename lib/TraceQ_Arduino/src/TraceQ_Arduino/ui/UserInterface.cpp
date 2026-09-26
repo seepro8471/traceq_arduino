@@ -116,8 +116,10 @@ void UserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
     if (mHomeShownNumber != deviceNumber)
     {
         mHomeShownNumber = deviceNumber;
-        snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%02d", mType, deviceNumber);
-        mLcd.setCursor(deviceNumber >= 100 ? 15 : 16, 3);   // 세 자리면 한 칸 앞에서 — 20열을 넘으면 안 보인다
+        // 항상 15열부터 5칸 — 두 자리는 앞에 공백. 자릿수가 바뀌어도 잔상이 없다(1행 20자 채움과 같은 규칙).
+        if (deviceNumber >= 100) snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%d", mType, deviceNumber);
+        else                     snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), " %c:%02d", mType, deviceNumber);
+        mLcd.setCursor(15, 3);
         mLcd.print(mDeviceInfoBuffer);
     }
 }

@@ -124,8 +124,13 @@ void DefaultRtc::FromInternalString(char *string, const DateTime & /*unused*/, D
         hour = str_atoi_range(string, 0, 1);
         minute = str_atoi_range(string, 2, 3);
         second = str_atoi_range(string, 4, 5);
-        // set and break
-        SetDateTime({dateTime.year(), dateTime.month(), dateTime.day(), hour, minute, second});
+        // 날짜는 '지금' 것 — 편집이 자정을 끼면(23:59 에 들어가 00:00 뒤 저장) 하루가 어긋나므로, 합성 시각이 지금과
+        // 12시간 넘게 차이 나면 그쪽 날로 하루 옮긴다(5차 V3 — E1 수정이 만든 새 경계).
+        DateTime composed{dateTime.year(), dateTime.month(), dateTime.day(), hour, minute, second};
+        const int32_t diff = (composed - dateTime).totalseconds();
+        if (diff > 12L * 3600) composed = composed - TimeSpan(1, 0, 0, 0);
+        else if (diff < -12L * 3600) composed = composed + TimeSpan(1, 0, 0, 0);
+        SetDateTime(composed);
         break;
     }
     case Format::DateTime:

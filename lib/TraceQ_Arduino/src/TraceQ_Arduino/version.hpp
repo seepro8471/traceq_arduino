@@ -23,7 +23,19 @@
  *         (사용자 확정). 비어 있으면 소독 기록마다 현재시각이 교환일로
  *         찍혀 통계 주기가 흩어지던 것 방지 — 클리어 태그 등록 전까지
  *         안정된 기준일 제공.
- * 2.2.14 — 5차 P3 마무리(09-27): 남은 P3 43건 전부 처리 — 고침 11 · 코드에 재론 금지 31 · 소리 규칙 위반 되돌림 1.
+ * 2.2.15 — 5차 재검증(09-26 밤 · 4갈래: diff 재추적·모듈 관계·전체 재통과 A/B): 남아 있던 것 전부.
+ *         [P1] 더블터치 판정(started_just_now)이 시작 블록을 못 읽으면 조용히 '2초 밖' → 종료 확정 → 1초짜리 종료
+ *           기록·알람 해제·성공음 → 판정 불가(-1)는 Read Error 로 알리고 아무것도 안 바꾼다.
+ *         [P1·조건부] 출시일을 27 로 올렸는데 빌드 날은 26 — 오늘 설치하면 전 기기가 '미동기'. 26 으로 되돌리고
+ *           __DATE__ 와 대조하는 static_assert 로 미래 출시일이면 빌드가 실패한다.
+ *         [P2] 이동 플래그가 Read Error 에 소모(담당자 일회성의 형제 — 5차가 반만 고침) → 거부에만 · 홈에서 SELECT 를
+ *           0.6초 넘게 누르면 기기번호 편집으로 직행(손 뗄 때까지 대기) · 시간 메뉴 저장이 자정을 끼면 +24h(±1일 보정).
+ *         [P3] 기기번호는 15열 5칸 고정(자릿수 줄어도 잔상 없음)·상한 999 · "Scope : 32767" · 레거시 발급이 검사일시·
+ *           검사명 블록도 비움 · 177번지 손상값 매 부팅 정리 · MaxCount 제목 4자리 · sizeof(Process)==9 static_assert ·
+ *           재론 금지 주석 전제 정정 3(RTC begin·알람 0분·doxygen) · 문서 날짜(실제 09-26).
+ *         재론 금지: 알람 절대 시각(시계 바꾸면 어긋남) · 소독 시작 중 세척 블록 읽기 실패의 'Write Error' 문구.
+ *         시험 t_a7 41 · 되돌린 변이 10/10 빨강(출시일은 빌드 실패) · 298/298.
+ * 2.2.14 — 5차 P3 마무리(09-26 밤): 남은 P3 43건 전부 처리 — 고침 11 · 코드에 재론 금지 31 · 소리 규칙 위반 되돌림 1.
  *         [고침] 기기번호·스코프번호 ≥100 표시 · 미인증 서버에 스코프 → 거부음(사장님 통일) · 최대 횟수 안내가 환자정보
  *           경고를 가림 · 폴백 'Not Patient Info' 를 기록 뒤에 송신 · "device_type":"" 이 W 로 바뀌며 재시작 · 파싱 실패
  *           발급의 4초 대기 · ClearSector(≥16)·Screen 0줄 방어 · 거짓 헤더/주석 3.
@@ -31,8 +43,8 @@
  *           SimpleScanner·재이동·Status==2·알람 슬롯 하나·이동+방전·복구 세척시간·담당자 0·read_tag·complete_delay·
  *           G1 8자리·중첩 JSON·null·날짜만·Z+명령·48 인덱스·중복 읽기·end+1·2자리 연도·RTC begin·회사코드 재시도·
  *           Invalid Date 320ms(소리 규칙에 묶임).
- *         시험 t_a7 +6 · 되돌린 변이 6/6 빨강 · 288/288.
- * 2.2.13 — 5차 전체 로직 추적 감사(09-27): 모듈 6갈래가 함수 219개를 줄 단위 표로 추적 + 독립 재추적.
+ *         시험 t_a7 +5 · 되돌린 변이 6/6 빨강 · 288/288.
+ * 2.2.13 — 5차 전체 로직 추적 감사(09-26): 모듈 6갈래가 함수 219개를 줄 단위 표로 추적 + 독립 재추적.
  *         [태그 기록] 동시소독에서 슬롯 없는 스코프의 종료가 host 슬롯을 지워 다음 스코프가 guest 대신 host 로
  *           기록되던 것 · 커밋됐는데 확인 읽기만 실패하면 'Write Error'(→ 재접촉이 4초 종료·횟수 0) → 한 번 더
  *           읽어 커밋됐으면 성공 · 일회성 담당자를 실패한 시작·종료 터치가 소모하던 것 · 손상 시작 기록(연도 0xFFFF)이
@@ -131,13 +143,29 @@
  */
 #define TRACEQ_VERSION_MAJOR 2
 #define TRACEQ_VERSION_MINOR 2
-#define TRACEQ_VERSION_PATCH 14
-#define TRACEQ_VERSION_STRING "2.2.14"
+#define TRACEQ_VERSION_PATCH 15
+#define TRACEQ_VERSION_STRING "2.2.15"
 // 이 판을 만든 날 — 시계가 이보다 앞서면 실제 시각일 수 없다(BaseRtc::IsUnsynced). 버전을 올릴 때 같이 올린다.
-// ★출시일은 **오늘 또는 과거**여야 한다 — 미래로 적으면 모든 기기가 영구 '미동기'(IsUnsynced) 가 되어 액교환일이
-//  계속 미뤄진다. 시험은 이 값에서 파생(rel_date)하므로 이 실수를 못 잡는다(5차 E16) — 올릴 때 사람이 확인할 것.
+// ★출시일은 **빌드한 날 또는 과거**여야 한다 — 미래로 적으면 모든 기기가 영구 '미동기'(IsUnsynced) 가 되어 액교환일이
+//  옛날로 찍힌다. 시험은 이 값에서 파생(rel_date)하므로 못 잡는다 → 아래 static_assert 가 컴파일 날짜(__DATE__)와 대조해
+//  미래면 빌드를 실패시킨다(5차 재검증 V1 — 내가 27 로 올렸는데 그날은 26 이었다).
 #define TRACEQ_RELEASE_YEAR  2026
 #define TRACEQ_RELEASE_MONTH 9
-#define TRACEQ_RELEASE_DAY   27
+#define TRACEQ_RELEASE_DAY   26
+
+// __DATE__ = "Mmm dd yyyy" (dd 는 공백 채움). C++11 constexpr(단일 return).
+constexpr int tq_build_month()
+{
+    return (__DATE__[0] == 'J' && __DATE__[1] == 'a') ? 1 : (__DATE__[0] == 'F') ? 2
+         : (__DATE__[0] == 'M' && __DATE__[2] == 'r') ? 3 : (__DATE__[0] == 'A' && __DATE__[1] == 'p') ? 4
+         : (__DATE__[0] == 'M') ? 5 : (__DATE__[0] == 'J' && __DATE__[2] == 'n') ? 6 : (__DATE__[0] == 'J') ? 7
+         : (__DATE__[0] == 'A') ? 8 : (__DATE__[0] == 'S') ? 9 : (__DATE__[0] == 'O') ? 10 : (__DATE__[0] == 'N') ? 11 : 12;
+}
+constexpr int tq_build_day()  { return (__DATE__[4] == ' ' ? 0 : (__DATE__[4] - '0') * 10) + (__DATE__[5] - '0'); }
+constexpr int tq_build_year() { return (__DATE__[7] - '0') * 1000 + (__DATE__[8] - '0') * 100 + (__DATE__[9] - '0') * 10 + (__DATE__[10] - '0'); }
+constexpr long tq_day_index(int y, int m, int d) { return y * 372L + m * 31L + d; }
+static_assert(tq_day_index(TRACEQ_RELEASE_YEAR, TRACEQ_RELEASE_MONTH, TRACEQ_RELEASE_DAY)
+              <= tq_day_index(tq_build_year(), tq_build_month(), tq_build_day()),
+              "TRACEQ_RELEASE_* is later than the build date - set it to today or earlier");
 // 1.0 UI가 사용하던 매크로 이름 — 호환을 위해 별칭 유지.
 #define TRACEQ_ARDUINO_VERSION TRACEQ_VERSION_STRING

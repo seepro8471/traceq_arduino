@@ -11,8 +11,16 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
         return;
 
     // 더블터치 = 태그에 적힌 시작이 2초 안 — 종료가 아니라 시작 다시 하기(소독기와 같은 규칙).
-    if (isEnd && started_just_now(SECTOR2_WASHING_START, rtc))
-        isEnd = false;
+    if (isEnd)
+    {
+        const int8_t just = started_just_now(SECTOR2_WASHING_START, rtc);
+        if (just < 0)
+        {
+            printer.CustomWarning(0, 2, 100, 4, F("Read Error"));   // 판정 불가 — 알람·기록 그대로, 다시 대게
+            return;
+        }
+        if (just) isEnd = false;
+    }
 
     if (isEnd)
     {
