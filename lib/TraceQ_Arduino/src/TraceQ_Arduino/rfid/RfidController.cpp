@@ -58,6 +58,8 @@ void RfidController::Reinitialize()
 {
     EndSession();
     mInitialized = false;
+    // [5차 판정 · 재론 금지] 태그가 3회 miss 로 Disconnected 된 **뒤에** 리더가 재초기화되면(안테나 OFF → 정지 풀림)
+    //  같은 태그가 Connected 로 다시 잡힌다 — "뗐다 다시 댐" 과 물리적으로 구별할 수 없다(W1 ④). 창 안은 아래가 막는다.
     // ★present/prev/missCount 를 지우면 안 된다 — 칩 리셋은 안테나를 끄므로 올려 둔 카드가 전원을 잃고
     //  정지가 풀린다. 거기에 표시까지 지우면 같은 태그가 '새 태그' 가 되어 세척·소독이 곧바로 종료로
     //  기록된다(2초 더블터치 가드 밖). EndSession 주석이 말하는 그 실기 확인 사례 그대로다.

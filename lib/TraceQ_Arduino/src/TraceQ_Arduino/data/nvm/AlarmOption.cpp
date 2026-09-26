@@ -38,7 +38,7 @@ int8_t AlarmOption::GetTimeSlot1() const
 
 void AlarmOption::SetTimeSlot1(int minute)
 {
-    // [5차 판정 · 재론 금지] 0분은 허용(1.0 동일 — 리더기 메뉴·PC 설정 모두 0 을 넣을 수 있다) — 즉시 알람·자동 종료=시작 시각.
+    // [5차 판정 · 재론 금지] 0분은 허용(1.0 동일 — 리더기 메뉴·손 JSON 으로 넣을 수 있다, 설정기 spin 은 1~120) — 즉시 알람·자동 종료=시작 시각.
     const int8_t v = static_cast<int8_t>(constrain(minute, 0, 127));
     EEPROM.put(mTimeSlot1Addr, v);
     EEPROM.get(mTimeSlot1Addr, mTimeSlot1);

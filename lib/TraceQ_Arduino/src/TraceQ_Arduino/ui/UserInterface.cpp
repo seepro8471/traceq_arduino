@@ -117,8 +117,9 @@ void UserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
     {
         mHomeShownNumber = deviceNumber;
         // 항상 15열부터 5칸 — 두 자리는 앞에 공백. 자릿수가 바뀌어도 잔상이 없다(1행 20자 채움과 같은 규칙).
-        if (deviceNumber >= 100) snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%d", mType, deviceNumber);
-        else                     snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), " %c:%02d", mType, deviceNumber);
+        if (deviceNumber >= 1000)    snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%5d", deviceNumber);   // 게이트웨이 본체번호 4자리(SeePro 자유 입력) — 숫자만
+        else if (deviceNumber >= 100) snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%d", mType, deviceNumber);
+        else                          snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), " %c:%02d", mType, deviceNumber);
         mLcd.setCursor(15, 3);
         mLcd.print(mDeviceInfoBuffer);
     }

@@ -15,7 +15,9 @@ protected:
     RecordProcessor(Tag &tag, TagSerial &tagSerial, Process &process, RfidController &scanner)
         : BaseProcessor(tag, tagSerial, process, scanner) {}
 
-    bool is_valid(const RecordOption &recordOption, const ManagerOption &managerOption, LcdPrinter &printer);
+    /// 1 = 정상 · 0 = 거부(담당자 없음 — 알림 냄) · -1 = 읽기 실패(알림 냄). 호출자는 <= 0 이면 나가되,
+    /// 소독기의 이동 플래그는 0(거부)에만 내린다.
+    int8_t is_valid(const RecordOption &recordOption, const ManagerOption &managerOption, LcdPrinter &printer);
     bool write_manager_key(uint8_t addr);
     bool write_manager_name(uint8_t addr);
     bool try_load_manager_data(const ManagerOption &managerOption, bool isEnd, bool disposability, LcdPrinter &printer);

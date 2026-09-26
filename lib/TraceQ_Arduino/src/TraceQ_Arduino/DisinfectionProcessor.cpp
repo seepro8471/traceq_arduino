@@ -5,11 +5,13 @@ void DisinfectionProcessor::DisinfectionProcess(
     DisinfectionOption &disinfectionOption, const ManagerOption &managerOption,
     const RecordOption &recordOption, DefaultRtc &rtc, LcdPrinter &printer)
 {
-    if (!is_valid(recordOption, managerOption, printer))
+    const int8_t valid = is_valid(recordOption, managerOption, printer);
+    if (valid <= 0)
     {
-        // 거부(담당자 없음)로 끝나면 이동 플래그도 내린다(2.2.5). ★읽기 실패(Read Error)에는 지킨다 — 내리면 재접촉이
+        // 거부(담당자 없음, 0)로 끝나면 이동 플래그도 내린다(2.2.5). ★읽기 실패(-1)에는 지킨다 — 내리면 재접촉이
         //  이동이 아니라 종료로 기록돼 2차 소독이 사라졌다(5차 V2). 담당자 일회성과 같은 규칙: 실패는 소모하지 않는다.
-        if (!recordOption.GetManagerDisposability() && !managerOption.HasData()) mMovable = false;
+        //  (is_valid 의 첫 읽기 실패를 조건식으로 흉내내던 것은 담당자 미등록 상태에서 틀렸다 — W1 P3-1 → 3진값)
+        if (valid == 0) mMovable = false;
         return;
     }
     if (!mCachedProcess.WashingStatus)
@@ -121,7 +123,8 @@ void DisinfectionProcessor::DisinfectionProcess(
 
 // [5차 판정 · 재론 금지] 1.0 과 같은 설계라 둔다: ③ 이동해 온 스코프를 또 이동시키면 2차 기록이 덮인다(조작 오류 범위)
 //  ⑥ 알람 슬롯은 기기당 하나(뒤 스코프가 앞 알람을 덮음) ⑦ 이동+RTC 방전 복구가 1차 종료보다 앞설 수 있음
-//  ⑧ 복구 추정의 세척 시간은 소독기 자신의 슬롯1(PC JSON 으로만 설정) ⑫ 일회성 ON 에서 담당자 미등록 종료는 담당자 0.
+//  ⑧ 복구 추정의 세척 시간은 소독기 자신의 슬롯1(PC JSON 으로만 설정 — 이 추정 자체는 1.0 에 없고 09-23 결정)
+//  ⑫ 일회성 ON 에서 담당자 미등록 종료는 담당자 0.
 bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc)
 {
     // ★종료 기록을 먼저, 이동 커밋(Process)을 마지막에 — 반대면 종료 기록이 실패해도 태그가 '이동함' 으로

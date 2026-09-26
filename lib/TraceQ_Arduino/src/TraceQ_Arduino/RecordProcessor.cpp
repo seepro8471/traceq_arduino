@@ -26,25 +26,25 @@ void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
     printer.Notify_cstr(0, 2, 100, idText);
 }
 
-bool RecordProcessor::is_valid(const RecordOption &recordOption,
-                               const ManagerOption &managerOption, LcdPrinter &printer)
+int8_t RecordProcessor::is_valid(const RecordOption &recordOption,
+                                 const ManagerOption &managerOption, LcdPrinter &printer)
 {
     if (!print_tag_number(printer) || !read_tag_serial())
     {
         printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
-        return false;
+        return -1;
     }
     if (!recordOption.GetManagerDisposability() && !managerOption.HasData())
     {
         printer.Reject(0, 2, F("No Manager Info"));
-        return false;
+        return 0;
     }
     if (!read_process())
     {
         printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
-        return false;
+        return -1;
     }
-    return true;
+    return 1;
 }
 
 bool RecordProcessor::write_manager_key(uint8_t addr)

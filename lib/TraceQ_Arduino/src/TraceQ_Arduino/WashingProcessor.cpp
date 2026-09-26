@@ -4,7 +4,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
                                       const ManagerOption &managerOption, const RecordOption &recordOption,
                                       DefaultRtc &rtc, LcdPrinter &printer)
 {
-    if (!is_valid(recordOption, managerOption, printer)) return;
+    if (is_valid(recordOption, managerOption, printer) <= 0) return;
     bool isEnd = (mCachedProcess.Rewrite == 1);
 
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))

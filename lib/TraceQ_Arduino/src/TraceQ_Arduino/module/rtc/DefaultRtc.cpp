@@ -94,10 +94,11 @@ void DefaultRtc::FromString(const char *string)
     }
 }
 
-void DefaultRtc::FromInternalString(char *string, const DateTime & /*unused*/, DefaultRtc::Format format)
+void DefaultRtc::FromInternalString(char *string, const DateTime &entry, DefaultRtc::Format format)
 {
     // ★빠진 절반(날짜 편집이면 시·분·초)은 **저장하는 지금** 의 시계에서 가져온다. 종전엔 메뉴 진입 때
-    //  스냅샷을 써서, 편집에 걸린 시간만큼 시계가 되돌아갔다(5차 A2·E 독립 확인).
+    //  스냅샷(entry)을 써서, 편집에 걸린 시간만큼 시계가 되돌아갔다(5차 A2·E 독립 확인).
+    //  entry 는 아래 Time 갈래에서 "편집 중 자정을 넘겼는가" 를 판정하는 데만 쓴다.
     const DateTime dateTime = GetCurrentDateTime();
     // date
     uint16_t year;
@@ -124,12 +125,17 @@ void DefaultRtc::FromInternalString(char *string, const DateTime & /*unused*/, D
         hour = str_atoi_range(string, 0, 1);
         minute = str_atoi_range(string, 2, 3);
         second = str_atoi_range(string, 4, 5);
-        // 날짜는 '지금' 것 — 편집이 자정을 끼면(23:59 에 들어가 00:00 뒤 저장) 하루가 어긋나므로, 합성 시각이 지금과
-        // 12시간 넘게 차이 나면 그쪽 날로 하루 옮긴다(5차 V3 — E1 수정이 만든 새 경계).
+        // 날짜는 '지금' 것. ★편집 중 자정을 넘긴 경우(진입 날짜 ≠ 지금 날짜)에만 진입 날짜와 지금 날짜 중 지금과
+        //  가까운 쪽을 고른다. "지금과 12시간 넘게 차이" 로 판정하면 방전된 시계를 처음 맞추는 정당한 조작(1월 1일 →
+        //  날짜 저장 → 14:30 입력)까지 하루 옮겨 전날 날짜가 됐다(재검증 W1 P1 — 내 V3 수정의 결함).
         DateTime composed{dateTime.year(), dateTime.month(), dateTime.day(), hour, minute, second};
-        const int32_t diff = (composed - dateTime).totalseconds();
-        if (diff > 12L * 3600) composed = composed - TimeSpan(1, 0, 0, 0);
-        else if (diff < -12L * 3600) composed = composed + TimeSpan(1, 0, 0, 0);
+        if (entry.year() != dateTime.year() || entry.month() != dateTime.month() || entry.day() != dateTime.day())
+        {
+            const DateTime alt{entry.year(), entry.month(), entry.day(), hour, minute, second};
+            int32_t dNow = (composed - dateTime).totalseconds(); if (dNow < 0) dNow = -dNow;
+            int32_t dAlt = (alt - dateTime).totalseconds();      if (dAlt < 0) dAlt = -dAlt;
+            if (dAlt < dNow) composed = alt;
+        }
         SetDateTime(composed);
         break;
     }
