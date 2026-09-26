@@ -169,6 +169,9 @@ private:
     uint8_t mAuthSector{0xFF};
     uint8_t mAuthUid[10]{};
     uint8_t mAuthUidSize{0};
+    // 마지막으로 Connected 를 돌려준 태그의 UID — "올려 둔 태그는 1회만" 은 이것으로 판정한다(EndSession 이 안 지운다).
+    uint8_t mLastUid[10]{};
+    uint8_t mLastUidSize{0};
 
     // 리더가 실제로 암호화(Crypto1) 상태인지 — 캐시 유효성과 별개로 추적한다.
     // 캐시를 버려도(dropAuthCache) 리더는 암호화 상태로 남아 있어야 nested

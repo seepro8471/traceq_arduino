@@ -167,11 +167,11 @@ bool GatewayProcessor::is_valid(LcdPrinter &printer)
         printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
         return false;
     }
-    if (mCachedProcess.WashingStatus != 0 && mCachedProcess.DisinfectionStatus != 0)
+    if (mCachedProcess.WashingStatus != 0 || mCachedProcess.DisinfectionStatus != 0)
     {
-        // CustomDebug 는 시리얼에도 "No Complete" 를 에코한다 — SeePro 가 이
-        // 문자열로 완료 미처리 음성·화면 알림을 낸다 (올눈 MainFormSo 58395
-        // 재현). 문구를 바꾸면 안 된다.
+        // 세척·소독 과정에 들어간 스코프(어느 한쪽 표시라도 선 것)는 새 환자를 붙이지 않는다 — 종전엔 둘 다 선
+        // 경우만 막아 "세척만 하고 소독 안 한" 스코프가 통과했다(사장님 09-26). 문자열은 기존 "No Complete" 그대로
+        // (SeePro·올눈이 이 문자열로 음성·화면 알림을 낸다 — 바꾸면 안 된다).
         printer.RejectDebug(0, 2, F("No Complete"));
         return false;
     }

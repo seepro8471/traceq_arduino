@@ -472,6 +472,49 @@ int main()
         b.readErrBlock = -1; b.readErrTimes = 0;
     }
 
+    // ═══ 사장님 판정 2 (09-26) ═══
+    // (1) 처리 직후(알림음 동안) 다른 태그로 바꿔 올리면 그 태그도 처리된다 · 같은 태그를 두면 1회만
+    reboot_as('W');
+    touch(mgr);
+    {
+        fresh_scope(a, 0x81, 81);
+        fresh_scope(b, 0x82, 82);
+        card_place(&a);
+        run_loops(1);                                    // a 처리(시작)
+        CHECK(get_process(a).Rewrite == 1, "판정1 전제: a 시작");
+        card_place(&b);                                  // 치우지 않고 바로 교체 = 알림음 중 카드 교체
+        run_loops(3);
+        tlog("  판정1 교체: b RW=%u\n", get_process(b).Rewrite);
+        CHECK(get_process(b).Rewrite == 1, "판정1 처리 직후 다른 태그로 바꿔 올리면 그 태그도 처리된다(무음 아님)");
+        // 같은 태그를 계속 두면 1회만 — 종료로 재처리되지 않는다
+        sim_advance_ms(5000);
+        run_loops(30);
+        card_remove(); run_loops(4);
+        const int32_t wd = (DefaultRtc::ToDateTime(get_ldt(b, SECTOR3_WASHING_END)) -
+                            DefaultRtc::ToDateTime(get_ldt(b, SECTOR2_WASHING_START))).totalseconds();
+        tlog("  판정1 같은 태그 유지: 세척시간=%lds\n", (long)wd);
+        CHECK(wd >= 4L * 60 && rtc.HasAlarm(1), "판정1 같은 태그를 올려 두면 1회만(종료로 재처리 안 됨)");
+    }
+    // (2) 게이트웨이는 세척만 하고 소독 안 한 스코프(WS=1·DS=0)를 거부한다
+    reboot_as('G');
+    {
+        char pk[96];
+        snprintf(pk, sizeof(pk), "G10000;G2%u;%u;%u;5;10;0;0;G3PT9;KIM;G4EGD;;;G5;",
+                 (unsigned)TRACEQ_RELEASE_YEAR, (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY);
+        serial_inject(pk, strlen(pk)); GUARDED(serialEvent()); run_loops(2);
+        fresh_scope(c, 0x83, 83);
+        set_process(c, Process{0, 0, 1, 0, 1, false, 0, 1});   // 세척만 끝남(WS=1·DS=0)
+        logs_clear(); buzz_clear();
+        touch(c);
+        tlog("  판정2 WS=1 DS=0: NoComplete=%d Sm!=%d 600=%u\n", serial_has("No Complete"), serial_has("Sm!"), buzz_count(600));
+        CHECK(serial_has("No Complete") && !serial_has("Sm!") && buzz_count(600) == 1 && get_process(c).Status == 0,
+              "판정2 세척만 하고 소독 안 한 스코프는 게이트웨이가 거부(No Complete · 환자 안 붙임)");
+        fresh_scope(c, 0x84, 84);                        // 과정에 안 들어간 스코프는 정상
+        logs_clear();
+        touch(c);
+        CHECK(serial_has("Sm!") && get_process(c).Status == 1, "판정2 과정에 안 들어간 스코프는 정상 등록");
+    }
+
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

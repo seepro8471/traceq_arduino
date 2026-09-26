@@ -161,7 +161,16 @@ RfidController::TagStatus RfidController::Poll(bool wakeHalted)
         dropAuthCache();
     }
 
-    return mTagPresentPrev ? TagStatus::KeepAlive : TagStatus::Connected;
+    // ★"올려 둔 태그는 1회만" 판정을 prev 만으로 하지 않는다 — 처리 뒤 알림음(최대 1.6초) 동안 **다른** 태그로 바꿔 올리면
+    //  prev=참이라 KeepAlive 로 먹혀 무음이었다(5차 V2 · 사장님 09-26 "처리되게"). 같은 UID 가 계속 있으면 KeepAlive,
+    //  다른 UID 면 Connected. 같은 태그를 뗐다 다시 대면 prev=거짓이라 Connected(종전과 같다).
+    const bool sameAsLast = (mLastUidSize != 0) && (mLastUidSize == mMfrc522.uid.size) &&
+                            (memcmp(mLastUid, mMfrc522.uid.uidByte, mLastUidSize) == 0);
+    if (mTagPresentPrev && sameAsLast) return TagStatus::KeepAlive;
+
+    mLastUidSize = mMfrc522.uid.size > sizeof(mLastUid) ? sizeof(mLastUid) : mMfrc522.uid.size;
+    memcpy(mLastUid, mMfrc522.uid.uidByte, mLastUidSize);
+    return TagStatus::Connected;
 }
 
 void RfidController::dropAuthCache()
