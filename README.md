@@ -32,7 +32,7 @@ Old(레거시 블록 덤프)였다. 2.2.0 은 Latest 를 통째로 삭제했다:
 - sprintf 스택 오버런 5곳 (메뉴 제목 버퍼: Number/Max Count/Delay/Range/Alarm Time) + 기기정보 버퍼(`%c:%02d`, 3자리 번호)
 - **소독기(D)에서 매니저 태그를 `washingProcessor`에 저장하던 인스턴스 불일치** — M-Check=Yes 소독기가 매니저 태그를 대도 시작이 항상 거부되던 버그. `disinfectionProcessor`로 정정
 - `Screen`/`Menu`의 `<=` 경계 검사(OOB 쓰기 허용) → `<`
-- `ManagerOption::SetKey`에 14바이트 `Tag.ID`를 넘겨 2바이트 OOB read → 16바이트 0패딩 버퍼 경유
+- `ManagerOption` 키 세터(현 `SetData`)에 14바이트 `Tag.ID`를 넘겨 2바이트 OOB read → 16바이트 0패딩 버퍼 경유
 - LCD `clear_line`이 19칸만 지워 마지막 열 잔상 → 20칸
 - `Write`/`WriteBlocks`가 쓰기 실패를 `VerifyMismatch`로 오보고 → 실패 원인 구분(`WriteFailed`/`VerifyMismatch`)
 - GatewayProcess 검사항목 기록 전 섹터15 선-소거 복원 (중간 실패 시 이전 검사항목 잔존 방지 — 1.0과 동일)

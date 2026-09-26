@@ -41,6 +41,9 @@ void card_init_traceq(SimCard &c, uint8_t uidLast);   // TraceQ 키 태그(데�
 void card_init_foreign(SimCard &c, uint8_t uidLast);  // 키가 다른 MIFARE 카드
 void card_place(SimCard *c);                          // 필드 진입(전원 인가 → IDLE)
 void card_remove();                                   // 필드 이탈
+extern SimCard *g_cardB; extern SimCardState g_cardStateB;   // 두 번째 카드(겹쳐 올림 — 출입카드+스코프)
+void card_place2(SimCard *c);
+void card_remove2();
 
 // ── 시간 ──
 extern volatile uint32_t g_ms;
@@ -59,6 +62,7 @@ extern char g_lcdLog[1536];
 extern char g_serialOut[2048];
 void logs_clear();
 bool lcd_has(const char *s);
+const char *lcd_row(uint8_t row);   // 20자 + NUL — 실제 화면 한 행(잔상 판정)
 bool serial_has(const char *s);
 void serial_inject(const char *s, size_t n);
 void serial_queue(const char *s, size_t n, uint32_t atMs);   // g_ms 가 atMs 가 되어야 읽히는 조각

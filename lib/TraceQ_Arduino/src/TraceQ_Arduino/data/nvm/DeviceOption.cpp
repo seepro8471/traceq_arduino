@@ -4,8 +4,10 @@
 
 void DeviceOption::Upload()
 {
-    EEPROM.put(mTypeAddr, mType);
+    // ★타입을 마지막에 — HasStoredSettings() 가 타입만 보므로, 쓰는 중 전원이 끊기면 '설정 없음' 이 되어
+    //  다음 부팅이 묻지 않고 스스로 재소거한다. 반대 순서는 번호 없는 채 굳었다(Z1 P3-3).
     EEPROM.put(mNumberAddr, mNumber);
+    EEPROM.put(mTypeAddr, mType);
 }
 
 void DeviceOption::Load()

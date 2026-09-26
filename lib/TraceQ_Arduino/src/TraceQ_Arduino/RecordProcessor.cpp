@@ -10,7 +10,7 @@ void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
         return;
     }
 
-    // Tag.ID는 14바이트인데 SetKey는 KEY_SIZE(16)바이트를 복사한다 —
+    // Tag.ID는 14바이트인데 SetData 는 KEY_SIZE(16)바이트를 복사한다 —
     // 1.0은 인접 2바이트를 함께 읽는 OOB였음. 16바이트 버퍼로 0패딩 후 전달.
     unsigned char key[ManagerOption::KEY_SIZE]{};
     memcpy(key, mCachedTag.ID, sizeof(mCachedTag.ID));
@@ -102,6 +102,14 @@ LocalDateTime RecordProcessor::add_datetime(const DateTime &current,
 
 void RecordProcessor::load_manager_data(const ManagerOption &managerOption)
 {
+    // ★표지를 먼저 본다 — SetData 가 표지를 먼저 내리므로 '담당자 없음' 인데도 칸에는 반쪽(새 키+옛 이름)이
+    //  남을 수 있고, 종료 터치는 표지를 안 보고 그대로 기록했다(Z1 P3-2).
+    if (!managerOption.HasData())
+    {
+        memset(mCachedTag.ID, 0, sizeof(mCachedTag.ID));
+        memset(mCachedTagSerial.Serial, 0, sizeof(mCachedTagSerial.Serial));
+        return;
+    }
     managerOption.GetKey(mCachedTag.ID, 14);
     managerOption.GetName(mCachedTagSerial.Serial, 16);
 }

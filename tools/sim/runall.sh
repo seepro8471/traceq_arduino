@@ -2,7 +2,7 @@
 # 사용: runall.sh <펌웨어 루트> <출력 폴더>  — 시험 6종 빌드·실행, 요약 한 줄씩.
 ROOT="$1"; OUTD="$2"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9)
+T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10)
 SRC=()
 for t in "${T[@]}"; do SRC+=("$HERE/tests/$t.cpp"); done
 rm -rf "$OUTD"

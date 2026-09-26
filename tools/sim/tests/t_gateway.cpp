@@ -136,6 +136,81 @@ int main()
         CHECK(memcmp(d.data[SECTOR2_PATIENT_KEY], "B0002", 6) == 0, "3차C: '{' 가 든 G 도 환자정보로 채택(직전 환자 아님)");
         CHECK(memcmp(d.data[SECTOR15_EXAMINATION_SUBJECT], "{\xBC\xF6\xB8\xE9}EGD", 8) == 0, "3차C: 검사명 그대로 기록");
     }
+    // ── Z2: 한 버퍼에 두 레코드가 병합될 때(수신 대기 1초보다 짧은 간격) 어느 환자가 기록되나 ──
+    //    올눈 조각 모델(G1 없음)에서 종전엔 **첫(옛) 환자**가 다음 스코프에 기록됐다.
+    {
+        sim_advance_ms(60UL * 1000);
+        const char pkt[] = "G22026;9;23;3;10;30;0;G3AAA001;NAMEA;;G4SUBJA;;;G51990;01;01;M;"
+                           "G22026;9;23;3;12;15;0;G3BBB002;NAMEB;;G4SUBJB;;;G51991;02;02;F;";
+        serial_inject(pkt, sizeof(pkt) - 1);
+        pump(3000);
+        fresh_scope(a, 0x57, 57);
+        logs_clear();
+        touch(a);
+        const LocalDateTime d = get_ldt(a, SECTOR1_GATEWAY);
+        tlog("  Z2 병합(G1 없음) → 환자키=%.8s 시각=%02u:%02u\n", (const char *)a.data[SECTOR2_PATIENT_KEY],
+             d.Time.Hour, d.Time.Minute);
+        CHECK(memcmp(a.data[SECTOR2_PATIENT_KEY], "BBB002", 6) == 0 && ldt_eq(d, 2026, 9, 23, 12, 15, 0) &&
+              memcmp(a.data[SECTOR15_EXAMINATION_SUBJECT], "SUBJB", 5) == 0,
+              "Z2 G1 없는 두 레코드 병합 → 마지막 환자 한 벌(첫 환자가 아니다)");
+    }
+    // ── Z2 P3-1: RX 링 511바이트 절단의 뒷동(머리 G1·G2 를 잃고 G3 에서 시작)은 쓰지 않는다 ──
+    //    종전엔 환자는 맞고 검사일시만 0 으로 기록되고 성공음이 났다.
+    {
+        sim_advance_ms(60UL * 1000);
+        const char whole[] = "G10000;G22026;9;23;3;15;0;0;G3OK0001;NAMEOK;;G4SUBJOK;;;G5;";
+        serial_inject(whole, sizeof(whole) - 1);
+        pump(3000);
+        fresh_scope(b, 0x58, 58);
+        touch(b);                                        // 온전한 패킷으로 한 번 기록(직전 환자 = OK0001)
+        CHECK(memcmp(b.data[SECTOR2_PATIENT_KEY], "OK0001", 6) == 0, "Z2 전제: 온전한 패킷은 기록된다");
+        sim_advance_ms(60UL * 1000);
+        const char tail[] = "G3CUT001;NAMECUT;;G4SUBJCUT;;;G5;";   // 머리를 잃은 뒷동
+        serial_inject(tail, sizeof(tail) - 1);
+        pump(3000);
+        fresh_scope(c, 0x59, 59);
+        logs_clear();
+        touch(c);
+        tlog("  Z2 머리 잃은 조각 → 환자키=[%.8s] Status=%u Sm!=%d\n", (const char *)c.data[SECTOR2_PATIENT_KEY],
+             get_process(c).Status, serial_has("Sm!"));
+        CHECK(c.data[SECTOR2_PATIENT_KEY][0] == 0 && c.data[SECTOR2_PATIENT_NAME][0] == 0 &&
+                  get_process(c).Status == 0 && !serial_has("Sm!"),
+              "Z2 P3-1 머리(G1·G2)를 잃은 조각은 기록하지 않는다(Status 0 · Sm! 없음)");
+    }
+    // ── Z2 P2: G5 로 끝나지 않는(511 절단으로 꼬리를 잃은) 레코드는 쓰지 않는다 ──
+    //    종전엔 환자를 받아들이고 검사항목을 통째로 빈칸으로 기록하며 성공음이 났다.
+    {
+        sim_advance_ms(60UL * 1000);
+        const char cut[] = "G10000;G22026;9;23;3;16;0;0;G3TR0001;NAMETR;;G4SUB";   // G4 도중 절단
+        serial_inject(cut, sizeof(cut) - 1);
+        pump(3000);
+        fresh_scope(a, 0x5A, 0x5A);
+        logs_clear();
+        touch(a);
+        tlog("  Z2 꼬리 잃은 레코드 → 환자키=[%.8s] 이름=[%.8s] Status=%u Sm!=%d\n",
+             (const char *)a.data[SECTOR2_PATIENT_KEY], (const char *)a.data[SECTOR2_PATIENT_NAME],
+             get_process(a).Status, serial_has("Sm!"));
+        CHECK(a.data[SECTOR2_PATIENT_KEY][0] == 0 && a.data[SECTOR2_PATIENT_NAME][0] == 0 &&
+                  get_process(a).Status == 0 && !serial_has("Sm!"),
+              "Z2 P2 G5 로 끝나지 않는 레코드는 기록하지 않는다(환자를 받아들이고 Sm! 내던 것)");
+    }
+    // ── Z2 P2 형제: 온전한 레코드 **뒤에** 잘린 레코드가 붙어 와도 아무것도 기록하지 않는다 ──
+    //    G5 를 버퍼 전체에서 찾으면 앞 레코드의 G5 에 속아 잘린 뒤 레코드를 받아들인다.
+    {
+        sim_advance_ms(60UL * 1000);
+        const char two[] = "G10000;G22026;9;23;3;17;0;0;G3FULL01;NAMEF;;G4SUBJF;;;G5;"
+                           "G10000;G22026;9;23;3;18;0;0;G3CUT002;NAMEC;;G4SUB";
+        serial_inject(two, sizeof(two) - 1);
+        pump(3000);
+        fresh_scope(b, 0x5B, 0x5B);
+        logs_clear();
+        touch(b);
+        tlog("  Z2 온전+잘림 병합 → 환자키=[%.8s] Status=%u Sm!=%d\n", (const char *)b.data[SECTOR2_PATIENT_KEY],
+             get_process(b).Status, serial_has("Sm!"));
+        CHECK(b.data[SECTOR2_PATIENT_KEY][0] == 0 && get_process(b).Status == 0 && !serial_has("Sm!"),
+              "Z2 P2 온전한 레코드 뒤 잘린 레코드 → 아무 환자도 기록하지 않는다(앞 레코드의 G5 에 속지 않는다)");
+    }
+
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

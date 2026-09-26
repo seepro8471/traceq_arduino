@@ -45,6 +45,25 @@ void card_init_foreign(SimCard &c, uint8_t uidLast)
 }
 void card_place(SimCard *c) { g_card = c; g_cardState = CARD_IDLE; }
 void card_remove() { g_card = nullptr; g_cardState = CARD_OFF; }
+// ── 두 번째 카드(겹쳐 올림) ──
+SimCard *g_cardB;
+SimCardState g_cardStateB = CARD_OFF;
+void card_place2(SimCard *c) { g_cardB = c; g_cardStateB = CARD_IDLE; }
+void card_remove2() { g_cardB = nullptr; g_cardStateB = CARD_OFF; }
+static void swap_cards()
+{
+    SimCard *t = g_card; g_card = g_cardB; g_cardB = t;
+    SimCardState st = g_cardState; g_cardState = g_cardStateB; g_cardStateB = st;
+}
+// 응답 후보가 아닌 카드가 받은 예상 밖 명령: HALT 는 그대로, 그 밖은 IDLE
+static void other_idle()
+{
+    if (g_cardB && g_cardStateB != CARD_HALT && g_cardStateB != CARD_OFF) g_cardStateB = CARD_IDLE;
+}
+static bool can_answer(SimCard *c, SimCardState st, bool wupa)
+{
+    return c != nullptr && (st == CARD_IDLE || (wupa && st == CARD_HALT));
+}
 
 static bool card_op()   // 인증·읽기·쓰기 1회. false = 카드가 이미 없다
 {
@@ -69,6 +88,7 @@ void sim_field_drop()
 {
     ++g_fieldDrop;
     if (g_card != nullptr) g_cardState = CARD_IDLE;
+    if (g_cardB != nullptr) g_cardStateB = CARD_IDLE;
     g_readerCrypto = false;
     s_authSector = -1;
 }
@@ -84,34 +104,28 @@ byte MFRC522::PCD_ReadRegister(byte reg)
 void MFRC522::PCD_AntennaOn() {}
 void MFRC522::PCD_StopCrypto1() { g_readerCrypto = false; }
 
-MFRC522::StatusCode MFRC522::PICC_RequestA(byte *atqa, byte *size)
+// REQA/WUPA 는 같은 규칙 — WUPA 만 HALT 카드도 깨운다(ISO14443-3 6.3).
+//  카드가 둘이면 둘 다 응답(충돌)이고 anticollision 이 한 장을 고른다. 못 고른 카드는 IDLE 로 돌아간다.
+static MFRC522::StatusCode reqa_common(bool wupa, byte *atqa, byte *size)
 {
-    if (g_card == nullptr || g_powerCut) return STATUS_TIMEOUT;
-    if (g_readerCrypto) { card_idle(); return STATUS_TIMEOUT; }
-    if (g_cardState == CARD_IDLE)
+    if ((g_card == nullptr && g_cardB == nullptr) || g_powerCut) return MFRC522::STATUS_TIMEOUT;
+    if (g_readerCrypto) { card_idle(); other_idle(); return MFRC522::STATUS_TIMEOUT; }
+    const bool aOk = can_answer(g_card, g_cardState, wupa);
+    const bool bOk = can_answer(g_cardB, g_cardStateB, wupa);
+    if (!aOk && !bOk)
     {
-        g_cardState = CARD_READY;
-        if (atqa && size && *size >= 2) { atqa[0] = 0x04; atqa[1] = 0x00; *size = 2; }
-        return STATUS_OK;
+        if (g_card && g_cardState != CARD_HALT) card_idle();
+        other_idle();
+        return MFRC522::STATUS_TIMEOUT;
     }
-    if (g_cardState != CARD_HALT) card_idle();
-    return STATUS_TIMEOUT;
+    if (!aOk && bOk) swap_cards();          // B 만 응답 → B 가 선택 대상
+    g_cardState = CARD_READY;
+    other_idle();
+    if (atqa && size && *size >= 2) { atqa[0] = 0x04; atqa[1] = 0x00; *size = 2; }
+    return (aOk && bOk) ? MFRC522::STATUS_COLLISION : MFRC522::STATUS_OK;
 }
-
-MFRC522::StatusCode MFRC522::PICC_WakeupA(byte *atqa, byte *size)
-{
-    // WUPA: IDLE 뿐 아니라 HALT 카드도 응답한다(ISO14443-3 6.3). 그 밖은 REQA 와 같다.
-    if (g_card == nullptr || g_powerCut) return STATUS_TIMEOUT;
-    if (g_readerCrypto) { card_idle(); return STATUS_TIMEOUT; }
-    if (g_cardState == CARD_IDLE || g_cardState == CARD_HALT)
-    {
-        g_cardState = CARD_READY;
-        if (atqa && size && *size >= 2) { atqa[0] = 0x04; atqa[1] = 0x00; *size = 2; }
-        return STATUS_OK;
-    }
-    card_idle();
-    return STATUS_TIMEOUT;
-}
+MFRC522::StatusCode MFRC522::PICC_RequestA(byte *atqa, byte *size) { return reqa_common(false, atqa, size); }
+MFRC522::StatusCode MFRC522::PICC_WakeupA(byte *atqa, byte *size) { return reqa_common(true, atqa, size); }
 
 bool MFRC522::PICC_ReadCardSerial()
 {

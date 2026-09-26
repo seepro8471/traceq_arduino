@@ -20,13 +20,22 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
     char string[64]{};
 
     // ★여러 레코드가 한 버퍼에 오면(수신 대기 1초 · 부팅 선택 화면 10초) **마지막 레코드**만 본다.
-    //  마지막 `G1`(가장 최근 레코드 시작)부터로 좁힌다. 그 레코드가 도중에 잘렸으면 뒤 마커(G3..G4 등)가
-    //  없어 아래에서 폴백된다(스테일·혼합 환자를 기록하지 않는다). 모든 필드가 같은 레코드에서 오므로
-    //  서로 다른 환자의 조각이 섞이지 않는다.
-    const char *rec = buffer;
-    for (size_t at = find_marker(buffer, "G1", 0); at != static_cast<size_t>(-1);
-         at = find_marker(buffer, "G1", at + 1))
-        rec = buffer + at;
+    //  마지막 `G1`(가장 최근 레코드 시작)부터, G1 이 없는 버퍼는 마지막 `G2` 부터. 종전엔 G1 이 없으면
+    //  버퍼 처음부터 봐서 **첫(옛) 환자**가 다음 스코프에 기록됐다(Z2). 모든 필드가 같은 레코드에서 온다.
+    constexpr size_t kNone = static_cast<size_t>(-1);
+    size_t head = kNone;
+    for (size_t at = find_marker(buffer, "G1", 0); at != kNone; at = find_marker(buffer, "G1", at + 1))
+        head = at;
+    if (head == kNone)
+        for (size_t at = find_marker(buffer, "G2", 0); at != kNone; at = find_marker(buffer, "G2", at + 1))
+            head = at;
+    // 머리(G1·G2)를 잃은 조각은 쓰지 않는다 — RX 링 511바이트 절단의 뒷동이 `G3` 에서 시작하면
+    //  환자는 맞고 검사일시만 0 으로 기록되고 성공음이 났다(Z2 P3-1).
+    if (head == kNone) return;
+    const char *rec = buffer + head;
+    // G5 마커로 끝나지 않으면 잘린 레코드 — 받아들이면 검사항목이 통째로 빈칸으로 기록되고 성공음이 났다(Z2 P2).
+    //  세 PC 모두 레코드를 G5 로 끝낸다(올눈 MainFormSo.pas:15228 · SeePro · 세척관리).
+    if (find_marker(rec, "G5", 0) == kNone) return;
 
     // G1 = 본체번호 (2.2.6, 사용자 확정). `G1{gate};G2…` 형식.
     // 0(=`0000`)이면 "지정 없음"으로 보고 기기 자체 번호를 쓴다(effective_number).

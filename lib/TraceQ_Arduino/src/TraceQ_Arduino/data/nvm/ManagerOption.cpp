@@ -26,16 +26,21 @@ void ManagerOption::GetKey(unsigned char *outBuffer, uint8_t size) const
 
 void ManagerOption::SetData(const unsigned char *key, const unsigned char *name)
 {
-    setManagerFlag(false);              // 먼저 내린다 — 이 아래에서 끊기면 '담당자 없음'(안전한 쪽)
-    memset(mKey, 0, KEY_SIZE);
-    if (key != nullptr) memcpy(mKey, key, KEY_SIZE);
-    EEPROM.put(mKeyAddr, mKey);
+    unsigned char newKey[KEY_SIZE]{}, newName[NAME_SIZE]{};
+    if (key != nullptr)  memcpy(newKey, key, KEY_SIZE);
+    if (name != nullptr) memcpy(newName, name, NAME_SIZE);
+    const bool want = (key != nullptr && name != nullptr);
+    // 바뀌는 것이 없으면 한 바이트도 쓰지 않는다 — 같은 담당자를 다시 댈 때마다 표지가 1→0→1 로 2회 닳았다(Z1 P3-4).
     EEPROM.get(mKeyAddr, mKey);
-    memset(mName, 0, NAME_SIZE);
-    if (name != nullptr) memcpy(mName, name, NAME_SIZE);
-    EEPROM.put(mNameAddr, mName);
     EEPROM.get(mNameAddr, mName);
-    if (key != nullptr && name != nullptr) setManagerFlag(true);
+    if (memcmp(mKey, newKey, KEY_SIZE) == 0 && memcmp(mName, newName, NAME_SIZE) == 0 && HasData() == want) return;
+
+    setManagerFlag(false);              // 먼저 내린다 — 이 아래에서 끊기면 '담당자 없음'(안전한 쪽)
+    memcpy(mKey, newKey, KEY_SIZE);
+    EEPROM.put(mKeyAddr, mKey);
+    memcpy(mName, newName, NAME_SIZE);
+    EEPROM.put(mNameAddr, mName);
+    if (want) setManagerFlag(true);
 }
 
 void ManagerOption::GetName(unsigned char *outBuffer, uint8_t size) const

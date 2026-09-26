@@ -36,7 +36,12 @@ void flog(const char *name)
     if (n > 0) s_failLen += (n < room) ? n : room - 1;
 }
 
-extern "C" void done() { asm volatile(""); }
+extern "C" void done()
+{
+    // 차단이 켜진 채면 카드가 아예 안 읽혀 "거부/무동작" 만 보는 CHECK 가 조용히 초록이 된다(Z1 권고).
+    if (g_powerCut) { ++g_fail; tlog("FAIL 전원 차단이 켜진 채 시험이 끝났다(power_restore 누락)\n"); flog("power cut left on"); }
+    asm volatile("");
+}
 
 // ── 시간 ──
 volatile uint32_t g_ms;
@@ -213,12 +218,36 @@ static void lcd_put(char c)
     if (s_lcdLen < sizeof(g_lcdLog) - 1) g_lcdLog[s_lcdLen++] = c;
     g_lcdLog[s_lcdLen] = 0;
 }
+// ── 표시 격자 20x4 — g_lcdLog 는 '쓴 것' 이고 이쪽은 '지금 화면에 있는 것'(잔상 판정) ──
+static char s_grid[4][20];
+static uint8_t s_gCol, s_gRow;
+static void grid_clear()
+{
+    for (uint8_t r = 0; r < 4; ++r) for (uint8_t c = 0; c < 20; ++c) s_grid[r][c] = ' ';
+    s_gCol = 0; s_gRow = 0;
+}
+const char *lcd_row(uint8_t row)
+{
+    static char buf[21];
+    for (uint8_t c = 0; c < 20; ++c)
+    {
+        const char ch = (row < 4) ? s_grid[row][c] : ' ';
+        buf[c] = (ch == 0) ? ' ' : ch;
+    }
+    buf[20] = 0;
+    return buf;
+}
 LiquidCrystal_I2C::LiquidCrystal_I2C(uint8_t a, uint8_t c, uint8_t r) : _Addr(a), _cols(c), _rows(r) {}
-void LiquidCrystal_I2C::init() {}
+void LiquidCrystal_I2C::init() { grid_clear(); }          // 실물 init 은 begin→clear 로 DDRAM 을 지운다
 void LiquidCrystal_I2C::backlight() {}
-void LiquidCrystal_I2C::clear() { lcd_put('|'); }
-void LiquidCrystal_I2C::setCursor(uint8_t, uint8_t) { lcd_put('|'); }
-size_t LiquidCrystal_I2C::write(uint8_t c) { lcd_put((char)c); return 1; }
+void LiquidCrystal_I2C::clear() { lcd_put('|'); grid_clear(); }
+void LiquidCrystal_I2C::setCursor(uint8_t col, uint8_t row) { lcd_put('|'); s_gCol = col; s_gRow = row; }
+size_t LiquidCrystal_I2C::write(uint8_t c)
+{
+    lcd_put((char)c);
+    if (s_gRow < 4 && s_gCol < 20) s_grid[s_gRow][s_gCol++] = (char)c;
+    return 1;
+}
 
 void logs_clear()
 {

@@ -203,16 +203,22 @@ void setup()
             }
             ui.Info(0, 1, F("100%"));
             alarmOption.Upload();
-            deviceOption.Upload();
             disinfectionOption.Upload();
             managerOption.Upload();
             recordOption.Upload();
             // 액교환일 기본값 = 1개월 전 (소독 모드에서 사용 — 타입과 무관하게
             // 기록해 두면 나중에 D 타입으로 바꿔도 유효). 시계가 방전 표지 시각이면 맞춰질 때 정한다.
-            if (rtc.IsUnsynced())
-                disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
-            else
+            // 미룸을 먼저 세운다 — 날짜 도중 끊겨도 다음 부팅이 다시 쓴다(클리어 태그와 같은 규칙).
+            disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
+            if (!rtc.IsUnsynced())
+            {
                 disinfectionOption.SetClearDateTime(DisinfectionOption::OneMonthBefore(rtc.GetCurrentLocalDateTime()));
+                disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
+            }
+            // ★타입은 기본값 기록 **전체의 맨 마지막** — HasStoredSettings() 가 타입만 보므로, 도중에 끊기면
+            //  '설정 없음' 이 되어 다음 부팅이 묻지 않고 스스로 재소거한다. 앞에 두면 반쯤 기록된 기본값이
+            //  '유지' 로 굳었다(Z1 P3-3 — 무응답 10초는 유지다).
+            deviceOption.Upload();
         }
         else
         {
@@ -220,10 +226,12 @@ void setup()
             // 완전 초기화와 같이 '1개월 전' 을 넣는다(사장님 09-27). 값이 있으면 그대로.
             if (disinfectionOption.IsClearDateTimeEmpty() && !disinfectionOption.HasPendingClear())
             {
-                if (rtc.IsUnsynced())
-                    disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
-                else
+                disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);   // 미룸 먼저(위와 같은 규칙)
+                if (!rtc.IsUnsynced())
+                {
                     disinfectionOption.SetClearDateTime(DisinfectionOption::OneMonthBefore(rtc.GetCurrentLocalDateTime()));
+                    disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
+                }
             }
         }
         EEPROM.put(FIRMWARE_STAMP_ADDR, currentStamp);
@@ -383,11 +391,12 @@ void loop()
             ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 무음이던 것을 거부음으로 통일(사장님 09-27)
         if (company.TagType == CLEAR_TYPE_TAG)
         {
+            // ★미룸을 **맨 먼저** 세운다 — 뒤 쓰기 도중 전원이 끊겨도 다음 부팅이 교환일을 다시 쓴다.
+            //  교환일 8바이트가 찢기면 섞인 날짜가 소독 기록에 실렸고(Y2 P3-1), 횟수만 써지고 끊기면
+            //  액교환이 기록에서 아예 사라졌다(Z1 P3-1 — 횟수 0 이라 MaxCount Over 도 안 떠 다시 댈 이유가 없다).
+            disinfectionOption.SetClearPending(DisinfectionOption::kPendingNow);
             disinfectionOption.SetCount(0);
             // 시계가 방전 표지 시각이면 교환일은 시계가 맞춰질 때(첫 소독·메뉴·PC) 기록한다.
-            // ★미룸을 **먼저** 세운다 — 교환일 8바이트를 쓰는 중 전원이 끊기면 옛 값과 섞인 날짜가 남아
-            //  그 뒤 소독 기록에 실렸다(Y2 P3-1). 미룸이 남아 있으면 다음 부팅이 다시 쓴다.
-            disinfectionOption.SetClearPending(DisinfectionOption::kPendingNow);
             if (!rtc.IsUnsynced())
             {
                 disinfectionOption.SetClearDateTime(rtc.GetCurrentLocalDateTime());
@@ -428,6 +437,14 @@ __attribute__((unused)) void serialEvent()
     char buffer[BUFFER_SIZE]{};
     const size_t len = Serial.readBytes(buffer, BUFFER_SIZE - 1);
     if (len == 0) return;
+
+    // ★앞 읽기가 한도(511)에서 끊겼으면 이 버퍼는 그 전문의 **꼬리**다 — 머리글자로 명령을 판정하므로
+    //  값 한가운데의 'C'/'M'/'S' 가 발급 명령으로 실행돼 리더 위 태그가 덮였다(Z2 P3-2). 꼬리는 버린다.
+    //  게이트웨이 꼬리도 마찬가지로 머리(G1·G2)가 없어 쓸 수 없다.
+    static bool sTailOfTruncated = false;
+    const bool isTail = sTailOfTruncated;
+    sTailOfTruncated = (len == BUFFER_SIZE - 1);
+    if (isTail) return;
 
     // raw 명령(G / C·M·S·Z)은 머리글자로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
     // (버리면 다음 스코프에 직전 환자가 기록된다). JSON 은 STX 나 '{' 로 시작하므로 겹치지 않는다.

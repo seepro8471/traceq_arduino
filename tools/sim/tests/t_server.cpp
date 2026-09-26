@@ -3,6 +3,13 @@
 
 static SimCard ok, bad;
 
+static Tag tag_of(const SimCard &c)
+{
+    Tag t{};
+    memcpy(&t, c.data[SECTOR0_TAG], sizeof(t));
+    return t;
+}
+
 static void done_scope(SimCard &t, uint8_t uid, int no)
 {
     char id[8], ser[8];
@@ -74,6 +81,50 @@ int main()
         CHECK(serial_has("17140200EA07") && get_process(bad).WashingStatus == 0, "F2-2: 재스캔 → 온전한 덤프 + 초기화");
     }
     tlog("  resets=%u\n", g_resetCount);
+    // ── Z2 P3-2: 511 에서 끊긴 전문의 꼬리가 'S…' 로 시작해도 발급 명령으로 실행되지 않는다 ──
+    //    종전엔 리더 위 스코프가 꼬리 속 값으로 덮이고 "new tag : scope" 성공 안내까지 났다.
+    {
+        sim_advance_ms(60UL * 1000);
+        done_scope(ok, 0x71, 71);
+        // 한 전문이 한도에서 끊긴다(511바이트) → 다음 읽기는 그 꼬리
+        char burst[600];
+        memset(burst, 'X', sizeof(burst));
+        burst[0] = 'Z';                                  // 서버 raw 머리글자(인증 문자)
+        serial_inject(burst, sizeof(burst));
+        GUARDED(serialEvent());                          // 앞 511바이트
+        logs_clear();
+        GUARDED(serialEvent());                          // 꼬리 — 아래 S 명령이 여기 들어 있다고 보면 된다
+        run_loops(1);
+        card_place(&ok);                                 // 레거시 발급은 리더 위 태그에 쓴다
+        run_loops(2);
+        logs_clear();
+        serial_inject("S99;SERX;", 9);
+        GUARDED(serialEvent());                          // 꼬리 직후의 이 버퍼는 '꼬리' 로 버려지지 않아야 한다
+        run_loops(2);
+        tlog("  Z2 P3-2 꼬리 뒤 정상 발급 안내=%d 번호=%u\n", lcd_has("new tag"), tag_of(ok).Number);
+        CHECK(lcd_has("new tag") && tag_of(ok).Number == 99,
+              "Z2 P3-2 전제: 꼬리를 버린 뒤의 온전한 발급 명령은 그대로 동작한다");
+        card_remove();
+        run_loops(2);
+
+        // 이제 진짜 꼬리가 'S…' 인 경우 — 끊긴 전문 바로 다음 버퍼
+        sim_advance_ms(60UL * 1000);
+        char burst2[520];
+        memset(burst2, 'Y', sizeof(burst2));
+        burst2[0] = 'Z';
+        memcpy(burst2 + 511, "S88;SERY;", 9);            // 511 뒤(꼬리)가 발급 명령처럼 보인다
+        card_place(&ok);
+        run_loops(2);
+        serial_inject(burst2, sizeof(burst2));
+        GUARDED(serialEvent());                          // 앞 511
+        logs_clear();
+        GUARDED(serialEvent());                          // 꼬리 "S88;SERY;…"
+        run_loops(1);
+        tlog("  Z2 P3-2 꼬리 S88 → 안내=%d 번호=%u(99 유지)\n", lcd_has("new tag"), tag_of(ok).Number);
+        CHECK(!lcd_has("new tag") && tag_of(ok).Number == 99,
+              "Z2 P3-2 끊긴 전문의 꼬리는 발급 명령으로 실행되지 않는다(리더 위 태그가 덮이지 않는다)");
+        card_remove();
+    }
     done();
     for (;;) {}
 }
