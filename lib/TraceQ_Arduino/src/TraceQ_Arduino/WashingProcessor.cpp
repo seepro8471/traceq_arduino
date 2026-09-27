@@ -114,6 +114,29 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
             unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
             if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
         }
+
+        // 지난 검사의 게이트웨이 잔재(블록5 검사일시·본체번호 · 섹터15 검사항목)도 비운다 — 이 둘을 지우는
+        //  것은 **서버 덤프와 다음 게이트웨이 접촉뿐**이라, 서버가 없고 게이트웨이를 안 쓰는 현장에서는
+        //  **어제 검사항목이 오늘 대장에 실렸다**(12차 GG1 P3-5 실측).
+        // ★판정은 시계창이 아니라 **관계**로 한다(시간창은 타이밍 추측이다): 현장 순서가 검사 → 세척이므로
+        //  태그의 검사일시가 **지난 주기 세척 시작보다 뒤**면 이번 검사의 것이고(자정을 넘겨도 맞다),
+        //  그보다 앞이면 지난 주기 잔재다. 못 읽거나 값이 이상하면 **손대지 않는다**(짐작하지 않는다).
+        //  Status==2(레거시)는 건너뛴다 — `update_process` 의 그 갈래가 **같은 블록들을 이미 지운다**(중복이면
+        //  접촉 동작이 41 로 예산 40 을 넘는다 · 12차 실측).
+        WashingRecord gw{};         // 블록5 = {int 본체번호, LocalDateTime 검사일시} — 레코드와 같은 10바이트
+        WashingRecord lastWash{};
+        if (prevStatus != 2 &&
+            mScanner.Read(SECTOR1_GATEWAY, &gw, 10) == RfidResult::Ok &&
+            mScanner.Read(SECTOR2_WASHING_START, &lastWash, 10) == RfidResult::Ok)
+        {
+            const auto exam = DefaultRtc::ToDateTime(gw.DateTime);
+            const auto prev = DefaultRtc::ToDateTime(lastWash.DateTime);
+            if (exam.isValid() && prev.isValid() && gw.DateTime.Date.Year != 0 && exam <= prev)
+            {
+                if (mScanner.Clear(SECTOR1_GATEWAY) != RfidResult::Ok) return false;
+                if (mScanner.ClearSector(15) != RfidResult::Ok) return false;
+            }
+        }
     }
 
     update_process(deviceNumber);
