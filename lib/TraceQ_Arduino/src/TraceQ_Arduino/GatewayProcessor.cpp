@@ -46,7 +46,7 @@ bool GatewayProcessor::NeedsMoreBytes(const char *buffer)
 //  남긴다** — 값이 없는 패킷(`G1;`)이면 앞서 받은 본체번호를 쓰는 것이 `effective_number` 의 의도된 폴백이고,
 //  델파이는 본체번호를 설정 칸에서 옮겨 오므로 환자마다 바뀌지 않는다(MainFormSo.pas 32,551줄 · 15188·15207줄
 //  확인) · 세척관리는 그 값을 아예 안 보낸다. 비우면 그 현장에서 번호가 0 이 된다 → 고치지 말 것(GG2 P3-2).
-void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
+void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc, DeviceOption &deviceOption)
 {
     if (buffer == nullptr) return;
 
@@ -93,6 +93,15 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
             str_substring_safe(string, gateText, sizeof(gateText), 0, sep);
             const int parsed = str_atoi(gateText);   // "0002" → 2, 비숫자면 -1
             if (parsed >= 0) mGateNumber = static_cast<int16_t>(parsed);
+            // ★사장님 결정(09-28): PC 번호를 **설정값에도 반영**한다 — 다를 때만 1회. 그래야 전원을 다시 켜
+            //  첫 G1 이 오기 전에도(mGateNumber = -1) 맞는 번호로 기록하고, 설정기·메뉴에도 그 번호가 보인다.
+            //  0 과 범위 밖은 쓰지 않는다: PC 는 0 을 막았지만 리더는 그것을 믿지 않고(찢긴 전문이 0 을 준다),
+            //  상한을 넘는 값은 세터가 잘라 매 전문마다 달라져 EEPROM 을 계속 쓴다 → 상한은 정본 하나를 쓴다.
+            // [13차 판정 · 재론 금지] `!=` 관문은 **최적화**다(EEPROM 읽기 2회 절약) — 지워도 행위는 같다.
+            //  `EEPROM.put` 이 같은 바이트를 안 쓴다는 것을 변이로 측정했다(N3: 전문마다 SetNumber 를 불러도
+            //  쓴 바이트 0). 사장님 계약의 핵심인 "전문마다 쓰지 않는다(수명)" 는 t_gnum ② 가 잠근다.
+            if (parsed > 0 && parsed <= DeviceOption::kNumberMax && parsed != deviceOption.GetNumber())
+                deviceOption.SetNumber(parsed);
         }
     }
     memset(string, 0, sizeof(string));

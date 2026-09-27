@@ -2,7 +2,7 @@
 # 사용: runall.sh <펌웨어 루트> <출력 폴더>  — 등록된 시험 전부 빌드·실행, 요약 한 줄씩.
 ROOT="$1"; OUTD="$2"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10 t_sp t_ops t_gwmix t_dd t_dd3s t_dd3g t_dd1 t_dd1b t_dd1c t_dd1d t_ee1a t_ee1b t_ee1c t_ee1d t_ee1e t_ee2r t_ff1a t_ff1b t_ff1c t_ff2a t_ff2m t_gg2g t_gg2s t_gg2w t_gg2m t_gg1a t_gg1b t_subj t_hh1a t_hh1b)
+T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10 t_sp t_ops t_gwmix t_dd t_dd3s t_dd3g t_dd1 t_dd1b t_dd1c t_dd1d t_ee1a t_ee1b t_ee1c t_ee1d t_ee1e t_ee2r t_ff1a t_ff1b t_ff1c t_ff2a t_ff2m t_gg2g t_gg2s t_gg2w t_gg2m t_gg1a t_gg1b t_subj t_hh1a t_hh1b t_gnum)
 # 소리·글자 계측 시험 — `-DHH2_DWELL` 이 필요해서 **따로** 빌드한다(그 계측을 전부에 넣으면 t_a4 가 정적 RAM 관문 28000B 를 넘는다).
 T2=(t_hh2w t_hh2g t_hh2s t_hh2lock t_hh2lock2 t_hh2fix)
 rm -rf "$OUTD"

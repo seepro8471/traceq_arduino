@@ -550,7 +550,7 @@ __attribute__((unused)) void serialEvent()
         {
             // cmd(맨 앞 'Z' 를 건너뛴 포인터)를 넘긴다 — buffer 면 'Z' 뒤의 G1 이 필드 경계가 아니어서
             //  find_marker 가 못 보고 본체번호를 잃었다(9차 DD1 · 세척관리 30초 keepalive 'Z' 가 방아쇠).
-            gatewayProcessor.GatewaySerialEvent(cmd, rtc);
+            gatewayProcessor.GatewaySerialEvent(cmd, rtc, deviceOption);
             util_buzzer(500);
         }
         // 레거시 시각 동기는 타입과 무관하게 받는다(JSON cfg_set_date_time 과 같은 규칙).

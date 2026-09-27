@@ -2,6 +2,7 @@
 
 #include "BaseProcessor.hpp"
 #include "TraceQ_Arduino/data/Gateway.hpp"
+#include "TraceQ_Arduino/data/nvm/DeviceOption.hpp"
 #include "TraceQ_Arduino/module/rtc/DefaultRtc.hpp"
 #include "TraceQ_Arduino/ui/LcdPrinter.hpp"
 
@@ -39,7 +40,8 @@ public:
     /// 마지막 레코드 머리는 있는데 **그 뒤에** 꼬리가 없다 = 전문이 덜 왔다.
     /// ★꼬리를 버퍼 전체에서 보면 앞 레코드의 G5 에 속아 뒤 레코드를 기다리지 않는다(CC1 P3-2).
     static bool NeedsMoreBytes(const char *buffer);
-    void GatewaySerialEvent(const char *buffer, DefaultRtc &rtc);
+    /// PC 전문 처리. `deviceOption` 은 G1 본체번호를 **설정값에도 반영**하기 위해 받는다(사장님 결정 09-28).
+    void GatewaySerialEvent(const char *buffer, DefaultRtc &rtc, DeviceOption &deviceOption);
     void GatewayProcess(int deviceNumber, LcdPrinter &printer);
     void GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc, LcdPrinter &printer);
 

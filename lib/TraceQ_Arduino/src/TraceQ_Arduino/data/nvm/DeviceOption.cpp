@@ -53,7 +53,7 @@ void DeviceOption::SetType(char type)
 int DeviceOption::GetNumber() const
 {
     EEPROM.get(mNumberAddr, mNumber);
-    return mNumber < 0 ? 0 : mNumber > 999 ? 999 : mNumber;   // 세터 범위 밖 값은 돌려주지 않는다
+    return mNumber < 0 ? 0 : mNumber > kNumberMax ? kNumberMax : mNumber;   // 세터 범위 밖 값은 돌려주지 않는다
 }
 
 // [10차 판정 · 재론 금지] 2바이트 int 를 쓰는 중 전원이 끊기면 **사람이 고르지 않은 유효값**이 남는다
@@ -67,7 +67,7 @@ int DeviceOption::GetNumber() const
 void DeviceOption::SetNumber(int number)
 {
     if (number < 0) number = 0;
-    if (number > 999) number = 999;   // 화면 5칸(" W:99"/"W:999") 상한 — PC 설정기는 0~99 만 보낸다
+    if (number > kNumberMax) number = kNumberMax;   // 상한은 DeviceOption::kNumberMax 정본 — PC 설정기는 0~99 만 보낸다
     EEPROM.put(mNumberAddr, number);
     EEPROM.get(mNumberAddr, mNumber);
 }
