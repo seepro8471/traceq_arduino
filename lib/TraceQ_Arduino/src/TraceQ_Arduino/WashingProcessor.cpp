@@ -105,9 +105,11 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
         if (!write_process()) return false;
 
         // 환자정보 없는 태그면 옛 환자 블록도 비운다 — PC 는 Status 를 안 보고 블록 8·9 를 등록번호·이름으로 저장한다.
-        //  ★0 일 때만 — 레거시 2/3 은 update_process 가 처리한다(3 은 '환자정보 있음' 이라 비우면 "Status=1 인데
-        //   블록은 빈" 태그가 되고, 2 는 같은 블록을 두 번 지워 접촉 예산을 넘겼다).
-        if (prevStatus == 0)
+        //  ★0 과 **알 수 없는 값(3 초과)** 일 때 — 레거시 2/3 만 update_process 가 처리한다(3 은 '환자정보 있음'
+        //   이라 비우면 "Status=1 인데 블록은 빈" 태그가 되고, 2 는 같은 블록을 두 번 지워 접촉 예산을 넘겼다).
+        //   Status 는 태그에서 읽는 uint8_t 라 4~255 도 올 수 있고, 그 값은 update_process 의 Clear×4(current==2
+        //   한정)도 안 타므로 == 0 만 보면 "Status 0 으로 커밋되는데 블록 8·9 엔 지난 환자" 가 남는다(11차 FF1).
+        if (prevStatus == 0 || prevStatus > 3)
         {
             unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
             if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
