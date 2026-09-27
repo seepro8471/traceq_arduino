@@ -302,6 +302,38 @@ void SerialProcessor::update_record_option(RecordOption &recordOption)
 // "TTBB{32자hex};" 블록 라인, B; C; S; G; W; Ok! 순서.
 // ─────────────────────────────────────────────────────────────────────────
 
+void SerialProcessor::LegacySetDateTime(const char *buffer, DefaultRtc &rtc, LcdPrinter &printer)
+{
+    if (buffer == nullptr || buffer[0] != 'T') return;
+    // 'T' 뒤부터 ';' 로 끊어 7칸. 요일(4번째)은 읽고 버린다 — 두 PC 가 뜻이 다르다.
+    int field[7]{};
+    size_t at = 1;
+    for (uint8_t i = 0; i < 7; ++i)
+    {
+        const size_t sep = str_index_of_range(buffer, ';', at);
+        if (sep == static_cast<size_t>(-1)) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }
+        if (sep == at) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }   // 빈 칸
+        // str_atoi_range 의 end 는 **포함**이다 — sep(=';')를 넘기면 숫자가 아니라 -1 이 된다.
+        field[i] = str_atoi_range(buffer, static_cast<uint8_t>(at), static_cast<uint8_t>(sep - 1));
+        at = sep + 1;
+    }
+    const int year = field[0], month = field[1], day = field[2];
+    const int hour = field[4], minute = field[5], second = field[6];
+    // [6차 판정] 아래 `isValid()` 가 우리가 만들 수 있는 모든 표본(연 1999·2100 · 월 13 · 일 40 · 시 25 · 분초 70)을
+    //  이미 거부하므로 이 범위 검사를 지워도 **어떤 시험으로도 구별할 수 없다** — 외부 입력에 대한 예비 방어로 둔다.
+    if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59)
+    {
+        printer.Notify(0, 2, 1000, F("Invalid DateTime"));
+        return;
+    }
+    const DateTime set{static_cast<uint16_t>(year), static_cast<uint8_t>(month), static_cast<uint8_t>(day),
+                       static_cast<uint8_t>(hour), static_cast<uint8_t>(minute), static_cast<uint8_t>(second)};
+    if (!set.isValid()) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }
+    rtc.SetDateTime(set);
+    printer.Notify(0, 2, 1000, F("updated"));      // JSON 시각 동기와 같은 안내·소리
+}
+
 void SerialProcessor::LegacySerialEvent(const char *buffer, size_t length, LcdPrinter &printer)
 {
     if (buffer == nullptr || length == 0) return;
@@ -483,6 +515,8 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
     }
 }
 
+// [6차 계약 · 재론 금지] 550ms 는 델파이 `RfidChkTimer` **333ms**(MainFormSo.dfm)가 수신마다 재시작하며
+//  'Z' 를 보내는 주기를 견디려는 값이다(여유 217ms) — 350ms 밑으로 줄이면 델파이 현장의 서버 덤프가 전부 죽는다.
 bool SerialProcessor::legacy_is_connected()
 {
     // PC 는 PSOk 에 'Z' 한 바이트로 답한다(델파이·세척관리·SeePro 셋 다 줄바꿈 없음).

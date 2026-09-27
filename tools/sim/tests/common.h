@@ -28,8 +28,8 @@ extern SerialProcessor serialProcessor;
 extern WashingProcessor washingProcessor;
 
 // soft reset 이 나면 1, UI 가 버튼을 무한정 기다리면 2 를 돌려준다.
-#define GUARDED(stmt) ([&]() -> int { g_resetArmed = true; int _r = setjmp(g_resetJmp); \
-    if (_r == 0) { stmt; } g_resetArmed = false; return _r; }())
+#define GUARDED(stmt) ([&]() -> int { sim_sp_enter(); g_resetArmed = true; int _r = setjmp(g_resetJmp); \
+    if (_r == 0) { stmt; } g_resetArmed = false; sim_sp_leave(); return _r; }())
 
 // "동기된 시계" 표본은 출시일(version.hpp)에서 유도한다 — 날짜를 박아 두면 출시일을 올릴 때마다
 // IsUnsynced() 판정이 뒤집혀 시험이 깨진다(09-26 재발).

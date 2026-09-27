@@ -94,15 +94,17 @@ void sim_field_drop()
 }
 void MFRC522::PCD_WriteRegister(byte reg, byte val)
 {
+    SIM_SP();
     if (reg == CommandReg && val == PCD_SoftReset) sim_field_drop();
 }
 byte MFRC522::PCD_ReadRegister(byte reg)
 {
+    SIM_SP();
     if (reg == VersionReg) return g_versionReg;
     return 0x00;   // CommandReg: PowerDown 해제 = soft reset 완료
 }
-void MFRC522::PCD_AntennaOn() {}
-void MFRC522::PCD_StopCrypto1() { g_readerCrypto = false; }
+void MFRC522::PCD_AntennaOn() { SIM_SP(); }
+void MFRC522::PCD_StopCrypto1() { SIM_SP(); g_readerCrypto = false; }
 
 // REQA/WUPA 는 같은 규칙 — WUPA 만 HALT 카드도 깨운다(ISO14443-3 6.3).
 //  카드가 둘이면 둘 다 응답(충돌)이고 anticollision 이 한 장을 고른다. 못 고른 카드는 IDLE 로 돌아간다.
@@ -124,11 +126,12 @@ static MFRC522::StatusCode reqa_common(bool wupa, byte *atqa, byte *size)
     if (atqa && size && *size >= 2) { atqa[0] = 0x04; atqa[1] = 0x00; *size = 2; }
     return (aOk && bOk) ? MFRC522::STATUS_COLLISION : MFRC522::STATUS_OK;
 }
-MFRC522::StatusCode MFRC522::PICC_RequestA(byte *atqa, byte *size) { return reqa_common(false, atqa, size); }
-MFRC522::StatusCode MFRC522::PICC_WakeupA(byte *atqa, byte *size) { return reqa_common(true, atqa, size); }
+MFRC522::StatusCode MFRC522::PICC_RequestA(byte *atqa, byte *size) { SIM_SP(); return reqa_common(false, atqa, size); }
+MFRC522::StatusCode MFRC522::PICC_WakeupA(byte *atqa, byte *size) { SIM_SP(); return reqa_common(true, atqa, size); }
 
 bool MFRC522::PICC_ReadCardSerial()
 {
+    SIM_SP();
     if (g_card == nullptr || g_cardState != CARD_READY) return false;
     g_cardState = CARD_ACTIVE;
     uid.size = 4;
@@ -139,6 +142,7 @@ bool MFRC522::PICC_ReadCardSerial()
 
 MFRC522::StatusCode MFRC522::PICC_HaltA()
 {
+    SIM_SP();
     if (g_card == nullptr) return STATUS_OK;
     if (g_card->loseHalt) { g_card->loseHalt = false; return STATUS_OK; }
     if ((g_cardState == CARD_ACTIVE && !g_readerCrypto) || (g_cardState == CARD_AUTH && g_readerCrypto))
@@ -150,6 +154,7 @@ MFRC522::StatusCode MFRC522::PICC_HaltA()
 
 MFRC522::StatusCode MFRC522::PCD_Authenticate(byte cmd, byte block, MIFARE_Key *key, Uid *)
 {
+    SIM_SP();
     if (!card_op()) { g_readerCrypto = false; return STATUS_TIMEOUT; }
     SimCard &c = *g_card;
     ++c.authCount;
@@ -184,6 +189,7 @@ static bool card_can_rw(byte block)
 
 MFRC522::StatusCode MFRC522::MIFARE_Read(byte block, byte *buffer, byte *size)
 {
+    SIM_SP();
     if (buffer == nullptr || *size < 18) return STATUS_NO_ROOM;
     if (!card_op()) return STATUS_TIMEOUT;
     SimCard &c = *g_card;
@@ -206,6 +212,7 @@ MFRC522::StatusCode MFRC522::MIFARE_Read(byte block, byte *buffer, byte *size)
 
 MFRC522::StatusCode MFRC522::MIFARE_Write(byte block, byte *buffer, byte size)
 {
+    SIM_SP();
     if (buffer == nullptr || size < 16) return STATUS_INVALID;
     if (!card_op()) return STATUS_TIMEOUT;
     SimCard &c = *g_card;
@@ -253,6 +260,7 @@ MFRC522::PICC_Type MFRC522::PICC_GetType(byte sak)
 }
 void MFRC522::MIFARE_SetAccessBits(byte *b, byte g0, byte g1, byte g2, byte g3)
 {
+    SIM_SP();
     byte c1 = ((g3 & 4) << 1) | ((g2 & 4) << 0) | ((g1 & 4) >> 1) | ((g0 & 4) >> 2);
     byte c2 = ((g3 & 2) << 2) | ((g2 & 2) << 1) | ((g1 & 2) << 0) | ((g0 & 2) >> 1);
     byte c3 = ((g3 & 1) << 3) | ((g2 & 1) << 2) | ((g1 & 1) << 1) | ((g0 & 1) << 0);

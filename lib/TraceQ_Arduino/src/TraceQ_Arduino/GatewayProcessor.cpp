@@ -2,6 +2,14 @@
 
 #include "TraceQ_Arduino/avr/AvrString.hpp"
 
+bool GatewayProcessor::HasGatewayData(const char *buffer)
+{
+    if (buffer == nullptr) return false;
+    return buffer[0] == 'G' ||
+           find_marker(buffer, "G1", 0) != static_cast<size_t>(-1) ||
+           find_marker(buffer, "G2", 0) != static_cast<size_t>(-1);
+}
+
 void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
 {
     if (buffer == nullptr) return;

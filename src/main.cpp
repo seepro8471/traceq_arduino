@@ -209,6 +209,9 @@ void setup()
             // 액교환일 기본값 = 1개월 전 (소독 모드에서 사용 — 타입과 무관하게
             // 기록해 두면 나중에 D 타입으로 바꿔도 유효). 시계가 방전 표지 시각이면 맞춰질 때 정한다.
             // 미룸을 먼저 세운다 — 날짜 도중 끊겨도 다음 부팅이 다시 쓴다(클리어 태그와 같은 규칙).
+            // [6차 판정] 아래 "타입을 마지막에" 가 이미 이 갈래의 절단을 전부 재소거로 보내므로 이 한 줄은
+            //  **예비 방어**다(단독으로는 어떤 시험도 잠글 수 없다 — AA1 P3-2). 순서 규칙을 한 곳만 다르게
+            //  두면 다음 사람이 헷갈리므로 같은 규칙으로 맞춰 둔다.
             disinfectionOption.SetClearPending(DisinfectionOption::kPendingDefault);
             if (!rtc.IsUnsynced())
             {
@@ -438,18 +441,25 @@ __attribute__((unused)) void serialEvent()
     const size_t len = Serial.readBytes(buffer, BUFFER_SIZE - 1);
     if (len == 0) return;
 
-    // ★앞 읽기가 한도(511)에서 끊겼으면 이 버퍼는 그 전문의 **꼬리**다 — 머리글자로 명령을 판정하므로
-    //  값 한가운데의 'C'/'M'/'S' 가 발급 명령으로 실행돼 리더 위 태그가 덮였다(Z2 P3-2). 꼬리는 버린다.
-    //  게이트웨이 꼬리도 마찬가지로 머리(G1·G2)가 없어 쓸 수 없다.
+    // ★앞 읽기가 한도(511)에서 끊겼으면 이 버퍼는 그 전문의 꼬리일 수 있다 — 값 한가운데의 'C'/'M'/'S' 가
+    //  발급 명령으로 실행돼 리더 위 태그가 덮였다(Z2 P3-2). 단 **버퍼를 버리지는 않는다**: 링이 511 로 차서
+    //  뒷동을 ISR 이 이미 버린 경우엔 다음 버퍼가 정당한 새 전문이라, 버리면 환자 패킷을 잃었다(AA2 P1-2).
+    //  둘을 구별할 수 없으므로 **서버 레거시 명령 실행만** 막는다(게이트웨이는 아래 머리·꼬리 관문이 본다).
+    // [6차 판정 · 재론 금지] **한 환자 전문으로는 511 을 만들 수 없다**(실측: SeePro 100B · 세척관리 최대 115B ·
+    //  올눈 5조각 167B). 쌓이는 길은 둘뿐인데 사장님 확인(09-27) 으로 둘 다 현장에 없다 — ① 올눈에서 1초 안에
+    //  연달아 전송하지 않는다 ② 환자를 보내는 중에 리더 메뉴를 열어 두거나 첫 부팅 소거 중인 일이 없다.
+    //  그래서 이 관문은 **보험**이고, 511 초과 횟수를 세는 진단 표시는 넣지 않는다(화면을 건드리지 않는다).
     static bool sTailOfTruncated = false;
     const bool isTail = sTailOfTruncated;
     sTailOfTruncated = (len == BUFFER_SIZE - 1);
-    if (isTail) return;
 
-    // raw 명령(G / C·M·S·Z)은 머리글자로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
+    // raw 명령은 머리로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
     // (버리면 다음 스코프에 직전 환자가 기록된다). JSON 은 STX 나 '{' 로 시작하므로 겹치지 않는다.
+    // ★게이트웨이는 **버퍼 안 레코드 머리**로 본다 — 머리글자만 보면 앞에 한 바이트(세척관리의 30초
+    //  keepalive 'Z')만 붙어도 패킷을 통째로 버리고 직전 환자가 다음 스코프에 기록됐다(AA2 P1-1).
+    // (레거시 시각 동기 'T' 는 '{' 가 없어 어차피 NotJson 으로 오므로 여기 넣지 않는다)
     const bool rawHead =
-        (deviceType == GATEWAY_TYPE_DEVICE && buffer[0] == 'G') ||
+        (deviceType == GATEWAY_TYPE_DEVICE && GatewayProcessor::HasGatewayData(buffer)) ||
         (deviceType == SERVER_TYPE_DEVICE &&
          (buffer[0] == 'C' || buffer[0] == 'M' || buffer[0] == 'S' || buffer[0] == 'Z'));
     switch (rawHead ? SerialProcessor::ProcessKind::NotJson : serialProcessor.GetProcessKind(buffer, len, ui))
@@ -469,12 +479,16 @@ __attribute__((unused)) void serialEvent()
         serialProcessor.UpdateDateTime(rtc, ui);
         return;
     case SerialProcessor::ProcessKind::NotJson:
-        if (deviceType == GATEWAY_TYPE_DEVICE && buffer[0] == 'G')
+        if (deviceType == GATEWAY_TYPE_DEVICE && GatewayProcessor::HasGatewayData(buffer))
         {
             gatewayProcessor.GatewaySerialEvent(buffer, rtc);
             util_buzzer(500);
         }
-        if (deviceType == SERVER_TYPE_DEVICE)
+        // 레거시 시각 동기는 타입과 무관하게 받는다(JSON cfg_set_date_time 과 같은 규칙).
+        //  꼬리로는 실행하지 않는다 — 값 한가운데의 'T' 로 시계가 바뀌면 그 뒤 기록 시각이 전부 틀어진다.
+        if (buffer[0] == 'T' && !isTail)
+            serialProcessor.LegacySetDateTime(buffer, rtc, ui);
+        if (deviceType == SERVER_TYPE_DEVICE && !isTail)
             serialProcessor.LegacySerialEvent(buffer, len, ui);
         break;
     default: break;

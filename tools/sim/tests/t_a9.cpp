@@ -256,6 +256,173 @@ int main()
         CHECK(bad == 0, "Y2 P3-4 · Z1 P3-3 소거 중 끊겨도 다음 부팅은 옛 설정 그대로이거나 깨끗한 기본값");
     }
 
+    // ── AA1 P3-4·P3-5: SetData 의 "바뀌는 것이 없으면 안 쓴다" 판정이 무엇을 보는가 ──
+    {
+        as_type('W');
+        unsigned char kA[16]{}, nA[16]{}, nC[16]{};
+        memcpy(kA, mgr.data[SECTOR0_TAG] + 2, 14);
+        memcpy(nA, mgr.data[SECTOR1_TAG_SERIAL], 16);
+        memcpy(nC, "OTHERNAME", 9);
+        // (a) 표지만 찢긴 상태(키·이름은 맞고 표지 거짓)는 같은 담당자를 다시 대면 복구돼야 한다
+        managerOption.SetData(kA, nA);
+        EEPROM.put(65, false);                           // 표지만 거짓으로
+        CHECK(!managerOption.HasData(), "AA1 전제: 표지만 거짓인 상태를 만들었다");
+        managerOption.SetData(kA, nA);
+        tlog("  AA1 P3-4 표지만 찢김 → 재등록 뒤 has=%d\n", managerOption.HasData());
+        CHECK(managerOption.HasData(), "AA1 P3-4 표지만 찢긴 상태는 같은 담당자 재접촉으로 복구된다");
+        // (b) 키가 같고 이름만 다르면 갱신돼야 한다
+        managerOption.SetData(kA, nC);
+        unsigned char got[16]{};
+        managerOption.GetName(got, 16);
+        tlog("  AA1 P3-5 이름만 다른 담당자 → 이름=[%.9s]\n", (const char *)got);
+        CHECK(memcmp(got, nC, 9) == 0, "AA1 P3-5 키가 같고 이름만 달라도 갱신된다");
+        managerOption.SetData(kA, nA);
+        as_type('D');
+        touch(mgr);
+    }
+    // ── AA1 P3-3: 유지(keep) 부팅에서 빈 교환일을 채우는 도중 끊겨도 쓸 수 없는 날짜로 굳지 않는다 ──
+    //    되돌리면 절단점 몇 곳에서 교환일이 0234-00-00·2026-00-00 처럼 영구히 굳는다(스스로 못 낫는다).
+    {
+        uint8_t bad = 0;
+        for (uint32_t n = 0; n <= 12; ++n)
+        {
+            power_restore();
+            rtc_set(rel_date(10, 0, 0));
+            // 쓰던 기기(도장 같음) + 교환일 칸이 비어 있는 상태를 만든다
+            for (int i = 0; i < EEPROM.length(); ++i) EEPROM.update(i, 0);
+            hard_reset(false, 0);
+            deviceOption.SetType('D');
+            LocalDateTime empty{};
+            disinfectionOption.SetClearDateTime(empty);
+            disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
+            EEPROM.put((int)4088, (uint32_t)0x12345678UL);   // ★옛 판 도장 — 이래야 초기화 블록에 들어간다
+            buttons_script("");                          // 무응답 10초 = '유지' 선택
+            g_eepromWrites = 0; g_eepromCutAfter = (int32_t)n;
+            hard_reset(false, 0);                        // 유지 갈래: 빈 교환일을 '1개월 전' 으로 채운다
+            power_restore();
+            hard_reset(false, 2);                        // 다시 켜서 복구 기회를 준다
+            const LocalDateTime d = disinfectionOption.GetClearDateTime();
+            // 빈 칸(0000-00-00)은 한 번뿐인 이관을 놓친 것 — 클리어 태그로 낫는 종전 상태다.
+            // 막아야 하는 것은 **찢긴 날짜**(0234-00-00·2026-00-00 처럼 IsClearDateTimeEmpty 가 거짓이라
+            // 영원히 안 고쳐지고 기록에 실리는 값)다.
+            const bool isEmpty = (d.Date.Year == 0 && d.Date.Month == 0 && d.Date.Day == 0);
+            const bool usable = isEmpty || (d.Date.Year >= 2026 && d.Date.Month >= 1 && d.Date.Month <= 12 &&
+                                          d.Date.Day >= 1 && d.Date.Day <= 31);
+            if (!usable) ++bad;
+            if (!usable)
+                tlog("  AA1 P3-3 n=%lu ★찢긴 교환일 %04u-%02u-%02u pend=%u\n", (unsigned long)n, d.Date.Year,
+                     d.Date.Month, d.Date.Day, disinfectionOption.GetClearPending());
+        }
+        tlog("  AA1 P3-3 절단점 13 중 못 쓸 교환일로 굳은 것 %u\n", bad);
+        CHECK(bad == 0, "AA1 P3-3 유지 부팅의 빈 교환일 채우기가 끊겨도 찢긴 날짜로 굳지 않는다(빈 칸은 클리어 태그로 낫는다)");
+        power_restore();
+        rtc_set(rel_date(10, 0, 0));
+    }
+
+    // ── 레거시 시각 동기 T (사장님 판정 09-27 — PC 시각을 그대로 받는다) ──
+    {
+        power_restore();
+        static const char kTypes[] = {'W', 'D', 'G', 'S'};
+        for (uint8_t ti = 0; ti < sizeof(kTypes); ++ti)
+        {
+            const char t = kTypes[ti];
+            as_type(t);
+            rtc_set(rel_date(10, 0, 0));
+            char cmd[48];
+            snprintf(cmd, sizeof(cmd), "T%u;%u;%u;3;14;30;5;", (unsigned)TRACEQ_RELEASE_YEAR,
+                     (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY);
+            logs_clear();
+            serial_inject(cmd, strlen(cmd));
+            GUARDED(serialEvent());
+            run_loops(1);
+            const DateTime n = rtc.GetCurrentDateTime();
+            tlog("  T 동기 type=%c → %02u:%02u:%02u 안내=%d\n", t, n.hour(), n.minute(), n.second(),
+                 lcd_has("updated"));
+            CHECK(n.hour() == 14 && n.minute() == 30 && n.second() >= 5 && lcd_has("updated"),   // 초는 시뮬 시간만큼 흐른다
+                  "T 시각 동기는 모든 타입에서 듣는다");
+        }
+        // 요일 칸은 두 PC 가 뜻이 다르다(0=일 / 1=일) — 무엇이 와도 결과가 같아야 한다
+        as_type('W');
+        DateTime got[2];
+        for (uint8_t i = 0; i < 2; ++i)
+        {
+            rtc_set(rel_date(10, 0, 0));
+            char cmd[48];
+            snprintf(cmd, sizeof(cmd), "T%u;%u;%u;%u;9;15;0;", (unsigned)TRACEQ_RELEASE_YEAR,
+                     (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY, i == 0 ? 0u : 7u);
+            serial_inject(cmd, strlen(cmd));
+            GUARDED(serialEvent());
+            run_loops(1);
+            got[i] = rtc.GetCurrentDateTime();
+        }
+        tlog("  T 요일 0 vs 7: %02u:%02u / %02u:%02u\n", got[0].hour(), got[0].minute(), got[1].hour(),
+             got[1].minute());
+        CHECK(got[0].hour() == 9 && got[0].minute() == 15 && got[1].hour() == 9 && got[1].minute() == 15,
+              "T 요일 칸은 무시한다(세척관리 0=일 · 올눈 1=일 둘 다 같은 결과)");
+        // 범위 밖·칸 부족은 저장하지 않고 알린다
+        rtc_set(rel_date(10, 0, 0));
+        const char bad1[] = "T2026;13;40;3;25;70;70;";
+        logs_clear();
+        serial_inject(bad1, sizeof(bad1) - 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime keep1 = rtc.GetCurrentDateTime();
+        const char bad2[] = "T2026;9;27;3;14;";
+        logs_clear();
+        serial_inject(bad2, sizeof(bad2) - 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime keep2 = rtc.GetCurrentDateTime();
+        // 월·일만 어긋난 표본 — 시·분·초 범위 검사로는 안 걸리는 자리(RTC 에 월 13 이 저장되던 구멍 2.2.1)
+        const char bad3[] = "T2026;13;40;3;14;30;0;";
+        logs_clear();
+        serial_inject(bad3, sizeof(bad3) - 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime keep3 = rtc.GetCurrentDateTime();
+        tlog("  T 범위 밖 뒤 %02u:%02u · 칸 부족 뒤 %02u:%02u · 월13일40 뒤 %u-%u %02u:%02u 안내=%d\n",
+             keep1.hour(), keep1.minute(), keep2.hour(), keep2.minute(), keep3.month(), keep3.day(),
+             keep3.hour(), keep3.minute(), lcd_has("Invalid DateTime"));
+        CHECK(keep1.hour() == 10 && keep2.hour() == 10 && lcd_has("Invalid DateTime"),
+              "T 범위 밖·칸 부족은 시계를 바꾸지 않고 알린다");
+        CHECK(keep3.month() == TRACEQ_RELEASE_MONTH && keep3.day() == TRACEQ_RELEASE_DAY && keep3.hour() == 10,
+              "T 월·일만 어긋난 값도 시계를 바꾸지 않는다(월 13 이 RTC 에 들어가던 구멍)");
+        // 연도 경계 — RTC 는 2000 기준 오프셋이라 1999·2100 은 isValid 로는 안 걸릴 수 있다
+        const char bad4[] = "T1999;9;27;3;14;30;0;";
+        logs_clear();
+        serial_inject(bad4, sizeof(bad4) - 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime keep4 = rtc.GetCurrentDateTime();
+        const char bad5[] = "T2100;9;27;3;14;30;0;";
+        serial_inject(bad5, sizeof(bad5) - 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime keep5 = rtc.GetCurrentDateTime();
+        tlog("  T 연도 1999 뒤 %u-%02u %02u:%02u · 2100 뒤 %u %02u:%02u\n", keep4.year(), keep4.month(),
+             keep4.hour(), keep4.minute(), keep5.year(), keep5.hour(), keep5.minute());
+        CHECK(keep4.year() == TRACEQ_RELEASE_YEAR && keep4.hour() == 10 &&
+              keep5.year() == TRACEQ_RELEASE_YEAR && keep5.hour() == 10,
+              "T 연도가 2000~2099 밖이면 시계를 바꾸지 않는다");
+        // 511 에서 끊긴 전문의 꼬리가 'T…' 여도 시계를 바꾸지 않는다
+        rtc_set(rel_date(10, 0, 0));
+        char burst[560];
+        memset(burst, 'Y', sizeof(burst));
+        burst[0] = 'Q';
+        const char tailCmd[] = "T2026;9;27;3;23;59;59;";       // 꼬리에 **온전한** T 명령이 들어가야 잠금이 된다
+        memcpy(burst + 511, tailCmd, sizeof(tailCmd) - 1);
+        serial_inject(burst, sizeof(burst));
+        GUARDED(serialEvent());                          // 앞 511
+        GUARDED(serialEvent());                          // 꼬리
+        run_loops(1);
+        const DateTime tail = rtc.GetCurrentDateTime();
+        tlog("  T 꼬리 뒤 %02u:%02u (10:00 유지)\n", tail.hour(), tail.minute());
+        CHECK(tail.hour() == 10, "T 꼬리는 시계를 바꾸지 않는다(값 한가운데의 'T' 로 기록 시각이 틀어지던 것)");
+        as_type('D');
+        touch(mgr);
+        rtc_set(rel_date(10, 0, 0));
+    }
+
     done();
     for (;;) {}
 }

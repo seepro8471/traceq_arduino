@@ -26,9 +26,15 @@ static void tlog_screen(const char *label)
 
 int main()
 {
-    rtc_set(DateTime(2026, 9, 27, 9, 0, 0));
+    rtc_set(rel_date(9, 0, 0));                  // 출시일 09:00 — 날짜를 박으면 출시일이 앞으로 갈 때 헛빨강(AA1 P3-7)
+    char homeRow0[21];
+    snprintf(homeRow0, sizeof(homeRow0), "%04u/%02u/%02u 09:00:00 ",
+             (unsigned)TRACEQ_RELEASE_YEAR, (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY);
 
     // ══ ③ 첫 부팅 진행 표시 뒤 LCD 잔상 ══
+    //  ★방어가 둘이다: `UserInterfaceInitialize` 의 `mLcd.init()`(DDRAM 소거)와 진행 문구가 20칸을 끝 공백까지
+    //   채우는 것. **하나만 깨면 다른 하나가 덮어 초록**이고 둘을 같이 깨면 아래가 빨강이다(변이 m5).
+    //   그래서 이 CHECK 들은 "한 자리를 잠근다" 가 아니라 "두 방어가 함께 성립한다" 를 본다(AA1 P3-6).
     // 공장 초기(0xFF) → 묻지 않고 전체 소거 → "Initializing..." + 진행률. 그 뒤 홈 화면에 잔상이 남나.
     {
         eeprom_factory();
@@ -37,7 +43,7 @@ int main()
         CHECK(lcd_has("Initializing") && lcd_has("100%"), "③-0 전체 소거 진행 표시가 실제로 나왔다(양성대조)");
         tlog_screen("③ 공장초기 소거 뒤 홈 화면");
         // ★부분 문자열로 "없다" 만 보면 못 잡는다(변이 m1 이 통과했다) — 80칸을 **전부** 셈한다.
-        CHECK(strcmp(lcd_row(0), "2026/09/27 09:00:00 ") == 0, "③ 0행 20칸이 홈 시계뿐(19자+공백) — 잔상 칸 없음");
+        CHECK(strcmp(lcd_row(0), homeRow0) == 0, "③ 0행 20칸이 홈 시계뿐(19자+공백) — 잔상 칸 없음");
         CHECK(strcmp(lcd_row(1), "04 Min Alarm 00:00  ") == 0, "③ 1행 20칸이 알람 줄뿐 — 진행률 잔상 없음");
         CHECK(strcmp(lcd_row(2), "                    ") == 0, "③ 2행 20칸이 전부 공백");
         CHECK(strncmp(lcd_row(3), "      ", 6) == 0 && row_has(3, "R-") && !row_has(3, "%"),
@@ -53,7 +59,7 @@ int main()
         hard_reset(false);
         CHECK(lcd_has("Keep settings"), "③-1 선택창이 실제로 떴다(양성대조)");
         tlog_screen("③ 선택창 → 초기화 뒤 홈 화면");
-        CHECK(strcmp(lcd_row(0), "2026/09/27 09:00:00 ") == 0 &&
+        CHECK(strcmp(lcd_row(0), homeRow0) == 0 &&
               strcmp(lcd_row(1), "04 Min Alarm 00:00  ") == 0 &&
               strcmp(lcd_row(2), "                    ") == 0 &&
               strncmp(lcd_row(3), "      ", 6) == 0,
@@ -64,7 +70,9 @@ int main()
     // (교통·출입카드가 MIFARE 가 아니면 Poll 이 Invalid 로 걸러낸다 — 5차 B. 여기서는 SAK 가 같은 MIFARE.)
     {
         boot('W');
-        managerOption.SetData((const unsigned char *)"MGR", (const unsigned char *)"KIM");
+        unsigned char mgrKey[ManagerOption::KEY_SIZE]{}, mgrName[ManagerOption::NAME_SIZE]{};
+        memcpy(mgrKey, "MGR", 3); memcpy(mgrName, "KIM", 3);   // SetData 는 16바이트를 읽는다(AA1 P3-8)
+        managerOption.SetData(mgrKey, mgrName);
         recordOption.SetPatientCheck(false);
 
         // (i) 출입카드가 anticollision 에서 이기는 순서 — 스코프가 굶는가
@@ -131,7 +139,7 @@ int main()
         set_process(scope, Process{1, 2, 1, 0, 0, false, 0, 0});          // Status1 · 소독2회 · 세척완료
         put_block(scope, SECTOR2_PATIENT_KEY,  "OLDPT", 5);
         put_block(scope, SECTOR2_PATIENT_NAME, "OLDNAME", 7);
-        set_record(scope, SECTOR1_GATEWAY, 7, DateTime(2026, 9, 1, 8, 0, 0));
+        set_record(scope, SECTOR1_GATEWAY, 7, rel_date(8, 0, 0));
         put_block(scope, SECTOR15_EXAMINATION_SUBJECT, "OLDSUBJ", 7);
 
         scope.nackBlock = SECTOR1_PROCESS;        // 공정 소거만 실패 — 카드는 살아 있다

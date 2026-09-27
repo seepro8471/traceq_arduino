@@ -76,6 +76,17 @@ void buttons_hold(char btn, uint32_t untilMs);   // g_ms < untilMs 동안 그 �
 extern uint32_t g_btnIdleLimit;        // 스크립트 소진 뒤 이만큼 더 읽으면 시험을 끊는다(기본 30000)   // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
 extern uint16_t g_minSP;                // 버튼 읽는 자리에서 본 최저 SP
 
+// ── AA3 스택 계측 ──  (SP 는 데이터공간 주소. 스택은 아래로 자란다)
+extern uint16_t g_spTopMax;    // GUARDED 진입 때 본 SP 중 **가장 높은** 값(가장 얕은 호출 기점)
+extern uint16_t g_spMinAll;    // 가짜 하드웨어 함수에서 본 **가장 낮은** SP (전 구간)
+extern uint16_t g_spDepthMax;  // 한 번의 loop()/serialEvent() 호출이 쓴 최대 바이트(가짜 표본 기준)
+extern uint16_t g_spCallBase, g_spCallMin;
+void sim_sp_enter();
+void sim_paint();          // _end ~ SP-32 를 무늬로 칠한다
+uint16_t sim_paint_low();  // 무늬가 깨진 가장 낮은 주소(=스택 최대 침투)
+void sim_sp_leave();
+#define SIM_SP() do { const uint16_t _sp = SP; if (_sp < g_spMinAll) g_spMinAll = _sp;                       if (_sp < g_spCallMin) g_spCallMin = _sp; } while (0)
+
 // ── soft reset 가로채기 ──
 extern jmp_buf g_resetJmp;
 extern bool g_resetArmed;

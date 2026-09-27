@@ -77,6 +77,11 @@ public:
     /// 미인증 상태에선 'Z' 포함 여부로 인증, 인증 후엔 C/M/S 태그 발급.
     void LegacySerialEvent(const char *buffer, size_t length, LcdPrinter &printer);
 
+    /// 레거시 시각 동기 `T{년};{월};{일};{요일};{시};{분};{초};` (사장님 판정 09-27 — PC 시각을 그대로 받는다).
+    /// 요일 칸은 세척관리 0=일 · 올눈 1=일 로 서로 달라 쓰지 않는다(날짜에서 유도된다).
+    /// 범위를 벗어나면 저장하지 않고 알린다(메뉴 입력과 같은 규칙 · 2.2.1).
+    void LegacySetDateTime(const char *buffer, DefaultRtc &rtc, LcdPrinter &printer);
+
 protected:
     /// 1.0의 legacy 검사자료 업로드 — W/D 완료 검증 → PSOk/Z 핸드셰이크 →
     /// 섹터 5,6[,7,8],14 + B; C; S; G; W; 블록 덤프 + "Ok!".

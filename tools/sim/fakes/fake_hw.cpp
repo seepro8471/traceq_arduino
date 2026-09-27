@@ -46,10 +46,10 @@ extern "C" void done()
 // ── 시간 ──
 volatile uint32_t g_ms;
 void sim_advance_ms(uint32_t ms) { g_ms += ms; }
-unsigned long millis() { return ++g_ms; }            // 대기 루프가 끝나도록 호출마다 1ms
-unsigned long micros() { return g_ms * 1000UL; }
-void delay(unsigned long ms) { g_ms += ms; }
-void delayMicroseconds(unsigned int) {}
+unsigned long millis() { SIM_SP(); return ++g_ms; }            // 대기 루프가 끝나도록 호출마다 1ms
+unsigned long micros() { SIM_SP(); return g_ms * 1000UL; }
+void delay(unsigned long ms) { SIM_SP(); g_ms += ms; }
+void delayMicroseconds(unsigned int) { SIM_SP(); }
 
 // ── 핀·부저·버튼 ──
 static uint16_t s_buzzPulse[64];
@@ -63,9 +63,10 @@ uint8_t buzz_count(uint16_t pulseMs)
     for (uint8_t i = 0; i < s_buzzN; ++i) if (s_buzzPulse[i] == pulseMs) ++n;
     return n;
 }
-void pinMode(uint8_t, uint8_t) {}
+void pinMode(uint8_t, uint8_t) { SIM_SP(); }
 void digitalWrite(uint8_t pin, uint8_t val)
 {
+    SIM_SP();
     if (pin != PIN_BUZZER) return;
     if (val == HIGH && !s_buzzOn) { s_buzzOn = true; s_buzzOnAt = g_ms; }
     else if (val == LOW && s_buzzOn)
@@ -76,6 +77,43 @@ void digitalWrite(uint8_t pin, uint8_t val)
 }
 static char s_btn[256];
 uint16_t g_minSP = 0xFFFF;
+// ── AA3 스택 계측 ──
+uint16_t g_spTopMax = 0;
+uint16_t g_spMinAll = 0xFFFF;
+uint16_t g_spDepthMax = 0;
+uint16_t g_spCallBase = 0, g_spCallMin = 0xFFFF;
+void sim_sp_enter()
+{
+    const uint16_t sp = SP;
+    if (sp > g_spTopMax) g_spTopMax = sp;
+    g_spCallBase = sp;
+    g_spCallMin  = sp;
+}
+extern uint8_t _end;
+static const uint8_t kPaintPat[4] = {0xA5, 0x5A, 0xC3, 0x3C};
+void sim_paint()
+{
+    uint8_t *p = &_end;
+    const uint16_t lim = (uint16_t)(SP - 32);
+    for (uint16_t i = 0; (uint16_t)(uintptr_t)(p + i) < lim; ++i) p[i] = kPaintPat[i & 3];
+}
+uint16_t sim_paint_low()
+{
+    uint8_t *p = &_end;
+    const uint16_t lim = (uint16_t)(SP - 32);
+    for (uint16_t i = 0; (uint16_t)(uintptr_t)(p + i) < lim; ++i)
+        if (p[i] != kPaintPat[i & 3]) return (uint16_t)(uintptr_t)(p + i);
+    return lim;
+}
+void sim_sp_leave()
+{
+    if (g_spCallBase > g_spCallMin)
+    {
+        const uint16_t d = (uint16_t)(g_spCallBase - g_spCallMin);
+        if (d > g_spDepthMax) g_spDepthMax = d;
+    }
+    g_spCallMin = 0xFFFF;
+}
 static uint16_t s_btnHead, s_btnLen;
 static uint32_t s_btnIdleReads;
 uint32_t g_btnIdleLimit = 30000;   // 메뉴 시한(60초=약 18만 회 읽기)을 보려면 시험에서 올린다
@@ -98,6 +136,7 @@ void buttons_script(const char *seq)
 }
 int digitalRead(uint8_t pin)
 {
+    SIM_SP();
     const uint16_t sp = SP;   // 버튼을 읽는 자리(메뉴 루프)의 스택 깊이 기록
     if (sp < g_minSP) g_minSP = sp;
     char want = 0;
@@ -182,13 +221,14 @@ static uint16_t in_ready_end()
 }
 void HardwareSerial::begin(unsigned long, byte) {}
 void HardwareSerial::end() {}
-int HardwareSerial::available() { const uint16_t e = in_ready_end(); return e > s_inHead ? e - s_inHead : 0; }
-int HardwareSerial::peek() { return s_inHead < in_ready_end() ? (uint8_t)s_in[s_inHead] : -1; }
-int HardwareSerial::read() { return s_inHead < in_ready_end() ? (uint8_t)s_in[s_inHead++] : -1; }
-int HardwareSerial::availableForWrite() { return 64; }
-void HardwareSerial::flush() {}
+int HardwareSerial::available() { SIM_SP(); const uint16_t e = in_ready_end(); return e > s_inHead ? e - s_inHead : 0; }
+int HardwareSerial::peek() { SIM_SP(); return s_inHead < in_ready_end() ? (uint8_t)s_in[s_inHead] : -1; }
+int HardwareSerial::read() { SIM_SP(); return s_inHead < in_ready_end() ? (uint8_t)s_in[s_inHead++] : -1; }
+int HardwareSerial::availableForWrite() { SIM_SP(); return 64; }
+void HardwareSerial::flush() { SIM_SP(); }
 size_t HardwareSerial::write(uint8_t c)
 {
+    SIM_SP();
     if (s_outLen < sizeof(g_serialOut) - 1) g_serialOut[s_outLen++] = (char)c;
     g_serialOut[s_outLen] = 0;
     return 1;
@@ -197,13 +237,14 @@ HardwareSerial Serial(&UBRR0H, &UBRR0L, &UCSR0A, &UCSR0B, &UCSR0C, &UDR0);
 
 // ── EEPROM (RAM) ──
 static uint8_t s_eeprom[4096];
-uint8_t eeprom_read_byte(const uint8_t *p) { return s_eeprom[(uint16_t)(uintptr_t)p & 0x0FFF]; }
+uint8_t eeprom_read_byte(const uint8_t *p) { SIM_SP(); return s_eeprom[(uint16_t)(uintptr_t)p & 0x0FFF]; }
 int32_t  g_eepromCutAfter = -1;
 uint32_t g_eepromWrites;
 bool     g_powerCut;
 void power_restore() { g_powerCut = false; g_eepromCutAfter = -1; g_eepromWrites = 0; }
 void eeprom_write_byte(uint8_t *p, uint8_t v)
 {
+    SIM_SP();
     if (g_powerCut) return;
     if (g_eepromCutAfter >= 0 && g_eepromWrites >= (uint32_t)g_eepromCutAfter) { g_powerCut = true; return; }
     ++g_eepromWrites;
@@ -238,12 +279,13 @@ const char *lcd_row(uint8_t row)
     return buf;
 }
 LiquidCrystal_I2C::LiquidCrystal_I2C(uint8_t a, uint8_t c, uint8_t r) : _Addr(a), _cols(c), _rows(r) {}
-void LiquidCrystal_I2C::init() { grid_clear(); }          // 실물 init 은 begin→clear 로 DDRAM 을 지운다
-void LiquidCrystal_I2C::backlight() {}
-void LiquidCrystal_I2C::clear() { lcd_put('|'); grid_clear(); }
-void LiquidCrystal_I2C::setCursor(uint8_t col, uint8_t row) { lcd_put('|'); s_gCol = col; s_gRow = row; }
+void LiquidCrystal_I2C::init() { SIM_SP(); grid_clear(); }          // 실물 init 은 begin→clear 로 DDRAM 을 지운다
+void LiquidCrystal_I2C::backlight() { SIM_SP(); }
+void LiquidCrystal_I2C::clear() { SIM_SP(); lcd_put('|'); grid_clear(); }
+void LiquidCrystal_I2C::setCursor(uint8_t col, uint8_t row) { SIM_SP(); lcd_put('|'); s_gCol = col; s_gRow = row; }
 size_t LiquidCrystal_I2C::write(uint8_t c)
 {
+    SIM_SP();
     lcd_put((char)c);
     if (s_gRow < 4 && s_gCol < 20) s_grid[s_gRow][s_gCol++] = (char)c;
     return 1;
@@ -265,12 +307,12 @@ bool g_rtcLostPower;
 void rtc_set(const DateTime &dt) { s_rtcBase = dt; s_rtcSetMs = g_ms; }
 DateTime rtc_now_sim() { return s_rtcBase + TimeSpan((int32_t)((g_ms - s_rtcSetMs) / 1000UL)); }
 bool RTC_DS3231::begin(TwoWire *) { return true; }
-bool RTC_DS3231::lostPower() { return g_rtcLostPower; }
-void RTC_DS3231::adjust(const DateTime &dt) { if (g_powerCut) return; rtc_set(dt); g_rtcLostPower = false; }
-DateTime RTC_DS3231::now() { return rtc_now_sim(); }
-void RTC_DS3231::writeSqwPinMode(Ds3231SqwPinMode) {}
-void RTC_DS3231::disableAlarm(uint8_t) {}
-void RTC_DS3231::clearAlarm(uint8_t) {}
+bool RTC_DS3231::lostPower() { SIM_SP(); return g_rtcLostPower; }
+void RTC_DS3231::adjust(const DateTime &dt) { SIM_SP(); if (g_powerCut) return; rtc_set(dt); g_rtcLostPower = false; }
+DateTime RTC_DS3231::now() { SIM_SP(); return rtc_now_sim(); }
+void RTC_DS3231::writeSqwPinMode(Ds3231SqwPinMode) { SIM_SP(); }
+void RTC_DS3231::disableAlarm(uint8_t) { SIM_SP(); }
+void RTC_DS3231::clearAlarm(uint8_t) { SIM_SP(); }
 
 // ── SPI (RC522 는 가짜라 버스 불필요) ──
 #include <SPI.h>

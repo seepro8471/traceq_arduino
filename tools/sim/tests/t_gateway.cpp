@@ -38,7 +38,31 @@ int main()
     rtc_set(DateTime(2026, 9, 23, 9, 0, 0));
     boot('G');
 
-    // ── 올눈: G2·G3·G4·G5 를 따로, 250ms 간격(MainFormSo.pas UserInfoReaderSet) ──
+    // ── 올눈 실물: G1·G2·G3·G4·G5 를 따로, 250ms 간격(MainFormSo.pas:15207~15230 UserInfoReaderSet) ──
+    {
+        const uint32_t t0 = g_ms + 50;
+        const char p1[] = "G10000;";
+        const char p2[] = "G22026;9;23;4;11;15;0;";
+        const char p3[] = "G367890;KIMJH;;";
+        const char p4[] = "G4COL;;;";
+        const char p5[] = "G51980;03;03;M;";
+        serial_queue(p1, sizeof(p1) - 1, t0);
+        serial_queue(p2, sizeof(p2) - 1, t0 + 250);
+        serial_queue(p3, sizeof(p3) - 1, t0 + 500);
+        serial_queue(p4, sizeof(p4) - 1, t0 + 750);
+        serial_queue(p5, sizeof(p5) - 1, t0 + 1000);
+        pump(4000);
+        fresh_scope(c, 0x50, 50);
+        logs_clear();
+        touch(c);
+        const LocalDateTime d = get_ldt(c, SECTOR1_GATEWAY);
+        tlog_ldt("올눈 실물(G1 포함) 태그 검사일시", d);
+        CHECK(ldt_eq(d, 2026, 9, 23, 11, 15, 0) && memcmp(c.data[SECTOR2_PATIENT_KEY], "67890", 6) == 0,
+              "올눈 실물 5조각(G1 포함) → 검사일시·환자 키");
+        sim_advance_ms(60UL * 1000);
+    }
+
+    // ── 머리(G1)를 잃은 조각들: G2 부터 와도 G2 폴백으로 받는다(511 절단·프리픽스 · AA1 P3-9 로 이름 정정) ──
     {
         const uint32_t t0 = g_ms + 50;
         const char g2[] = "G22026;9;23;4;10;30;0;";
@@ -55,10 +79,10 @@ int main()
         touch(a);
         const LocalDateTime d = get_ldt(a, SECTOR1_GATEWAY);
         tlog_ldt("올눈 태그 검사일시", d);
-        CHECK(ldt_eq(d, 2026, 9, 23, 10, 30, 0), "올눈 조각 전송 → 검사일시 기록");
-        CHECK(memcmp(a.data[SECTOR2_PATIENT_KEY], "12345", 6) == 0, "올눈 → 환자 키");
-        CHECK(memcmp(a.data[SECTOR2_PATIENT_NAME], "\xC8\xAB\xB1\xE6\xB5\xBF", 7) == 0, "올눈 → 환자 이름");
-        CHECK(serial_has("Sm!"), "올눈 → Sm! 응답");
+        CHECK(ldt_eq(d, 2026, 9, 23, 10, 30, 0), "G1 없는 조각(G2 부터) → 검사일시 기록");
+        CHECK(memcmp(a.data[SECTOR2_PATIENT_KEY], "12345", 6) == 0, "G1 없는 조각 → 환자 키");
+        CHECK(memcmp(a.data[SECTOR2_PATIENT_NAME], "\xC8\xAB\xB1\xE6\xB5\xBF", 7) == 0, "G1 없는 조각 → 환자 이름");
+        CHECK(serial_has("Sm!"), "G1 없는 조각 → Sm! 응답");
     }
 
     // ── SeePro: 통짜 1회(15바이트 맞춤) — 한글 끝 글자가 반쪽으로 남지 않는다 ──
@@ -209,6 +233,54 @@ int main()
              get_process(b).Status, serial_has("Sm!"));
         CHECK(b.data[SECTOR2_PATIENT_KEY][0] == 0 && get_process(b).Status == 0 && !serial_has("Sm!"),
               "Z2 P2 온전한 레코드 뒤 잘린 레코드 → 아무 환자도 기록하지 않는다(앞 레코드의 G5 에 속지 않는다)");
+    }
+
+    // ── AA2 P1-1: 앞에 한 바이트(세척관리의 30초 keepalive 'Z')가 붙어도 패킷을 처리한다 ──
+    //    종전엔 머리글자만 봐서 통째로 버렸고, 직전 환자가 다음 스코프에 기록되며 확인음도 없었다.
+    {
+        sim_advance_ms(60UL * 1000);
+        const char first[] = "G10000;G22026;9;23;3;19;0;0;G3PREV01;NAMEP;;G4SUBJP;;;G5;";
+        serial_inject(first, sizeof(first) - 1);
+        pump(3000);
+        fresh_scope(a, 0x5C, 0x5C);
+        touch(a);
+        CHECK(memcmp(a.data[SECTOR2_PATIENT_KEY], "PREV01", 6) == 0, "AA2 전제: 직전 환자가 들어가 있다");
+        sim_advance_ms(60UL * 1000);
+        const char zpkt[] = "ZG10000;G22026;9;23;3;20;0;0;G3NEW001;NAMEN;;G4SUBJN;;;G5;";
+        buzz_clear();
+        serial_inject(zpkt, sizeof(zpkt) - 1);
+        pump(3000);
+        const uint8_t recvBeep = buzz_count(500);
+        fresh_scope(b, 0x5D, 0x5D);
+        logs_clear();
+        touch(b);
+        const LocalDateTime d = get_ldt(b, SECTOR1_GATEWAY);
+        tlog("  AA2 P1-1 'Z'+패킷 → 환자키=%.8s 시각=%02u:%02u 수신음=%u\n",
+             (const char *)b.data[SECTOR2_PATIENT_KEY], d.Time.Hour, d.Time.Minute, recvBeep);
+        CHECK(memcmp(b.data[SECTOR2_PATIENT_KEY], "NEW001", 6) == 0 && ldt_eq(d, 2026, 9, 23, 20, 0, 0),
+              "AA2 P1-1 앞에 한 바이트가 붙은 패킷도 그 환자로 기록된다(직전 환자가 아니다)");
+        CHECK(recvBeep >= 1, "AA2 P1-1 그 패킷에도 수신 확인음이 난다");
+    }
+    // ── AA2 P1-2: 511 로 끊긴 수신 **뒤에 오는 정당한 패킷**을 버리지 않는다 ──
+    //    v2.2.20 의 꼬리 관문이 버퍼를 통째로 버려, 링 만재로 뒷동이 이미 사라진 경우엔 환자 패킷을 잃었다.
+    {
+        sim_advance_ms(60UL * 1000);
+        char burst[512];
+        memset(burst, 'X', sizeof(burst));
+        burst[0] = 'Z';
+        serial_inject(burst, 511);                       // 한 번 읽기가 한도(511)에 닿는다
+        pump(2000);
+        const char after[] = "G10000;G22026;9;23;3;21;0;0;G3AFT001;NAMEA;;G4SUBJA;;;G5;";
+        serial_inject(after, sizeof(after) - 1);
+        pump(3000);
+        fresh_scope(c, 0x5E, 0x5E);
+        logs_clear();
+        touch(c);
+        const LocalDateTime d2 = get_ldt(c, SECTOR1_GATEWAY);
+        tlog("  AA2 P1-2 511 뒤 정당한 패킷 → 환자키=%.8s 시각=%02u:%02u\n",
+             (const char *)c.data[SECTOR2_PATIENT_KEY], d2.Time.Hour, d2.Time.Minute);
+        CHECK(memcmp(c.data[SECTOR2_PATIENT_KEY], "AFT001", 6) == 0 && ldt_eq(d2, 2026, 9, 23, 21, 0, 0),
+              "AA2 P1-2 511 로 끊긴 수신 뒤의 정당한 패킷을 버리지 않는다");
     }
 
     tlog("  resets=%u\n", g_resetCount);
