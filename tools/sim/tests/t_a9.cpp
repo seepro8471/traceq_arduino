@@ -33,6 +33,17 @@ static bool block_zero(const SimCard &c, uint8_t blk)
     return true;
 }
 
+static void bb_washed(uint8_t uid, int no)
+{
+    char id[8], ser[8];
+    snprintf(id, sizeof(id), "SC%04d", no);
+    snprintf(ser, sizeof(ser), "S%04d", no);
+    make_tag(sc, uid, SCOPE_TYPE_TAG, no, id, ser);
+    set_process(sc, Process{1, 0, 1, 0, 1, false, 0, 0});
+    set_record(sc, SECTOR2_WASHING_START, 1, rel_date(8, 0, 0));   // 되돌린 시계보다 앞 — RTC 복구가 끼지 않게
+    set_record(sc, SECTOR3_WASHING_END, 1, rel_date(8, 4, 0));
+}
+
 int main()
 {
     rtc_set(rel_date(10, 0, 0));
@@ -404,6 +415,30 @@ int main()
         CHECK(keep4.year() == TRACEQ_RELEASE_YEAR && keep4.hour() == 10 &&
               keep5.year() == TRACEQ_RELEASE_YEAR && keep5.hour() == 10,
               "T 연도가 2000~2099 밖이면 시계를 바꾸지 않는다");
+        // ★비숫자 칸 — 범위 검사를 지우면 str_atoi_range 가 -1 을 주고 RTClib 이 **2047년**으로 저장한다
+        //  (isValid 는 참이라 안 걸린다 · 스스로 낫지 않는다). 6차에 내가 "지워도 구별 못 한다" 고 잘못 적은 자리(BB1 P3-1).
+        const char bad6[] = "TABCD;9;27;3;14;30;0;";
+        logs_clear();
+        serial_inject(bad6, sizeof(bad6) - 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime keep6 = rtc.GetCurrentDateTime();
+        // 칸 경계가 255 를 넘는 전문도 조용히 잘못된 시계가 되지 않는다(BB1 P3-4)
+        char longT[300];
+        memset(longT, '9', sizeof(longT));
+        longT[0] = 'T';
+        longT[5] = ';';
+        longT[sizeof(longT) - 1] = 0;
+        serial_inject(longT, sizeof(longT) - 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime keep7 = rtc.GetCurrentDateTime();
+        tlog("  T 비숫자 연도 뒤 %u %02u:%02u · 300바이트 전문 뒤 %u %02u:%02u\n", keep6.year(), keep6.hour(),
+             keep6.minute(), keep7.year(), keep7.hour(), keep7.minute());
+        CHECK(keep6.year() == TRACEQ_RELEASE_YEAR && keep6.hour() == 10,
+              "T 비숫자 연도는 시계를 바꾸지 않는다(2047년으로 굳던 자리)");
+        CHECK(keep7.year() == TRACEQ_RELEASE_YEAR && keep7.hour() == 10,
+              "T 칸 경계가 255 를 넘어도 조용히 잘못된 시계가 되지 않는다");
         // 511 에서 끊긴 전문의 꼬리가 'T…' 여도 시계를 바꾸지 않는다
         rtc_set(rel_date(10, 0, 0));
         char burst[560];
@@ -420,6 +455,107 @@ int main()
         CHECK(tail.hour() == 10, "T 꼬리는 시계를 바꾸지 않는다(값 한가운데의 'T' 로 기록 시각이 틀어지던 것)");
         as_type('D');
         touch(mgr);
+        rtc_set(rel_date(10, 0, 0));
+    }
+
+    // ── BB3 P2-1: 맨 앞의 'Z' 뒤에 붙은 명령이 실행된다 ──
+    //    세척관리는 연결마다 'Z'(confirm) 직후 'T…' 를 잇따라 써서 한 버퍼가 된다. 종전엔 머리가 'Z' 라 통째로 유실됐다.
+    {
+        power_restore();
+        as_type('W');
+        rtc_set(rel_date(10, 0, 0));
+        char zt[56];
+        snprintf(zt, sizeof(zt), "ZT%u;%u;%u;3;16;45;0;", (unsigned)TRACEQ_RELEASE_YEAR,
+                 (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY);
+        logs_clear();
+        serial_inject(zt, strlen(zt));
+        GUARDED(serialEvent());
+        run_loops(1);
+        const DateTime n = rtc.GetCurrentDateTime();
+        tlog("  BB3 Z+T -> %02u:%02u 안내=%d\n", n.hour(), n.minute(), lcd_has("updated"));
+        CHECK(n.hour() == 16 && n.minute() == 45 && lcd_has("updated"),
+              "BB3 P2-1 'Z' 뒤에 붙은 시각 동기가 실행된다(세척관리 연결마다의 실제 전문)");
+        // 서버 발급 명령도 같은 자리 — 델파이는 333ms 마다 'Z' 를 보낸다
+        as_type('S');
+        rtc_set(rel_date(10, 0, 0));
+        serial_inject("Z", 1);
+        GUARDED(serialEvent());
+        run_loops(1);
+        bb_washed(0x61, 61);
+        card_place(&sc);
+        run_loops(2);
+        logs_clear();
+        serial_inject("ZS555;SERZ;", 11);
+        GUARDED(serialEvent());
+        run_loops(2);
+        Tag issued{};
+        memcpy(&issued, sc.data[SECTOR0_TAG], sizeof(issued));
+        tlog("  BB3 Z+S 발급 -> 번호=%u 안내=%d\n", (unsigned)issued.Number, lcd_has("new tag"));
+        CHECK(issued.Number == 555 && lcd_has("new tag"),
+              "BB3 P2-1 'Z' 뒤에 붙은 발급 명령도 실행된다(델파이 333ms keepalive)");
+        card_remove();
+        run_loops(2);
+    }
+    // ── BB2 P2-2 · P3-1: 시계를 뒤로 돌린 뒤의 세척 종료 ──
+    {
+        power_restore();
+        as_type('W');
+        recordOption.SetManagerDisposability(false);
+        rtc_set(rel_date(14, 0, 0));
+        touch(mgr);
+        bb_washed(0x62, 62);
+        set_process(sc, Process{0, 0, 0, 0, 0, false, 0, 0});
+        touch(sc);                                       // 세척 시작 14:00
+        const LocalDateTime st = get_ldt(sc, SECTOR2_WASHING_START);
+        CHECK(st.Time.Hour == 14, "BB2 전제: 세척 시작이 14:00 으로 기록됐다");
+        rtc_set(rel_date(9, 0, 0));                      // PC·설정기·메뉴가 시계를 09:00 으로 되돌린다
+        sim_advance_ms(3000);                            // 더블터치 창(2초) 밖
+        logs_clear();
+        touch(sc);                                       // 세척 종료
+        const LocalDateTime en = get_ldt(sc, SECTOR3_WASHING_END);
+        tlog("  BB2 P2-2 시작 %02u:%02u -> 종료 %02u:%02u\n", st.Time.Hour, st.Time.Minute,
+             en.Time.Hour, en.Time.Minute);
+        CHECK(en.Time.Hour == 14 && en.Time.Minute == 0,
+              "BB2 P2-2 종료가 시작보다 앞서면 시작 시각으로 — '종료 < 시작' 기록이 안 남는다");
+        // P3-1: 시작이 '미래'(1초 뒤)인 태그의 종료 터치가 시작 재실행이 되지 않는다
+        bb_washed(0x63, 63);
+        set_process(sc, Process{0, 0, 0, 0, 0, false, 0, 0});
+        rtc_set(rel_date(11, 0, 0));
+        touch(sc);                                       // 시작 11:00
+        rtc_set(rel_date(10, 59, 59));                   // 1초 되돌림 → 태그의 시작이 미래
+        logs_clear();
+        touch(sc);
+        // 시작 재실행이면 **시작 기록이 10:59:59 로 덮이고 종료는 비어 있다**. 종료면 시작이 그대로다.
+        const LocalDateTime st2 = get_ldt(sc, SECTOR2_WASHING_START);
+        const LocalDateTime en2 = get_ldt(sc, SECTOR3_WASHING_END);
+        tlog("  BB2 P3-1 미래 시작 뒤 터치: 시작 %02u:%02u:%02u 종료 %02u:%02u\n", st2.Time.Hour,
+             st2.Time.Minute, st2.Time.Second, en2.Time.Hour, en2.Time.Minute);
+        CHECK(st2.Time.Hour == 11 && st2.Time.Minute == 0 && en2.Time.Hour == 11,
+              "BB2 P3-1 시작이 미래여도 종료 터치는 종료다(시작 기록이 덮이지 않는다)");
+    }
+    // ── BB2 P2-3: 시계를 뒤로 돌려도 지난 동시소독 창이 되살아나지 않는다 ──
+    {
+        power_restore();
+        as_type('D');
+        disinfectionOption.SetSimultaneousDisinfectionSlot(2);    // ★동시소독을 **켜는 것은 슬롯**(>=2)이다
+        disinfectionOption.SetSimultaneousDisinfectionDelay(3);   // 3분 창
+        rtc_set(rel_date(14, 0, 0));
+        touch(mgr);
+        bb_washed(0x64, 64);
+        touch(sc);                                       // host 소독 시작 14:00 (창 14:03)
+        const int cnt0 = disinfectionOption.GetCount();
+        sim_advance_ms(10UL * 60 * 1000);                // 14:10 — 창 밖
+        rtc_set(rel_date(9, 0, 0));                      // 되돌림 → 지난 창이 되살아난다
+        bb_washed(0x65, 65);                             // 다른 번호의 스코프를 단독 소독
+        logs_clear();
+        touch(sc);
+        const Process pb = get_process(sc);
+        const int cnt1 = disinfectionOption.GetCount();
+        tlog("  BB2 P2-3 되돌림 뒤 단독 소독: DC=%u 횟수 %d->%d\n", pb.DisinfectionCount, cnt0, cnt1);
+        CHECK(pb.DisinfectionCount == 1 && cnt1 == cnt0 + 1,
+              "BB2 P2-3 시계를 되돌려도 단독 소독은 그룹1·소독 횟수 +1(액교환 주기에서 사라지지 않는다)");
+        disinfectionOption.SetSimultaneousDisinfectionDelay(0);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0);
         rtc_set(rel_date(10, 0, 0));
     }
 

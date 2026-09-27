@@ -453,15 +453,23 @@ __attribute__((unused)) void serialEvent()
     const bool isTail = sTailOfTruncated;
     sTailOfTruncated = (len == BUFFER_SIZE - 1);
 
+    // ★맨 앞의 'Z'(PC 가 인증·keepalive 로 보내는 한 바이트)는 건너뛰고 명령 머리를 본다 — 세척관리는 연결마다
+    //  'Z' 직후 'T…' 를, 델파이는 333ms 마다 'Z' 를 보내 한 버퍼에 붙는다. 종전엔 머리가 'Z' 라 뒤 명령이 통째로
+    //  유실됐다(BB3 P2-1 — 시각 동기가 자동 경로에서 한 번도 실행되지 않았고 발급 명령도 같은 자리다).
+    //  인증은 버퍼 전체에서 'Z' 를 찾으므로(LegacySerialEvent) 여기서 건너뛰어도 인증은 그대로 된다.
+    const char *cmd = buffer;
+    while (*cmd == 'Z') ++cmd;
+
     // raw 명령은 머리로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
     // (버리면 다음 스코프에 직전 환자가 기록된다). JSON 은 STX 나 '{' 로 시작하므로 겹치지 않는다.
-    // ★게이트웨이는 **버퍼 안 레코드 머리**로 본다 — 머리글자만 보면 앞에 한 바이트(세척관리의 30초
-    //  keepalive 'Z')만 붙어도 패킷을 통째로 버리고 직전 환자가 다음 스코프에 기록됐다(AA2 P1-1).
+    // ★게이트웨이는 'Z' 를 건너뛴 **머리글자**로 본다 — 머리글자만 보면 앞에 한 바이트(세척관리의 30초
+    //  keepalive 'Z')만 붙어도 패킷을 통째로 버렸고(AA2 P1-1), 버퍼 어디든 G1·G2 마커를 찾으면 값 안에
+    //  ';G2' 가 든 설정 JSON 을 가로챘다(BB1 P3-5). 세 PC 는 모두 G1(또는 G1G2)로 전문을 시작한다.
     // (레거시 시각 동기 'T' 는 '{' 가 없어 어차피 NotJson 으로 오므로 여기 넣지 않는다)
     const bool rawHead =
-        (deviceType == GATEWAY_TYPE_DEVICE && GatewayProcessor::HasGatewayData(buffer)) ||
+        (deviceType == GATEWAY_TYPE_DEVICE && cmd[0] == 'G') ||
         (deviceType == SERVER_TYPE_DEVICE &&
-         (buffer[0] == 'C' || buffer[0] == 'M' || buffer[0] == 'S' || buffer[0] == 'Z'));
+         (cmd[0] == 'C' || cmd[0] == 'M' || cmd[0] == 'S' || buffer[0] == 'Z'));
     switch (rawHead ? SerialProcessor::ProcessKind::NotJson : serialProcessor.GetProcessKind(buffer, len, ui))
     {
     case SerialProcessor::ProcessKind::NewTag:
@@ -479,15 +487,15 @@ __attribute__((unused)) void serialEvent()
         serialProcessor.UpdateDateTime(rtc, ui);
         return;
     case SerialProcessor::ProcessKind::NotJson:
-        if (deviceType == GATEWAY_TYPE_DEVICE && GatewayProcessor::HasGatewayData(buffer))
+        if (deviceType == GATEWAY_TYPE_DEVICE && cmd[0] == 'G')
         {
-            gatewayProcessor.GatewaySerialEvent(buffer, rtc);
+            gatewayProcessor.GatewaySerialEvent(cmd, rtc);
             util_buzzer(500);
         }
         // 레거시 시각 동기는 타입과 무관하게 받는다(JSON cfg_set_date_time 과 같은 규칙).
         //  꼬리로는 실행하지 않는다 — 값 한가운데의 'T' 로 시계가 바뀌면 그 뒤 기록 시각이 전부 틀어진다.
-        if (buffer[0] == 'T' && !isTail)
-            serialProcessor.LegacySetDateTime(buffer, rtc, ui);
+        if (cmd[0] == 'T' && !isTail)
+            serialProcessor.LegacySetDateTime(cmd, rtc, ui);
         if (deviceType == SERVER_TYPE_DEVICE && !isTail)
             serialProcessor.LegacySerialEvent(buffer, len, ui);
         break;

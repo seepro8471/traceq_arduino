@@ -31,6 +31,10 @@ protected:
     /// Read Error 로 알리고 아무것도 바꾸지 않는다). 종전엔 못 읽으면 조용히 0 이 되어 1초짜리 종료가 기록됐다(5차 V4).
     int8_t started_just_now(uint8_t startBlock, DefaultRtc &rtc);
 
+    /// 종료 시각이 태그의 시작(startBlock)보다 앞서면 그 시작 시각을 돌려준다 — 시계를 뒤로 돌린 뒤의
+    /// "종료 < 시작" 기록을 막는다. 시작을 못 읽으면 end 를 그대로 돌려준다(막지 않는다).
+    LocalDateTime not_before_start(uint8_t startBlock, const LocalDateTime &end);
+
     static LocalDateTime add_datetime(const DateTime &current, uint8_t minute, uint8_t seconds);
 
 private:

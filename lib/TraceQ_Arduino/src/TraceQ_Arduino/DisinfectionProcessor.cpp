@@ -93,7 +93,10 @@ void DisinfectionProcessor::DisinfectionProcess(
             //  남아 며칠 뒤 그 스코프를 단독 소독해도 계속 guest 로 판정되어
             //  소독 횟수가 오르지 않는다(액교환 주기 왜곡). 시간창 안에서만
             //  guest — 원래 의도대로 복원 (1.0 승계 결함, 2.2.5).
-            isGuest = (deadline >= rtc.GetCurrentDateTime());
+            // ★시간창은 host 시작 **뒤**만 — 시계를 뒤로 돌리면 지난 창이 되살아나, 단독 소독이 guest 로
+            //  박히고 소독 횟수가 오르지 않아 그 소독이 액교환 주기에서 사라졌다(BB2 P2-3).
+            const auto nowDt = rtc.GetCurrentDateTime();
+            isGuest = (nowDt >= mStartTime && deadline >= nowDt);
         }
         // 커밋 전 실패는 성공으로 알리지 않는다 — host·알람 없이 재접촉을 유도.
         if (!disinfection_start(deviceNumber, isMoved, isGuest, isRestart,
@@ -129,7 +132,10 @@ bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, Def
 {
     // ★종료 기록을 먼저, 이동 커밋(Process)을 마지막에 — 반대면 종료 기록이 실패해도 태그가 '이동함' 으로
     //  굳어, 재접촉이 2호기 시작으로 넘어가 1호기 종료 시각을 영영 못 남긴다(프로젝트 "커밋은 마지막" 규칙).
-    DisinfectionRecord record{deviceNumber, rtc.GetCurrentLocalDateTime()};
+    DisinfectionRecord record{
+        deviceNumber,
+        not_before_start(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START,
+                         rtc.GetCurrentLocalDateTime())};
     if (!disinfection_end(isMoved, record)) return false;
     mCachedProcess.MovementNeeded = true;
     mCachedProcess.Rewrite        = 0;
@@ -244,6 +250,9 @@ DateTime DisinfectionProcessor::get_adjuest_start_time(DateTime current, Default
     // [5차 판정 · 재론 금지] 시계가 동기된 소독기도 세척기가 세척 시간 넘게 앞서 있으면 세척기를 따라간다(앞으로만).
     //  세척기·소독기는 설정기로 맞춘 뒤 단독 운용이라 세척기가 소독기의 유일한 운용 중 시각 기준이다(게이트웨이←SeePro 와
     //  같은 규칙). IsUnsynced 로 막으면 뒤처진 소독기가 영영 못 따라간다. 세척기를 잘못 맞춘 경우는 설정기로 둘 다 다시 맞춘다.
+    //  ★낡음(7차 BB3 P3-2): v2.2.21 의 레거시 `T` 는 타입 무관이고 세척관리가 연결마다 보내므로 소독기 시각 기준이
+    //   둘이 됐다(세척기 태그는 앞으로만 · PC 는 양방향). "세척기가 유일한 기준" 은 이제 사실이 아니다 —
+    //   PC 가 맞춘 시계를 이 복구가 되돌리는 자리는 사장님 판정 대기(BB2 P2-4).
     if (startTime >= current)
     {
         WashingRecord endRecord{};

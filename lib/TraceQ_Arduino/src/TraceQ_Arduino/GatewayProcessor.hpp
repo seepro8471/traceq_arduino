@@ -30,11 +30,6 @@ public:
         return (mGateNumber > 0) ? static_cast<int>(mGateNumber) : fallback;
     }
 
-    /// 이 버퍼가 게이트웨이 전문인가 — 머리글자가 'G' 이거나 **필드 경계에 G1·G2 마커**가 있다.
-    /// ★머리글자만 보면 앞에 한 바이트(세척관리 30초 keepalive 'Z')만 붙어도 패킷을 통째로 버렸다(AA2 P1-1).
-    ///   머리글자 'G' 도 그대로 둔다 — 머리를 잃은 조각(G3…)도 들어와 묵은 환자정보를 지워야 한다.
-    ///   앞에 바이트가 붙으면 첫 G1 은 필드 경계가 아니라 안 걸리고 **G2** 가 걸린다(세 PC 전부 G2 를 보낸다).
-    static bool HasGatewayData(const char *buffer);
     void GatewaySerialEvent(const char *buffer, DefaultRtc &rtc);
     void GatewayProcess(int deviceNumber, LcdPrinter &printer);
     void GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc, LcdPrinter &printer);

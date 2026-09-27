@@ -24,7 +24,8 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
 
     if (isEnd)
     {
-        WashingRecord record{deviceNumber, rtc.GetCurrentLocalDateTime()};
+        WashingRecord record{deviceNumber,
+                             not_before_start(SECTOR2_WASHING_START, rtc.GetCurrentLocalDateTime())};
         // 종료 기록 실패도 성공으로 알리지 않는다 — 알람을 남겨 두고 재접촉을 유도.
         if (!washing_end(record))
         {

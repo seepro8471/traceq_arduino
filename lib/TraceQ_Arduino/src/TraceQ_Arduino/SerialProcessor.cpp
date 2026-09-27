@@ -62,8 +62,11 @@ SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
 {
     if (buffer == nullptr || length == 0) return ProcessKind::NotJson;
 
-    // [5차 판정 · 재론 금지] 중첩 JSON 은 파싱 실패(2초 안내) · null 값은 0 저장 · 날짜만 온 시각은 00:00 · 'Z' 와 명령이
-    //  한 버퍼면 명령 유실 · `end+1>length` 는 항상 거짓 — 세 PC 는 어느 것도 보내지 않는다.
+    // [5차 판정 · 재론 금지] 중첩 JSON 은 파싱 실패(2초 안내) · null 값은 0 저장 · 날짜만 온 시각은 00:00 ·
+    //  `end+1>length` 는 항상 거짓 — 세 PC 는 어느 것도 보내지 않는다.
+    // ★정정(6·7차): *"'Z' 와 명령이 한 버퍼면 명령 유실 — 세 PC 는 안 보낸다"* 는 **틀렸다**. 세척관리는 연결마다
+    //  'Z' 직후 'T' 를, 레거시 장치엔 30초마다 'Z' 를, 델파이는 333ms 마다 'Z' 를 보낸다 → 명령 머리를 볼 때
+    //  맨 앞 'Z' 를 건너뛰도록 고쳤다(main.cpp serialEvent · LegacySerialEvent).
     // '{' .. '}' 범위만 추출 — 길이 명시.
     const size_t start = str_index_of(buffer, '{');
     if (start == static_cast<size_t>(-1)) return ProcessKind::NotJson;
@@ -312,15 +315,20 @@ void SerialProcessor::LegacySetDateTime(const char *buffer, DefaultRtc &rtc, Lcd
     {
         const size_t sep = str_index_of_range(buffer, ';', at);
         if (sep == static_cast<size_t>(-1)) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }
-        if (sep == at) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }   // 빈 칸
+        // 칸 경계가 255 를 넘으면 아래 uint8_t 캐스팅이 잘려 **조용히 잘못된 시계**가 된다(BB1 P3-4 실측:
+        //  270바이트 전문이 그럴듯한 틀린 시각으로 저장됐다). 우리 시험 표본(300바이트 '9' 채움)은 범위 검사에도
+        //  걸리므로 이 한 줄만 지워도 빨강이 안 난다 — 그 절단 경우를 막는 보험이다.
+        if (sep > 254) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }
         // str_atoi_range 의 end 는 **포함**이다 — sep(=';')를 넘기면 숫자가 아니라 -1 이 된다.
+        // (빈 칸은 begin > end 가 되어 -1 → 아래 범위 검사가 거른다 — 따로 볼 필요가 없다.)
         field[i] = str_atoi_range(buffer, static_cast<uint8_t>(at), static_cast<uint8_t>(sep - 1));
         at = sep + 1;
     }
     const int year = field[0], month = field[1], day = field[2];
     const int hour = field[4], minute = field[5], second = field[6];
-    // [6차 판정] 아래 `isValid()` 가 우리가 만들 수 있는 모든 표본(연 1999·2100 · 월 13 · 일 40 · 시 25 · 분초 70)을
-    //  이미 거부하므로 이 범위 검사를 지워도 **어떤 시험으로도 구별할 수 없다** — 외부 입력에 대한 예비 방어로 둔다.
+    // ★이 범위 검사는 **없으면 안 된다**(6차에 내가 "지워도 구별 못 한다" 고 잘못 적었다 · BB1 P3-1 정정).
+    //  비숫자·자리넘침 칸은 `str_atoi_range` 가 -1 을 주고, -1 이 uint16_t 로 가면 RTClib 이 **2047년**으로 저장하며
+    //  `isValid()` 는 참이다 — 그 시계는 스스로 낫지 않는다(소독기 복구는 앞으로만 간다).
     if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 ||
         hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59)
     {
@@ -349,12 +357,15 @@ void SerialProcessor::LegacySerialEvent(const char *buffer, size_t length, LcdPr
         return;
     }
 
-    switch (buffer[0])
+    // 맨 앞의 'Z'(인증·keepalive) 는 건너뛴다 — 위 인증은 버퍼 전체를 보고, 명령은 그 뒤에 붙어 온다(BB3 P2-1).
+    const char *cmd = buffer;
+    while (*cmd == 'Z') ++cmd;
+    switch (cmd[0])
     {
     case 'C':
     case 'M':
     case 'S':
-        legacy_create_tag(buffer, printer);
+        legacy_create_tag(cmd, printer);
         break;
     default:
         break;

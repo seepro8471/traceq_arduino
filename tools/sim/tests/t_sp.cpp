@@ -41,7 +41,7 @@ static void mark(uint8_t i)
     if (d > s_paint[i]) s_paint[i] = d;
     sim_paint();
 }
-// 511 을 읽은 다음 호출은 "끊긴 전문의 꼬리" 로 버려진다(제품 규칙) — 짧은 한 번으로 그 표지를 내린다.
+// 511 을 읽은 다음 호출은 "끊긴 전문의 꼬리" 로 보여 **서버 레거시 명령만** 막힌다(7차 · 버퍼는 버리지 않는다) — 짧은 한 번으로 그 표지를 내린다.
 static void clear_tail()
 {
     serial_inject("q", 1);

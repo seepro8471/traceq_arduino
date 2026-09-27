@@ -87,7 +87,25 @@ int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc)
     const int32_t gap = (rtc.GetCurrentDateTime() - started).totalseconds();
     // [5차 판정 · 재론 금지] 2초 창은 그대로(사장님 09-27). 커밋 뒤 확인 실패로 'Write Error' 가 난 태그를
     //  2초 넘겨 다시 대면 종료가 되는 경우는, write_process 의 재확인(5차)으로 거의 사라지고 나머지는 감수.
-    return gap > -2 && gap < 2;
+    // ★창은 뒤쪽으로만 본다 — 시계를 뒤로 돌리면 태그의 시작이 '미래' 가 되는데, 대칭 창(gap > -2)이면
+    //  종료 터치가 '시작 재실행' 이 되어 실제 종료 시각이 사라졌다(BB2 P3-1). 창 길이 2초는 그대로다.
+    return gap >= 0 && gap < 2;
+}
+
+LocalDateTime RecordProcessor::not_before_start(uint8_t startBlock, const LocalDateTime &end)
+{
+    // 시계를 뒤로 돌린 뒤(설정기 JSON·PC 의 T·기기 메뉴) 종료를 대면 "종료 < 시작" 기록이 남아 PC 대장에
+    // 음수 시간이 찍혔다(BB2 P2-2). 시작보다 앞선 종료는 시작 시각으로 끌어올린다 — 기록을 잃지는 않는다.
+    // 시작 블록은 여기서 다시 읽는다(상태를 늘리지 않는다 · 읽기 1회 ≈ 3ms · 실패하면 손대지 않는다).
+    WashingRecord started{};   // 세척·소독 시작 기록은 레이아웃이 같다
+    if (mScanner.Read(startBlock, &started, 10) != RfidResult::Ok) return end;
+    const auto s = DefaultRtc::ToDateTime(started.DateTime);
+    if (!s.isValid()) return end;
+    const DateTime e{end.Date.Year, end.Date.Month, end.Date.Day,
+                     end.Time.Hour, end.Time.Minute, end.Time.Second};
+    if (!e.isValid() || e.unixtime() >= s.unixtime()) return end;
+    return LocalDateTime{LocalDate{s.year(), s.month(), s.day()},
+                         LocalTime{s.hour(), s.minute(), s.second()}};
 }
 
 LocalDateTime RecordProcessor::add_datetime(const DateTime &current,

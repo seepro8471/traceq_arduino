@@ -87,6 +87,10 @@ uint16_t sim_paint_low();  // 무늬가 깨진 가장 낮은 주소(=스택 최�
 void sim_sp_leave();
 #define SIM_SP() do { const uint16_t _sp = SP; if (_sp < g_spMinAll) g_spMinAll = _sp;                       if (_sp < g_spCallMin) g_spCallMin = _sp; } while (0)
 
+// ★한계(AA1 P3-11): `hard_reset` 은 setup() 을 다시 부르지만 **함수 안 static·파일 스코프 변수를 되살리지 않는다**
+//   (실칩은 리셋에 .data/.bss 가 초기화된다 · 시뮬은 3KB 스냅샷을 8KB 안에 둘 수 없어 복원하지 않는다).
+//   리셋으로 지워지는 것을 전제하는 시험은 그 상태를 **직접** 되돌려 놓아야 한다 — 안 하면 헛초록·헛빨강이 난다.
+
 // ── soft reset 가로채기 ──
 extern jmp_buf g_resetJmp;
 extern bool g_resetArmed;
