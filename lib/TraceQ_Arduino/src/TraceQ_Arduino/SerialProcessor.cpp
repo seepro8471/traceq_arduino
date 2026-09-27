@@ -36,7 +36,7 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     }
 
     complete_delay();
-    util_buzzer(150);
+    util_buzzer(150);   // 덤프 완료음 — 형제 성공음(50×1)과 펄스가 다르다(1.0 승계 · 13차 HH2 P3-3 · 잠금 t_hh2lock L5)
 }
 
 bool SerialProcessor::clear_gateway_and_subject()
@@ -82,6 +82,8 @@ SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
     const auto err = deserializeJson(mDocument, buffer + start, (end - start) + 1);
     if (err)
     {
+        // [13차 HH2 P3-6] 파싱 **실패**인데 설정 저장 **성공**과 같은 1000×1 이다(1.0 승계). 두는 이유: 응답이 없어
+        //  PC 가 알고 재시도한다 → 사람이 판단할 자리가 아니다. 소리를 바꾸는 것은 사장님 판정 사항(잠금 L13).
         printer.Notify_cstr(0, 2, 1000, err.c_str());
         return ProcessKind::DeserializeError;
     }
@@ -309,6 +311,8 @@ void SerialProcessor::update_record_option(RecordOption &recordOption)
 // "TTBB{32자hex};" 블록 라인, B; C; S; G; W; Ok! 순서.
 // ─────────────────────────────────────────────────────────────────────────
 
+// 실패는 **실패음 100×4**, 성공(`updated`)은 안내음 1000×1 로 갈린다 — 종전엔 둘이 펄스·횟수·글자 시간까지
+//  같아 시계가 맞았는지 사람이 알 수 없었다(13차 HH2 P2-1 · 잠금 `t_hh2fix`). 성공 쪽은 1.0 승계라 그대로 둔다.
 void SerialProcessor::LegacySetDateTime(const char *buffer, DefaultRtc &rtc, LcdPrinter &printer)
 {
     if (buffer == nullptr || buffer[0] != 'T') return;
@@ -318,11 +322,11 @@ void SerialProcessor::LegacySetDateTime(const char *buffer, DefaultRtc &rtc, Lcd
     for (uint8_t i = 0; i < 7; ++i)
     {
         const size_t sep = str_index_of_range(buffer, ';', at);
-        if (sep == static_cast<size_t>(-1)) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }
+        if (sep == static_cast<size_t>(-1)) { printer.CustomWarning(0, 2, 100, 4, F("Invalid DateTime")); return; }
         // 칸 경계가 255 를 넘으면 아래 uint8_t 캐스팅이 잘려 **조용히 잘못된 시계**가 된다(BB1 P3-4 실측:
         //  270바이트 전문이 그럴듯한 틀린 시각으로 저장됐다). 우리 시험 표본(300바이트 '9' 채움)은 범위 검사에도
         //  걸리므로 이 한 줄만 지워도 빨강이 안 난다 — 그 절단 경우를 막는 보험이다.
-        if (sep > 254) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }
+        if (sep > 254) { printer.CustomWarning(0, 2, 100, 4, F("Invalid DateTime")); return; }
         // str_atoi_range 의 end 는 **포함**이다 — sep(=';')를 넘기면 숫자가 아니라 -1 이 된다.
         // (빈 칸은 begin > end 가 되어 -1 → 아래 범위 검사가 거른다 — 따로 볼 필요가 없다.)
         field[i] = str_atoi_range(buffer, static_cast<uint8_t>(at), static_cast<uint8_t>(sep - 1));
@@ -336,12 +340,12 @@ void SerialProcessor::LegacySetDateTime(const char *buffer, DefaultRtc &rtc, Lcd
     if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31 ||
         hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59)
     {
-        printer.Notify(0, 2, 1000, F("Invalid DateTime"));
+        printer.CustomWarning(0, 2, 100, 4, F("Invalid DateTime"));
         return;
     }
     const DateTime set{static_cast<uint16_t>(year), static_cast<uint8_t>(month), static_cast<uint8_t>(day),
                        static_cast<uint8_t>(hour), static_cast<uint8_t>(minute), static_cast<uint8_t>(second)};
-    if (!set.isValid()) { printer.Notify(0, 2, 1000, F("Invalid DateTime")); return; }
+    if (!set.isValid()) { printer.CustomWarning(0, 2, 100, 4, F("Invalid DateTime")); return; }
     rtc.SetDateTime(set);
     printer.Notify(0, 2, 1000, F("updated"));      // JSON 시각 동기와 같은 안내·소리
 }

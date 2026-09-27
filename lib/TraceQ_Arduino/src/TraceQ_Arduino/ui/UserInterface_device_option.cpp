@@ -43,6 +43,7 @@ UserInterface::MenuFunction UserInterface::SetDeviceDate(DefaultRtc &rtc)
         {
             // 저장하지 않고 폐기 — 경고(비프 4회) 후 홈 복귀.
             Warning(0, 2, F("Invalid Date"));   // [5차 판정 · 재론 금지] 320ms 로 짧지만 소리 규칙(실패=짧게 4회)에 묶여 있다 — 길게 하면 규칙 밖 소리
+            //  (13차 HH2 P3-4: 펄스는 40ms 로 형제 실패음 100ms 보다 짧다 — 리듬 4회만 같다. 잠금 t_hh2lock L14·L15)
             return MenuFunction::Exit;
         }
         // set
@@ -73,7 +74,7 @@ UserInterface::MenuFunction UserInterface::SetDeviceTime(DefaultRtc &rtc)
         if (!is_valid_time(line.GetContent()))
         {
             // 저장하지 않고 폐기 — 경고(비프 4회) 후 홈 복귀.
-            Warning(0, 2, F("Invalid Time"));
+            Warning(0, 2, F("Invalid Time"));   // 위 `Invalid Date` 와 같은 소리·같은 판정(형제)
             return MenuFunction::Exit;
         }
         // set

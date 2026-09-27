@@ -69,6 +69,15 @@ void serial_queue(const char *s, size_t n, uint32_t atMs);   // g_ms 가 atMs �
 uint8_t buzz_count(uint16_t pulseMs);   // 길이가 pulseMs 인 부저 펄스 수
 void buzz_clear();
 
+// ── 소리·글자 계측: 2행 알림 글자가 화면에 남아 있던 시간 ──
+//  -DHH2_DWELL 빌드에서만 정의된다(정적 RAM 관문 28000B 를 t_a4 가 넘는다) — 쓰는 시험은 t_hh2* 뿐이다.
+#ifdef HH2_DWELL
+void dwell_clear();
+uint8_t  dwell_count();
+uint32_t dwell_ms(uint8_t i);
+const char *dwell_text(uint8_t i);
+#endif
+
 // ── 버튼 스크립트 (LOW=눌림) ──
 void buttons_script(const char *seq);
 void buttons_at(char btn, uint32_t atMs);        // g_ms 가 atMs 에 이르면 그 버튼('S','L','R')이 한 번 눌린다

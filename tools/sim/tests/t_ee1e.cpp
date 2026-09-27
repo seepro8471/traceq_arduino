@@ -53,7 +53,9 @@ int main()
              (unsigned)(sc.data[SECTOR2_PATIENT_KEY][0] == 0), (unsigned)sc.opCount);
         CHECK(p.WashingStatus == 1 && p.Rewrite == 1 && p.Status == 0,
               "E2 Status=2 태그는 세척 시작에서 0 으로 정리되고 커밋된다");
-        CHECK(sc.opCount <= 40, "E2 Status=2 갈래도 접촉 예산(40) 안");
+        // Status==2 는 1.0 에서 온 태그의 **전환 1회**다(2.0 은 Status 에 0·1 만 쓴다) — 레거시 갈래가
+        //  블록 5·8·9 와 섹터15 3블록을 비우므로 매 주기 갈래(40 · t_ops·t_ff1a·t_gg1b)보다 무겁다.
+        CHECK(sc.opCount <= 45, "E2 Status=2(1.0 전환 태그 1회) 갈래는 접촉 예산 45 안");
     }
 
     // ── E3 대조: Status=0 태그는 선행 소거로 옛 환자가 비워진다(9차 봉합의 본래 목적) ──

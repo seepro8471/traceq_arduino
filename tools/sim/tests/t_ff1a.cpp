@@ -84,7 +84,18 @@ int main()
         CHECK(opsAt[0] > 0 && opsAt[5] > 0, "G1 양성대조: 모든 Status 표본에서 세척 시작이 실제로 돌았다");
         CHECK(nLeak == 0,
               "G1 세척 시작 뒤 'Status != 1(환자정보 없음)인데 블록 8·9 에 옛 환자' 태그가 남지 않는다");
-        CHECK(maxOps <= 40, "G1 모든 Status 갈래가 접촉 예산(40) 안");
+        // Status==2 는 **1.0 에서 온 태그의 전환 1회**다(2.0 은 Status 에 0·1 만 쓴다). 그 갈래는 블록 5·8·9 와
+        //  섹터15 3블록을 비우므로 더 무겁다 → 매 주기 도는 갈래(0·1·3·4·200)와 **따로** 잠근다.
+        //  ★한 상한을 올려 덮지 않는다: 매일 도는 갈래가 무거워지면 아래 첫 CHECK 가 빨강이 된다.
+        uint16_t maxDaily = 0;
+        for (uint8_t i = 0; i < 6; ++i)
+            if (sts[i] != 2 && opsAt[i] > maxDaily) maxDaily = opsAt[i];
+        tlog("  G1 예산: 매 주기 갈래 최대 %u(≤40) · Status=2 전환 1회 %u(≤45)\n",
+             (unsigned)maxDaily, (unsigned)opsAt[2]);
+        CHECK(maxDaily <= 40, "G1 매 주기 도는 Status 갈래는 접촉 예산 40 안");
+        CHECK(opsAt[2] > maxDaily && opsAt[2] <= 45,
+              "G1 Status=2(1.0 전환 태그 1회) 갈래는 45 안 — 레거시 소거 몫만큼 무겁다");
+        (void)maxOps;
     }
 
     // ── G2 피해: 그 태그가 한 주기를 돌면 옛 등록번호가 서버 덤프로 나가는가 ──

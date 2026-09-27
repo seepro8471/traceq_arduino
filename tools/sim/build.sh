@@ -12,7 +12,7 @@ OBJ="$OUTD/obj"; rm -rf "$OBJ"; mkdir -p "$OBJ"
 
 DEFS="-DARDUINO=10808 -DARDUINO_AVR_MEGA2560 -DARDUINO_ARCH_AVR -DF_CPU=16000000L
       -DSERIAL_RX_BUFFER_SIZE=512 -DTRACEQ_RFID_VERIFY_WRITES=1 -DTRACEQ_RFID_MAX_WRITE_RETRIES=3
-      -DMFRC522_SPICLOCK=1000000UL"
+      -DMFRC522_SPICLOCK=1000000UL ${HH2_DEFS}"
 INC=(-I"$HERE/fakes" -I"$HERE/tests" -I"$FW/cores/arduino" -I"$FW/variants/mega"
      -I"$FW/libraries/EEPROM/src" -I"$FW/libraries/SPI/src" -I"$FW/libraries/Wire/src"
      -I"$LD/ArduinoJson/src" -I"$LD/RTClib/src" -I"$LD/Adafruit BusIO" -I"$LD/LiquidCrystal_I2C"

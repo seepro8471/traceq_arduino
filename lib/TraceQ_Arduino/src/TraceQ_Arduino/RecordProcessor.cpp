@@ -22,6 +22,8 @@ void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
     // 그대로 출력하면 인접 전역 영역을 계속 읽는다 (2.2.5).
     char idText[sizeof(mCachedTag.ID) + 1]{};
     memcpy(idText, mCachedTag.ID, sizeof(mCachedTag.ID));
+    // [13차 HH2 P3-2] 소리 100×1(형제 성공음은 50×1) · ID 글자는 **200ms** 만 보여 사람이 못 읽는다(1.0 승계).
+    //  읽히게 하려면 500 이지만 소리가 500×1 로 바뀌므로 **사장님 판정 사항**. 지금 소리는 t_hh2lock L0 이 잠근다.
     printer.Notify_cstr(0, 2, 100, idText);
 }
 

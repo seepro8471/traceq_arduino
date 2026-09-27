@@ -212,7 +212,8 @@ void GatewayProcessor::GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc,
 
     complete_delay();
     // 환자정보 없이 기록했다 — 기록은 됐으므로 실패음(짧게 4회)과 달라야 한다. 길게 2회로 구분 (사장님 09-23).
-    util_buzzer(400, 2);
+    // ★소리는 같고 **글자만 더한다** — 형제(세척·소독기)는 같은 문구를 1.6초 띄우는데 여기만 없었다(13차 HH2 P3-7).
+    printer.CustomWarning(0, 2, 400, 2, F("No Patient Info"));
 }
 
 bool GatewayProcessor::is_valid(LcdPrinter &printer)

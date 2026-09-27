@@ -283,11 +283,50 @@ void LiquidCrystal_I2C::init() { SIM_SP(); grid_clear(); }          // 실물 in
 void LiquidCrystal_I2C::backlight() { SIM_SP(); }
 void LiquidCrystal_I2C::clear() { SIM_SP(); lcd_put('|'); grid_clear(); }
 void LiquidCrystal_I2C::setCursor(uint8_t col, uint8_t row) { SIM_SP(); lcd_put('|'); s_gCol = col; s_gRow = row; }
+#ifdef HH2_DWELL
+// ── HH2 계측: 2행(알림 줄)에 글자가 남아 있던 시간(ms) ──
+// ★이 블록은 -DHH2_DWELL 빌드에서만 들어간다 — 무조건 넣으면 정적 RAM 관문(28000B)을 t_a4 가 넘는다.
+// 알림 함수는 모두 clear_line(2) → print → 부저/지연 → clear_line(2) 이므로
+// "빈칸 → 글자" 에서 시각을 잡고 "글자 → 빈칸" 에서 그 차를 적는다.
+static uint32_t s_r2At;        // 글자가 나타난 g_ms
+static bool     s_r2On;        // 지금 글자가 있나
+static uint32_t s_r2Dwell[8];  // 최근 8회
+static uint8_t  s_r2N;
+static char     s_r2Text[8][21];
+static char     s_r2Best[21];  // 빈칸 아닌 글자를 쓴 마지막 시점의 2행
+static bool row2_blank()
+{
+    for (uint8_t c = 0; c < 20; ++c) { const char ch = s_grid[2][c]; if (ch != ' ' && ch != 0) return false; }
+    return true;
+}
+static void row2_track()
+{
+    const bool blank = row2_blank();
+    if (!s_r2On && !blank) { s_r2On = true; s_r2At = g_ms; }
+    else if (s_r2On && blank)
+    {
+        s_r2On = false;
+        if (s_r2N < 8) { memcpy(s_r2Text[s_r2N], s_r2Best, 21); s_r2Dwell[s_r2N++] = g_ms - s_r2At; }
+    }
+}
+void dwell_clear() { s_r2N = 0; s_r2On = !row2_blank(); s_r2At = g_ms; }
+uint8_t  dwell_count() { return s_r2N; }
+uint32_t dwell_ms(uint8_t i) { return (i < s_r2N) ? s_r2Dwell[i] : 0; }
+const char *dwell_text(uint8_t i) { return (i < 8) ? s_r2Text[i] : ""; }
+#endif   // HH2_DWELL
+
 size_t LiquidCrystal_I2C::write(uint8_t c)
 {
     SIM_SP();
     lcd_put((char)c);
     if (s_gRow < 4 && s_gCol < 20) s_grid[s_gRow][s_gCol++] = (char)c;
+#ifdef HH2_DWELL
+    if (s_gRow == 2)
+    {
+        if (c != ' ') memcpy(s_r2Best, lcd_row(2), 21);   // 지우기(공백 20칸)로는 갱신되지 않는다
+        row2_track();
+    }
+#endif
     return 1;
 }
 

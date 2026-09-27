@@ -142,6 +142,8 @@ void DisinfectionProcessor::DisinfectionProcess(
     if (disinfectionOption.GetMaximumCount() != 0)
     {
         if (disinfectionOption.GetMaximumCount() <= disinfectionOption.GetCount())
+            // [13차 HH2 P3-5] 이 500×1 은 **클리어 태그 성공(액교환을 했다)** 과 같은 소리인데 뜻이 정반대다
+            //  (액교환을 해야 한다). 접촉이 다르면 사람이 소리로 구별할 수 없다 — 바꾸는 것은 사장님 판정 사항.
             printer.Notify(0, 2, 500, F("MaxCount Over"));   // return 하지 않는다 — 아래 환자정보 경고를 가렸다
     }
     if (hasnt_patient_info(recordOption))
