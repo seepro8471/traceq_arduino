@@ -2,6 +2,11 @@
 
 #include "TraceQ_Arduino/avr/AvrString.hpp"
 
+bool GatewayProcessor::HasRecordTail(const char *buffer)
+{
+    return buffer != nullptr && find_marker(buffer, "G5", 0) != static_cast<size_t>(-1);
+}
+
 void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
 {
     if (buffer == nullptr) return;

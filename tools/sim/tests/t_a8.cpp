@@ -313,7 +313,8 @@ int main()
               "Y1 P3-1 32766 에서 +1 은 32767(상한 도달 → MaxCount Over)");
         disinfectionOption.SetCount(0);
         disinfectionOption.SetMaximumCount(0);
-        // X2 P2-1(판정 · 1.0 유지): 동기된 소독기도 세척기가 세척 시간 넘게 앞서면 "세척 종료 + 1분" 으로 따라간다
+        // ★7차 사장님 판정(PC 우선): 시계가 **맞는** 소독기는 앞선 세척기에 끌려가지 않는다.
+        //  (5차엔 반대로 "따라간다" 를 계약으로 박아 뒀다 — v2.2.21 부터 PC 가 연결마다 시계를 맞추므로 뒤집혔다)
         rtc_set(rel_date(10, 0, 0));
         fresh_scope(b, 0x95, 95);
         set_process(b, Process{1, 0, 1, 0, 1, false, 0, 0});
@@ -321,8 +322,20 @@ int main()
         set_record(b, SECTOR3_WASHING_END,   1, rel_date(10, 45, 0));
         touch(b);
         const DateTime n = rtc.GetCurrentDateTime();
-        tlog("  X2 P2-1 세척기 앞섬: %02u:%02u\n", n.hour(), n.minute());
-        CHECK(n.hour() == 10 && n.minute() == 46, "X2 P2-1 [판정] 동기된 소독기도 앞선 세척기를 따라간다(세척 종료+1분 · 1.0)");
+        tlog("  7차 판정 세척기 앞섬(시계 맞음): %02u:%02u\n", n.hour(), n.minute());
+        CHECK(n.hour() == 10 && n.minute() == 0,
+              "7차 판정 시계가 맞는 소독기는 앞선 세척기에 끌려가지 않는다(PC 우선)");
+        // 반대쪽 — 방전된 소독기(시계가 출시일보다 앞)는 여전히 "세척 종료 + 1분" 으로 복구된다
+        rtc_set(DateTime(2026, 1, 1, 0, 0, 30));
+        fresh_scope(b, 0x97, 97);
+        set_process(b, Process{1, 0, 1, 0, 1, false, 0, 0});
+        set_record(b, SECTOR2_WASHING_START, 1, rel_date(10, 30, 0));
+        set_record(b, SECTOR3_WASHING_END,   1, rel_date(10, 45, 0));
+        touch(b);
+        const DateTime r = rtc.GetCurrentDateTime();
+        tlog("  7차 판정 방전 소독기 복구: %u-%02u-%02u %02u:%02u\n", r.year(), r.month(), r.day(), r.hour(), r.minute());
+        CHECK(r.month() == TRACEQ_RELEASE_MONTH && r.day() == TRACEQ_RELEASE_DAY && r.hour() == 10 && r.minute() == 46,
+              "7차 판정 방전된 소독기는 세척기 태그로 복구된다(세척 종료+1분)");
         rtc_set(rel_date(10, 0, 0));
     }
 

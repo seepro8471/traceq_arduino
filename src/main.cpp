@@ -438,7 +438,7 @@ __attribute__((unused)) void serialEvent()
     // 1.0과 동일한 raw 수신: 512B가 차거나 바이트 간 타임아웃(게이트웨이 1초·그 외 150ms, setup)까지
     // 블로킹. 마지막 1바이트를 남겨(511) 항상 NUL 종료를 보장한다.
     char buffer[BUFFER_SIZE]{};
-    const size_t len = Serial.readBytes(buffer, BUFFER_SIZE - 1);
+    size_t len = Serial.readBytes(buffer, BUFFER_SIZE - 1);
     if (len == 0) return;
 
     // ★앞 읽기가 한도(511)에서 끊겼으면 이 버퍼는 그 전문의 꼬리일 수 있다 — 값 한가운데의 'C'/'M'/'S' 가
@@ -459,6 +459,22 @@ __attribute__((unused)) void serialEvent()
     //  인증은 버퍼 전체에서 'Z' 를 찾으므로(LegacySerialEvent) 여기서 건너뛰어도 인증은 그대로 된다.
     const char *cmd = buffer;
     while (*cmd == 'Z') ++cmd;
+
+    // ★게이트웨이 전문이 꼬리(G5) 없이 끝났으면 조각 사이가 수신 대기보다 벌어진 것이다 — 한 조각씩 더 기다려
+    //  이어 붙인다. 올눈은 다섯 조각을 250ms 간격으로 보내는데, 어느 이음매가 1초를 넘으면 종전엔 조각마다
+    //  따로 처리돼 환자정보가 **통째로 유실**됐다(BB2 P2-1 · 리더에 이어 붙이는 자리가 없었다).
+    //  ★온전한 전문은 여기서 한 번도 더 기다리지 않는다(수신 대기를 늘리면 모든 전문이 느려진다).
+    //  상한 3회 — 이음매 하나가 느린 경우를 덮는다(나머지 조각은 250ms 간격으로 한 번에 들어온다).
+    if (deviceType == GATEWAY_TYPE_DEVICE && cmd[0] == 'G')
+    {
+        for (uint8_t more = 0; more < 3 && len < BUFFER_SIZE - 1 &&
+                               !GatewayProcessor::HasRecordTail(buffer); ++more)
+        {
+            const size_t add = Serial.readBytes(buffer + len, BUFFER_SIZE - 1 - len);
+            if (add == 0) break;
+            len += add;
+        }
+    }
 
     // raw 명령은 머리로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
     // (버리면 다음 스코프에 직전 환자가 기록된다). JSON 은 STX 나 '{' 로 시작하므로 겹치지 않는다.

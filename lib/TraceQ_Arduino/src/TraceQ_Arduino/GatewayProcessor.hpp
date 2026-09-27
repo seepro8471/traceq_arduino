@@ -30,6 +30,8 @@ public:
         return (mGateNumber > 0) ? static_cast<int>(mGateNumber) : fallback;
     }
 
+    /// 버퍼에 레코드 꼬리(필드 경계의 G5)가 있는가 — 없으면 전문이 아직 덜 왔다는 뜻이다.
+    static bool HasRecordTail(const char *buffer);
     void GatewaySerialEvent(const char *buffer, DefaultRtc &rtc);
     void GatewayProcess(int deviceNumber, LcdPrinter &printer);
     void GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc, LcdPrinter &printer);

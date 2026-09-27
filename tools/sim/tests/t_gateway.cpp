@@ -283,6 +283,43 @@ int main()
               "AA2 P1-2 511 로 끊긴 수신 뒤의 정당한 패킷을 버리지 않는다");
     }
 
+    // ── BB2 P2-1: 올눈 조각 이음매가 수신 대기(1초)보다 벌어져도 환자정보가 들어간다 ──
+    //    종전엔 조각마다 따로 처리돼(이어 붙이는 자리가 없었다) 환자정보가 통째로 유실됐다.
+    {
+        sim_advance_ms(60UL * 1000);
+        const uint32_t t0 = g_ms + 50;
+        const char q1[] = "G10000;";
+        const char q2[] = "G22026;9;23;4;13;05;0;";
+        const char q3[] = "G3SLOW01;NAMESLOW;;";
+        const char q4[] = "G4SUBJS;;;";
+        const char q5[] = "G51988;07;07;M;";
+        serial_queue(q1, sizeof(q1) - 1, t0);
+        serial_queue(q2, sizeof(q2) - 1, t0 + 250);
+        serial_queue(q3, sizeof(q3) - 1, t0 + 1800);   // ★이 이음매가 1.8초 — 수신 대기(1초)보다 벌어졌다
+        serial_queue(q4, sizeof(q4) - 1, t0 + 2050);
+        serial_queue(q5, sizeof(q5) - 1, t0 + 2300);
+        pump(8000);
+        fresh_scope(a, 0x5F, 0x5F);
+        logs_clear();
+        touch(a);
+        const LocalDateTime d = get_ldt(a, SECTOR1_GATEWAY);
+        tlog("  BB2 P2-1 느린 이음매(1.8초) → 환자키=%.8s 시각=%02u:%02u 검사항목=%.8s\n",
+             (const char *)a.data[SECTOR2_PATIENT_KEY], d.Time.Hour, d.Time.Minute,
+             (const char *)a.data[SECTOR15_EXAMINATION_SUBJECT]);
+        CHECK(memcmp(a.data[SECTOR2_PATIENT_KEY], "SLOW01", 6) == 0 && ldt_eq(d, 2026, 9, 23, 13, 5, 0) &&
+              memcmp(a.data[SECTOR15_EXAMINATION_SUBJECT], "SUBJS", 5) == 0,
+              "BB2 P2-1 조각 이음매가 1초를 넘어도 환자 한 벌이 온전히 기록된다(이어 붙이기)");
+        // ★게이트웨이 레코드 머리가 아닌 전문(keepalive 'Z' 등)에는 **기다리지 않는다** — 기다리면 폴링이
+        //  매번 몇 초씩 멈춘다(30초 주기면 8% 가 죽는다). 걸린 시간으로 잠근다.
+        sim_advance_ms(60UL * 1000);
+        const uint32_t before = g_ms;
+        serial_inject("Z", 1);
+        GUARDED(serialEvent());
+        const uint32_t spent = g_ms - before;
+        tlog("  BB2 P2-1 'Z' 한 바이트 처리에 걸린 시간 = %lums\n", (unsigned long)spent);
+        CHECK(spent < 1500UL, "BB2 P2-1 레코드 머리가 아닌 전문에는 이어 붙이기를 기다리지 않는다(폴링 정지 없음)");
+    }
+
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}
