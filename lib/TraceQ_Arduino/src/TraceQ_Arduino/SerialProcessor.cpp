@@ -21,7 +21,8 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     //  PC 에 이미 저장된 행의 그 칸들(검사일시·검사항목·환자)이 빈 값으로 덮어써진다.
     //  Status 를 커밋과 같은 쓰기로 내려 "환자정보 있음인데 블록은 빈" 태그도 생기지 않는다.
     //  대가: 커밋 뒤 소거가 실패하면 태그에 지난 환자정보·검사항목이 남고 재접촉으로는 못 지운다
-    //  (다음 검사의 게이트웨이 기록이 덮고, 게이트웨이를 안 쓰면 세척기가 '환자정보 없음' 을 알린다).
+    //  → 안전망은 **다음 세척 시작의 선행 소거**다. 세척기의 '환자정보 없음' 경고는 사람에게만 알리고
+    //    PC 는 Status 를 안 보고 블록 8·9 를 등록번호·이름으로 저장한다(9차 정정).
     const bool ok = commit_dump_done()
                  && clear_gateway_and_subject()
                  && clear_patient();
@@ -456,6 +457,9 @@ bool SerialProcessor::legacy_loop_process(LcdPrinter &printer)
     //  현장에서 태그는 1초 미만으로 댔다 떼므로(사장님 확인) 덤프(카드 동작 65회 + 'Z' 대기)가 중간에
     //  끊기는 것은 드문 일이 아니다. `Ok!` 를 안 내면 두 PC 모두 저장하지 않고, 태그는 그대로 남아
     //  다시 대면 온전한 덤프가 나간다(아래 LoopProcess 의 보존 규칙과 짝을 이룬다).
+    //  ★짝이 되는 PC 쪽 조건: **이미 나간 블록은 PC 버퍼에 남는다.** 세척관리는 `PSOk`(덤프 시작 신호)마다
+    //   누적을 비워야 한다 — 안 비우면 이 덤프의 2차 소독·검사항목이 **다음 스코프의 저장에 섞인다**
+    //   (그 줄들은 조건부 출력이라 다음 덤프가 덮지 못한다 · 9차 DD1·DD3). 리더 쪽으로는 못 닫는다.
     if (mLegacyReadFailures != 0)
     {
         printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
@@ -494,8 +498,10 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
             // 태그 타입만 교체해 Company 재기록.
             Company company{};
             if (mScanner.Read(SECTOR0_COMPANY, &company, sizeof(company)) != RfidResult::Ok) break;
-            company.TagType = parsedType;
 
+            // ★종류(표지)를 **0(미지정)으로 먼저 내리고 맨 끝에 세운다** — 중간에 접촉이 끊기면 "종류만 새것 +
+            //  번호·ID 는 옛것" 인 카드가 남아 옛 스코프가 담당자로 등록됐다. 미지정은 어느 기기도 거부한다.
+            company.TagType = 0;
             if (mScanner.Write(SECTOR0_COMPANY, &company, sizeof(company)) != RfidResult::Ok) break;
             if (mScanner.Write(SECTOR0_TAG, &mCachedTag, 16) != RfidResult::Ok) break;
             if (mScanner.Write(SECTOR1_TAG_SERIAL, &mCachedTagSerial, 16) != RfidResult::Ok) break;
@@ -509,6 +515,9 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
             // 검사일시·본체번호·검사명도 — PC 는 Status 와 무관하게 그 블록을 저장하므로 재발급 태그에 옛 검사가 붙었다(5차 V2)
             if (mScanner.Clear(SECTOR1_GATEWAY) != RfidResult::Ok) break;
             if (mScanner.ClearSector(15) != RfidResult::Ok) break;
+
+            company.TagType = parsedType;   // 표지는 마지막 — 여기까지 와야 이 카드가 그 종류가 된다
+            if (mScanner.Write(SECTOR0_COMPANY, &company, sizeof(company)) != RfidResult::Ok) break;
 
             isHandled = true;
             break;

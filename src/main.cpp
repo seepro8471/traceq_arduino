@@ -492,7 +492,10 @@ __attribute__((unused)) void serialEvent()
             //  G2 는 앞부분에 이미 경계 G2 가 있을 때만 새 머리다 — 아니면 'G1 만 늦게 온' 같은 레코드의 G2 라
             //  버리면 본체번호를 잃는다.
             const char *chunk = buffer + before;
-            bool newHead = (chunk[0] == 'G' && chunk[1] == '1');
+            // G1 도 **그 조각 안에 경계 G2 가 있을 때만** 새 머리다 — 등록번호가 'G1…' 인 환자의 전문이
+            //  그 자리에서 갈리면 같은 레코드의 앞부분을 버려 환자를 잃었다(9차 DD1). 대가: G1 조각만 먼저 오고
+            //  G2 가 늦는 새 레코드는 본체번호를 잃는다(기기 자체 번호로 폴백) — 환자를 잃는 쪽보다 낫다.
+            bool newHead = (chunk[0] == 'G' && chunk[1] == '1' && GatewayProcessor::HasMarker(chunk, "G2"));
             if (!newHead && chunk[0] == 'G' && chunk[1] == '2')
             {
                 const char saved = buffer[before];
@@ -504,6 +507,7 @@ __attribute__((unused)) void serialEvent()
             {
                 memmove(buffer, chunk, len - before + 1);
                 len -= before;
+                cmd = buffer;   // 버린 앞부분을 가리키던 포인터를 새 머리로
             }
         }
     }
@@ -540,7 +544,9 @@ __attribute__((unused)) void serialEvent()
     case SerialProcessor::ProcessKind::NotJson:
         if (gatewayFrame)
         {
-            gatewayProcessor.GatewaySerialEvent(buffer, rtc);
+            // cmd(맨 앞 'Z' 를 건너뛴 포인터)를 넘긴다 — buffer 면 'Z' 뒤의 G1 이 필드 경계가 아니어서
+            //  find_marker 가 못 보고 본체번호를 잃었다(9차 DD1 · 세척관리 30초 keepalive 'Z' 가 방아쇠).
+            gatewayProcessor.GatewaySerialEvent(cmd, rtc);
             util_buzzer(500);
         }
         // 레거시 시각 동기는 타입과 무관하게 받는다(JSON cfg_set_date_time 과 같은 규칙).

@@ -78,11 +78,12 @@ bool RecordProcessor::hasnt_patient_info(const RecordOption &recordOption)
     return recordOption.GetPatientCheck() && mCachedProcess.Status != 1;
 }
 
-int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc)
+int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc, DateTime *startOut)
 {
     WashingRecord record{};   // 세척·소독 시작 기록은 레이아웃이 같다(번호 2 + 일시 8)
     if (mScanner.Read(startBlock, &record, 10) != RfidResult::Ok) return -1;   // 판정 불가 — '종료' 로 떨어뜨리지 않는다
     const auto started = DefaultRtc::ToDateTime(record.DateTime);
+    if (startOut != nullptr) *startOut = started;   // 종료 보정이 이 읽기를 그대로 쓴다
     if (!started.isValid()) return 0;
     const int32_t gap = (rtc.GetCurrentDateTime() - started).totalseconds();
     // [5차 판정 · 재론 금지] 2초 창은 그대로(사장님 09-27). 커밋 뒤 확인 실패로 'Write Error' 가 난 태그를
@@ -92,14 +93,11 @@ int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc)
     return gap >= 0 && gap < 2;
 }
 
-LocalDateTime RecordProcessor::not_before_start(uint8_t startBlock, const LocalDateTime &end)
+LocalDateTime RecordProcessor::not_before_start(const DateTime &s, const LocalDateTime &end)
 {
     // 시계를 뒤로 돌린 뒤(설정기 JSON·PC 의 T·기기 메뉴) 종료를 대면 "종료 < 시작" 기록이 남아 PC 대장에
     // 음수 시간이 찍혔다(BB2 P2-2). 시작보다 앞선 종료는 시작 시각으로 끌어올린다 — 기록을 잃지는 않는다.
-    // 시작 블록은 여기서 다시 읽는다(상태를 늘리지 않는다 · 읽기 1회 ≈ 3ms · 실패하면 손대지 않는다).
-    WashingRecord started{};   // 세척·소독 시작 기록은 레이아웃이 같다
-    if (mScanner.Read(startBlock, &started, 10) != RfidResult::Ok) return end;
-    const auto s = DefaultRtc::ToDateTime(started.DateTime);
+    // 시작 시각은 더블터치 판정이 이미 읽은 값이다 — 다시 읽으면 그 읽기가 실패할 때 보정이 조용히 꺼졌다.
     if (!s.isValid()) return end;
     const DateTime e{end.Date.Year, end.Date.Month, end.Date.Day,
                      end.Time.Hour, end.Time.Minute, end.Time.Second};

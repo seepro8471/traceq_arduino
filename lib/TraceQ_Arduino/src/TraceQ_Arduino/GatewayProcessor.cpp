@@ -136,8 +136,10 @@ void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
 
 bool GatewayProcessor::write_no_patient_info(const Gateway &gateway, const char *stringDateTime)
 {
-    // [5차 판정 · 재론 금지] Status=0 을 **먼저** 쓴다 — 뒤 소거가 실패해도 세척기가 '환자정보 없음' 을 알린다.
-    //  Status 를 마지막에 두면 실패 시 Status=1(직전 환자) 이 남아 세척기가 남의 환자로 통과시킨다(더 나쁨).
+    // [5차 판정 · 재론 금지] Status=0 을 **먼저** 쓴다 — 마지막에 두면 실패 시 Status=1(직전 환자) 이
+    //  남아 세척기가 남의 환자로 통과시킨다(더 나쁨).
+    // ★9차 정정: 뒤 소거가 실패해 옛 환자가 남는 창의 안전망은 세척기 경고가 아니라(사람에게만 알린다)
+    //  **다음 세척 시작의 선행 소거**다 — PC 는 Status 를 안 보고 블록 8·9 를 저장한다.
     if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return false;
     if (!write_process()) return false;
 
@@ -158,6 +160,7 @@ bool GatewayProcessor::write_patient_info(int deviceNumber)
         mCachedProcess.Status = 0;
         if (!write_process()) return false;
         unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};   // 옛 환자 블록도 비운다 — PC 는 Status 와 무관하게 블록 8 을 등록번호로 쓴다
+        // (이 소거가 실패해 옛 환자가 남으면 다음 세척 시작이 비운다 — washing_start 의 선행 소거)
         if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
     }
     // 본체번호는 PC 가 G1 로 준 값 (기기 설정은 미수신 시 폴백일 뿐).

@@ -11,9 +11,10 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
         return;
 
     // 더블터치 = 태그에 적힌 시작이 2초 안 — 종료가 아니라 시작 다시 하기(소독기와 같은 규칙).
+    DateTime startDt{};
     if (isEnd)
     {
-        const int8_t just = started_just_now(SECTOR2_WASHING_START, rtc);
+        const int8_t just = started_just_now(SECTOR2_WASHING_START, rtc, &startDt);
         if (just < 0)
         {
             printer.CustomWarning(0, 2, 100, 4, F("Read Error"));   // 판정 불가 — 알람·기록 그대로, 다시 대게
@@ -24,8 +25,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
 
     if (isEnd)
     {
-        WashingRecord record{deviceNumber,
-                             not_before_start(SECTOR2_WASHING_START, rtc.GetCurrentLocalDateTime())};
+        WashingRecord record{deviceNumber, not_before_start(startDt, rtc.GetCurrentLocalDateTime())};
         // 종료 기록 실패도 성공으로 알리지 않는다 — 알람을 남겨 두고 재접촉을 유도.
         if (!washing_end(record))
         {
@@ -87,6 +87,19 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
         LocalDateTime{
             LocalDate{current.year(), current.month(), current.day()},
             LocalTime{current.hour(), current.minute(), current.second()}}};
+
+    // ★지난 주기 표지를 **먼저 내린다** — 커밋 전에 접촉이 끊기면 태그가 '공정 없음' 이라 소독기·서버가
+    //  거부음으로 알린다. 안 내리면 지난 주기 Rewrite=2 가 남아 소독기가 그 접촉을 소독 '종료' 로 기록했다.
+    const uint8_t prevStatus = mCachedProcess.Status;
+    mCachedProcess = Process{prevStatus};
+    if (!write_process()) return false;
+
+    // 환자정보 없는 태그면 옛 환자 블록도 비운다 — PC 는 Status 를 안 보고 블록 8·9 를 등록번호·이름으로 저장한다.
+    if (prevStatus != 1)
+    {
+        unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
+        if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
+    }
 
     update_process(deviceNumber);
 

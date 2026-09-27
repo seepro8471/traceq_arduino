@@ -29,11 +29,13 @@ protected:
     /// 태그가 말해 주므로 RAM 에 마지막 시작을 기억할 필요가 없다(재부팅·기록 실패 뒤에도 옳다).
     /// 더블터치 판정. 1 = 시작이 2초 안(재시작) · 0 = 아니다(종료) · -1 = 시작 블록을 못 읽음(판정 불가 — 호출자가
     /// Read Error 로 알리고 아무것도 바꾸지 않는다). 종전엔 못 읽으면 조용히 0 이 되어 1초짜리 종료가 기록됐다(5차 V4).
-    int8_t started_just_now(uint8_t startBlock, DefaultRtc &rtc);
+    /// startOut: 이 판정이 읽은 시작 시각을 그대로 넘겨준다(종료 보정이 다시 읽지 않도록 · 카드 동작 1회 절약).
+    int8_t started_just_now(uint8_t startBlock, DefaultRtc &rtc, DateTime *startOut = nullptr);
 
-    /// 종료 시각이 태그의 시작(startBlock)보다 앞서면 그 시작 시각을 돌려준다 — 시계를 뒤로 돌린 뒤의
-    /// "종료 < 시작" 기록을 막는다. 시작을 못 읽으면 end 를 그대로 돌려준다(막지 않는다).
-    LocalDateTime not_before_start(uint8_t startBlock, const LocalDateTime &end);
+    /// 종료 시각이 태그의 시작보다 앞서면 그 시작 시각을 돌려준다 — 시계를 뒤로 돌린 뒤의 "종료 < 시작"
+    /// 기록을 막는다. start 는 started_just_now 가 **이미 읽은** 값이다(다시 읽으면 그 읽기가 실패할 때
+    /// 보정이 조용히 꺼졌다 · 9차 DD1).
+    static LocalDateTime not_before_start(const DateTime &start, const LocalDateTime &end);
 
     static LocalDateTime add_datetime(const DateTime &current, uint8_t minute, uint8_t seconds);
 

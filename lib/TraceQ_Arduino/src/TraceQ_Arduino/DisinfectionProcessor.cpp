@@ -37,10 +37,12 @@ void DisinfectionProcessor::DisinfectionProcess(
         if (!is_host(mCachedTag.Number)) isGuest = is_guest(mCachedTag.Number);
     }
 
+    DateTime startDt{};
     if (isEnd)
     {
         // 더블터치 = 태그에 적힌 시작이 2초 안(host·guest 공통, 기록 실패·재부팅 뒤에도 태그가 답한다).
-        const int8_t just = started_just_now(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START, rtc);
+        const int8_t just = started_just_now(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START,
+                                             rtc, &startDt);
         if (just < 0)
         {
             printer.CustomWarning(0, 2, 100, 4, F("Read Error"));   // 판정 불가 — 알람·슬롯·이동 플래그 그대로, 다시 대게
@@ -63,17 +65,15 @@ void DisinfectionProcessor::DisinfectionProcess(
         bool ok;
         if (mMovable)
         {
-            ok = disinfector_move(deviceNumber, isMoved, rtc);
+            ok = disinfector_move(deviceNumber, isMoved, rtc, startDt);
         }
         else
         {
             // 형제 셋(세척 종료·소독 종료·이동 종료)에 같은 보정 — 7차엔 이 자리만 빠졌다(CC1 P1-2).
             //  사람 조작 없이도 방아쇠가 있다: 시작과 종료 사이에 RTC 전지가 방전되면 시계가 2026-01-01 로
             //  고정되고, 복구는 시작 경로에만 있어 종료 터치엔 안 듣는다 → 종료가 시작보다 268일 앞섰다.
-            DisinfectionRecord endRecord{
-                deviceNumber,
-                not_before_start(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START,
-                                 rtc.GetCurrentLocalDateTime())};
+            DisinfectionRecord endRecord{deviceNumber,
+                                         not_before_start(startDt, rtc.GetCurrentLocalDateTime())};
             ok = disinfection_end(isMoved, endRecord);
         }
         // 종료·이동 기록 실패도 성공으로 알리지 않는다 — 슬롯·알람을 남겨 두고 재접촉을 유도.
@@ -134,14 +134,12 @@ void DisinfectionProcessor::DisinfectionProcess(
 //  ⑥ 알람 슬롯은 기기당 하나(뒤 스코프가 앞 알람을 덮음) ⑦ 이동+RTC 방전 복구가 1차 종료보다 앞설 수 있음
 //  ⑧ 복구 추정의 세척 시간은 소독기 자신의 슬롯1(PC JSON 으로만 설정 — 이 추정 자체는 1.0 에 없고 09-23 결정)
 //  ⑫ 일회성 ON 에서 담당자 미등록 종료는 담당자 0.
-bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc)
+bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc,
+                                            const DateTime &startDt)
 {
     // ★종료 기록을 먼저, 이동 커밋(Process)을 마지막에 — 반대면 종료 기록이 실패해도 태그가 '이동함' 으로
     //  굳어, 재접촉이 2호기 시작으로 넘어가 1호기 종료 시각을 영영 못 남긴다(프로젝트 "커밋은 마지막" 규칙).
-    DisinfectionRecord record{
-        deviceNumber,
-        not_before_start(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START,
-                         rtc.GetCurrentLocalDateTime())};
+    DisinfectionRecord record{deviceNumber, not_before_start(startDt, rtc.GetCurrentLocalDateTime())};
     if (!disinfection_end(isMoved, record)) return false;
     mCachedProcess.MovementNeeded = true;
     mCachedProcess.Rewrite        = 0;

@@ -23,7 +23,7 @@ public:
     void SetMovable() { mMovable = true; }
 
 protected:
-    bool disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc);
+    bool disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc, const DateTime &startDt);
     /// \param isRestart 더블터치 2초 가드로 "시작"이 재실행된 경우 — 소독 횟수를
     ///                  중복으로 올리지 않기 위한 표시.
     /// \return 커밋(Process 기록)까지 성공했는가 — false 면 태그는 시작 전 상태.
