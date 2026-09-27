@@ -219,7 +219,15 @@ int main()
         tlog("  B 2차@D#3: 시작기기=%d 종료기기=%d MN=%d DC=%u 횟수 %d->%d\n",
              s2, e2, p.MachineNumber, p.DisinfectionCount, c3a, disinfectionOption.GetCount());
         tlog_ldt("B DETAIL2 액교환일(D#3 것이어야)", lcdB);
+        // ★기기번호만 보면 2차 종료가 **거부돼도 통과**한다 — `disinfection_start` 가 섹터8 에 도착기 번호로
+        //  자동 종료를 **미리** 쓰기 때문이다(GG1 P3-2). 그래서 **시각**으로 갈라야 한다(미리채움 ≠ 14:10).
+        // ★`lcd_of`(DETAIL 레이아웃)로 읽으면 26:00 같은 값이 나온다 — 종료 블록은 **레코드**(번호+일시)다.
+        const LocalDateTime e2t = get_ldt(sc, SECTOR8_DISINFECTION_END);
+        tlog("  B 2차 종료시각=%02u:%02u (미리채움이 아니라 접촉 시각 14:10 이어야)\n",
+             e2t.Time.Hour, e2t.Time.Minute);
         CHECK(s2 == 3 && e2 == 3, "B4 2차 기록은 도착 소독기(3) 번호");
+        CHECK(e2t.Time.Hour == 14 && e2t.Time.Minute == 10,
+              "B4b 2차 종료 시각이 **접촉 시각**이다(미리채움이 아니다 — 거부됐으면 미리채움이 남는다)");
         CHECK(p.DisinfectionCount == 2 && p.MachineNumber == 3, "B5 DC=2 · Process 기기번호는 도착기(3)");
         CHECK(disinfectionOption.GetCount() == c3a + 1, "B6 2차 소독도 그 기기 횟수를 +1");
         CHECK(dev_of(sc, SECTOR5_DISINFECTION_START) == 2 && dev_of(sc, SECTOR6_DISINFECTION_END) == 2,

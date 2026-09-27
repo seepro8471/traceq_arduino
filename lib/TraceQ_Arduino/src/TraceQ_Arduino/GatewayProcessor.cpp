@@ -42,6 +42,10 @@ bool GatewayProcessor::NeedsMoreBytes(const char *buffer)
     return find_marker(buffer + head, "G5", 0) == kNone;   // 머리 **뒤에** 꼬리가 없으면 덜 온 것
 }
 
+// [12차 판정 · 재론 금지] 환자 한 벌(키·이름·검사항목 3·일시 등)은 패킷마다 비우지만 **mGateNumber 는
+//  남긴다** — 값이 없는 패킷(`G1;`)이면 앞서 받은 본체번호를 쓰는 것이 `effective_number` 의 의도된 폴백이고,
+//  델파이는 본체번호를 설정 칸에서 옮겨 오므로 환자마다 바뀌지 않는다(MainFormSo.pas 32,551줄 · 15188·15207줄
+//  확인) · 세척관리는 그 값을 아예 안 보낸다. 비우면 그 현장에서 번호가 0 이 된다 → 고치지 말 것(GG2 P3-2).
 void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)
 {
     if (buffer == nullptr) return;

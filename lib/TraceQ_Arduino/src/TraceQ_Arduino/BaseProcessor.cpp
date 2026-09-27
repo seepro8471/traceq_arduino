@@ -7,7 +7,10 @@ void BaseProcessor::complete_delay() { delay(1); }
 bool BaseProcessor::print_tag_number(LcdPrinter &printer)
 {
     if (mScanner.Read(SECTOR0_TAG, &mCachedTag, sizeof(Tag)) != RfidResult::Ok)
+    {
+        printer.Info_cstr(0, 3, "     ");   // 앞 건의 스코프 번호를 지운다 — 'Read Error' 옆에 남의 번호가 남았다(GG2 P3-1)
         return false;
+    }
     char buf[6]{};
     snprintf(buf, sizeof(buf), "%05d", mCachedTag.Number);
     printer.Info_cstr(0, 3, buf);
