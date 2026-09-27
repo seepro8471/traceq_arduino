@@ -2,9 +2,44 @@
 
 #include "TraceQ_Arduino/avr/AvrString.hpp"
 
+bool GatewayProcessor::IsGatewayFrame(const char *buffer)
+{
+    if (buffer == nullptr) return false;
+    constexpr size_t kNone = static_cast<size_t>(-1);
+    size_t g = kNone;
+    for (char d = '1'; d <= '5'; ++d)   // 정적 배열을 두면 시뮬 RAM 관문에 걸린다 — 스택에서 만든다
+    {
+        const char m[3] = {'G', d, 0};
+        const size_t at = find_marker(buffer, m, 0);
+        if (at != kNone && (g == kNone || at < g)) g = at;
+    }
+    if (g == kNone) return false;
+    const size_t brace = str_index_of(buffer, '{');
+    return brace == kNone || g < brace;
+}
+
+bool GatewayProcessor::HasMarker(const char *buffer, const char *marker)
+{
+    return buffer != nullptr && find_marker(buffer, marker, 0) != static_cast<size_t>(-1);
+}
+
 bool GatewayProcessor::HasRecordTail(const char *buffer)
 {
     return buffer != nullptr && find_marker(buffer, "G5", 0) != static_cast<size_t>(-1);
+}
+
+bool GatewayProcessor::NeedsMoreBytes(const char *buffer)
+{
+    if (buffer == nullptr) return false;
+    constexpr size_t kNone = static_cast<size_t>(-1);
+    size_t head = kNone;
+    for (size_t at = find_marker(buffer, "G1", 0); at != kNone; at = find_marker(buffer, "G1", at + 1))
+        head = at;
+    if (head == kNone)
+        for (size_t at = find_marker(buffer, "G2", 0); at != kNone; at = find_marker(buffer, "G2", at + 1))
+            head = at;
+    if (head == kNone) return false;                       // 머리가 없으면 기다릴 것도 없다
+    return find_marker(buffer + head, "G5", 0) == kNone;   // 머리 **뒤에** 꼬리가 없으면 덜 온 것
 }
 
 void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc)

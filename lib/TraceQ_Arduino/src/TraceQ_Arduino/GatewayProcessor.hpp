@@ -30,8 +30,15 @@ public:
         return (mGateNumber > 0) ? static_cast<int>(mGateNumber) : fallback;
     }
 
+    /// 이 버퍼가 게이트웨이 전문인가 — '{'(JSON) 와 G 마커 중 **먼저 오는 쪽**으로 정한다.
+    static bool IsGatewayFrame(const char *buffer);
+    /// 버퍼에 이 마커가 **필드 경계**로 있는가(맨 앞·';' 뒤·값 없는 G1 뒤·앞 패킷 끝 G5 뒤).
+    static bool HasMarker(const char *buffer, const char *marker);
     /// 버퍼에 레코드 꼬리(필드 경계의 G5)가 있는가 — 없으면 전문이 아직 덜 왔다는 뜻이다.
     static bool HasRecordTail(const char *buffer);
+    /// 마지막 레코드 머리는 있는데 **그 뒤에** 꼬리가 없다 = 전문이 덜 왔다.
+    /// ★꼬리를 버퍼 전체에서 보면 앞 레코드의 G5 에 속아 뒤 레코드를 기다리지 않는다(CC1 P3-2).
+    static bool NeedsMoreBytes(const char *buffer);
     void GatewaySerialEvent(const char *buffer, DefaultRtc &rtc);
     void GatewayProcess(int deviceNumber, LcdPrinter &printer);
     void GatewayProcessFallback(int deviceNumber, DefaultRtc &rtc, LcdPrinter &printer);

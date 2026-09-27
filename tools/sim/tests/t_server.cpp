@@ -71,7 +71,10 @@ int main()
         const Process p = get_process(bad);
         tlog("  읽기 실패 덤프 뒤 WS=%u DC=%u lcd=[%.60s]\n", p.WashingStatus, p.DisinfectionCount, g_lcdLog);
         CHECK(serial_has("171400000000000000000000000000000000;"), "F2-2: 실패 블록은 0 으로 덤프(와이어 불변)");
-        CHECK(serial_has("Ok!"), "F2-2: 덤프 끝 Ok!(와이어 불변)");
+        // ★8차: 불완전 덤프에는 `Ok!` 를 내지 않는다 — PC 는 Ok! 를 저장 방아쇠로 쓰므로, 0 섞인 덤프에
+        //  Ok! 를 붙이면 세척 종료가 빈 행이 대장에 저장되고 5초 중복 차단까지 걸려 곧바로 다시 댄
+        //  온전한 스캔이 버려졌다(CC2 P1-1). 5차엔 "와이어 불변" 으로 이 행위를 계약으로 박아 뒀다.
+        CHECK(!serial_has("Ok!"), "8차: 불완전 덤프에는 Ok! 를 내지 않는다(PC 가 0 섞인 행을 저장하던 것)");
         CHECK(lcd_has("Read Error"), "F2-2: LCD Read Error");
         CHECK(p.WashingStatus == 1 && p.DisinfectionCount == 1, "F2-2: 불완전 덤프 → 태그 보존(재스캔 복구)");
         // 재스캔하면 온전한 덤프 후 초기화
@@ -79,6 +82,7 @@ int main()
         serial_inject("Z", 1);
         touch(bad);
         CHECK(serial_has("17140200EA07") && get_process(bad).WashingStatus == 0, "F2-2: 재스캔 → 온전한 덤프 + 초기화");
+        CHECK(serial_has("Ok!"), "8차: 온전한 덤프에는 Ok! 가 나간다(PC 가 그때 저장한다)");
     }
     tlog("  resets=%u\n", g_resetCount);
     // ── Z2 P3-2: 511 에서 끊긴 전문의 꼬리가 'S…' 로 시작해도 발급 명령으로 실행되지 않는다 ──

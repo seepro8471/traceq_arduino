@@ -169,7 +169,9 @@ private:
     uint8_t mAuthSector{0xFF};
     uint8_t mAuthUid[10]{};
     uint8_t mAuthUidSize{0};
-    // 마지막으로 Connected 를 돌려준 태그의 UID — "올려 둔 태그는 1회만" 은 이것으로 판정한다(EndSession 이 안 지운다).
+    // 마지막으로 Connected 를 돌려준 태그의 UID — "같은 태그는 한 접촉에 1회만" 은 이것으로 판정한다(EndSession 이 안 지운다).
+    // ★[사장님 확인 09-27] 현장에서 태그를 **올려 두지 않는다** — 접촉하고 바로 뗀다(1초 미만). 그래도 그 0.x초
+    //  동안 루프가 수십 번 돌아 같은 태그가 계속 보이므로 이 판정이 없으면 한 번 댄 것이 수십 번 처리된다.
     uint8_t mLastUid[10]{};
     uint8_t mLastUidSize{0};
 
@@ -181,7 +183,7 @@ private:
     // 태그 상태 추적
     bool mTagPresentPrev{false};
     bool mTagPresent{false};
-    uint8_t mMissCount{0};   // 올려 둔 카드의 연속 무응답 횟수(Poll 디바운스)
+    uint8_t mMissCount{0};   // 접촉 중 카드의 연속 무응답 횟수(Poll 디바운스 — 잡음 한 표본에 "뗐다" 로 보지 않는다)
 
     bool mInitialized{false};
     MFRC522::StatusCode mLastStatus{MFRC522::STATUS_OK};

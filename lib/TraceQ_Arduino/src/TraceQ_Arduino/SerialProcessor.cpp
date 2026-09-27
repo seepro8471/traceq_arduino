@@ -449,11 +449,19 @@ bool SerialProcessor::legacy_loop_process(LcdPrinter &printer)
     legacy_print_block(19, SECTOR4_WASHING_END_MANAGER_KEY);
     legacy_print_block(19, SECTOR4_WASHING_END_MANAGER_NAME);
 
-    // 전송 완료
-    Serial.println(F("Ok!"));
-
+    // 전송 완료 — ★읽기 실패가 하나라도 있으면 `Ok!` 를 내지 않는다.
+    //  0 으로 나간 블록이 섞인 덤프에도 `Ok!` 를 붙이면 세척관리가 그것을 **저장**하고(저장 방아쇠가 `Ok!` 다),
+    //  세척/소독 시작 시각만 온전하면 검증을 통과해 **세척 종료가 빈 행**이 대장에 남았다. 게다가 검증을
+    //  통과한 스캔은 5초 중복 차단이 걸려 **곧바로 다시 댄 온전한 스캔이 버려졌다**(CC2 P1-1).
+    //  현장에서 태그는 1초 미만으로 댔다 떼므로(사장님 확인) 덤프(카드 동작 65회 + 'Z' 대기)가 중간에
+    //  끊기는 것은 드문 일이 아니다. `Ok!` 를 안 내면 두 PC 모두 저장하지 않고, 태그는 그대로 남아
+    //  다시 대면 온전한 덤프가 나간다(아래 LoopProcess 의 보존 규칙과 짝을 이룬다).
     if (mLegacyReadFailures != 0)
+    {
         printer.CustomWarning(0, 2, 100, 4, F("Read Error"));
+        return true;
+    }
+    Serial.println(F("Ok!"));
 
     return true;
 }

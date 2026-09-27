@@ -559,6 +559,31 @@ int main()
         rtc_set(rel_date(10, 0, 0));
     }
 
+    // ── CC1 P1-2: 소독 종료(정상 경로)도 시작보다 앞선 종료를 시작 시각으로 ──
+    //    방아쇠는 사람 조작이 아니다: 시작과 종료 사이에 RTC 전지가 방전되면 시계가 2026-01-01 로 고정되고
+    //    복구는 시작 경로에만 있어 종료 터치엔 안 듣는다 → 종료가 시작보다 268일 앞섰다.
+    {
+        power_restore();
+        as_type('D');
+        rtc_set(rel_date(14, 0, 0));
+        touch(mgr);
+        bb_washed(0x66, 66);
+        touch(sc);                                       // 소독 시작 14:00
+        const LocalDateTime ds = get_ldt(sc, SECTOR5_DISINFECTION_START);
+        CHECK(ds.Time.Hour == 14, "CC1 전제: 소독 시작이 14:00 으로 기록됐다");
+        rtc_set(DateTime(2026, 1, 1, 0, 0, 30));         // RTC 방전 — 시계가 방전 표지로
+        sim_advance_ms(3000);
+        logs_clear();
+        touch(sc);                                       // 소독 종료(이동 아님)
+        const LocalDateTime de = get_ldt(sc, SECTOR6_DISINFECTION_END);
+        tlog("  CC1 P1-2 방전 뒤 소독 종료 = %04u-%02u-%02u %02u:%02u\n", de.Date.Year, de.Date.Month,
+             de.Date.Day, de.Time.Hour, de.Time.Minute);
+        CHECK(de.Date.Year == TRACEQ_RELEASE_YEAR && de.Date.Month == TRACEQ_RELEASE_MONTH &&
+              de.Time.Hour == 14,
+              "CC1 P1-2 소독 종료도 시작보다 앞서지 않는다(형제 셋 모두)");
+        rtc_set(rel_date(10, 0, 0));
+    }
+
     done();
     for (;;) {}
 }

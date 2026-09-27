@@ -272,7 +272,13 @@ void loop()
 #endif
     ui.DisplayHome(rtc, homeNumber);
 
+    // [8차 판정 · 재론 금지] 한 loop 이 태그를 못 보는 시간이 있다 — 알림음(최대 1.6초)·거부음·메뉴(사람이
+    //  나올 때까지)·PC 수신 대기. 그 사이 댔다 뗀 태그는 **통째로 없던 일이 된다**(기록은 틀리지 않고 무음이라
+    //  사람이 다시 댄다 · CC2 P3-1). 없애려면 폴링을 인터럽트로 옮겨야 해서 두지 않는다.
     // 1.0과 달리 매번 Rc522Initialize() 호출하지 않음. 죽었을 때만 재초기화.
+    // [사장님 판정 09-27 · 재론 금지] 리더 표시가 꺼졌다 켜지는 일(= 이 갈래가 도는 일)은 **전원 불안정 외에는
+    //  없다**. 그래서 빈도를 세는 표시도 넣지 않는다(사장님 확정). 재초기화 뒤 태그가 다시 잡히는 경우도
+    //  현장에선 안 생긴다 — 태그를 올려 두지 않고 접촉하고 바로 뗀다(RfidController::Reinitialize 주석).
     if (rfid.IsAlive())
     {
         ui.InfoReader(true);
@@ -451,7 +457,6 @@ __attribute__((unused)) void serialEvent()
     //  그래서 이 관문은 **보험**이고, 511 초과 횟수를 세는 진단 표시는 넣지 않는다(화면을 건드리지 않는다).
     static bool sTailOfTruncated = false;
     const bool isTail = sTailOfTruncated;
-    sTailOfTruncated = (len == BUFFER_SIZE - 1);
 
     // ★맨 앞의 'Z'(PC 가 인증·keepalive 로 보내는 한 바이트)는 건너뛰고 명령 머리를 본다 — 세척관리는 연결마다
     //  'Z' 직후 'T…' 를, 델파이는 333ms 마다 'Z' 를 보내 한 버퍼에 붙는다. 종전엔 머리가 'Z' 라 뒤 명령이 통째로
@@ -460,21 +465,51 @@ __attribute__((unused)) void serialEvent()
     const char *cmd = buffer;
     while (*cmd == 'Z') ++cmd;
 
-    // ★게이트웨이 전문이 꼬리(G5) 없이 끝났으면 조각 사이가 수신 대기보다 벌어진 것이다 — 한 조각씩 더 기다려
-    //  이어 붙인다. 올눈은 다섯 조각을 250ms 간격으로 보내는데, 어느 이음매가 1초를 넘으면 종전엔 조각마다
-    //  따로 처리돼 환자정보가 **통째로 유실**됐다(BB2 P2-1 · 리더에 이어 붙이는 자리가 없었다).
-    //  ★온전한 전문은 여기서 한 번도 더 기다리지 않는다(수신 대기를 늘리면 모든 전문이 느려진다).
-    //  상한 3회 — 이음매 하나가 느린 경우를 덮는다(나머지 조각은 250ms 간격으로 한 번에 들어온다).
-    if (deviceType == GATEWAY_TYPE_DEVICE && cmd[0] == 'G')
+    // ★이 버퍼가 게이트웨이 전문인가 — '{' 와 G 마커 중 **먼저 오는 쪽**으로 갈래를 정한다.
+    //  머리글자만 보면 'Z' 이외의 앞바이트가 붙은 온전한 전문을 통째로 버렸고(CC1 P2-1), 버퍼 어디든 G 마커를
+    //  찾으면 값에 ';G2' 가 든 설정 JSON 을 가로챘다(BB1 P3-5). 먼저 오는 쪽 규칙은 둘 다 맞힌다:
+    //  검사명에 '{' 가 든 G 패킷은 G 마커가 앞이고, 값에 ';G2' 가 든 JSON 은 '{' 가 앞이다.
+    const bool gatewayFrame =
+        deviceType == GATEWAY_TYPE_DEVICE && GatewayProcessor::IsGatewayFrame(buffer);
+
+    // ★전문이 덜 왔으면(마지막 머리 뒤에 꼬리가 없으면) 한 조각씩 더 기다려 이어 붙인다. 올눈은 다섯 조각을
+    //  250ms 간격으로 보내는데, 어느 이음매가 1초를 넘으면 종전엔 조각마다 따로 처리돼 환자정보가 **통째로
+    //  유실**됐다(BB2 P2-1). ★온전한 전문은 한 번도 더 기다리지 않는다.
+    //  ★대기를 짧게(300ms) 낮추자는 안은 **쓰지 않는다**(CC1 P3-0): 막아야 할 이음매가 정의상 1초를 넘는
+    //   것이므로(1초 안이면 첫 읽기가 이미 잡았다) 짧추면 이 봉합이 존재하는 이유가 사라진다 — 실제로
+    //   1.8초 이음매 잠금이 빨강이 됐다. 폴링 정지(최악 6.2초)는 전문이 덜 왔을 때만이라 감수한다.
+    if (gatewayFrame && GatewayProcessor::NeedsMoreBytes(buffer))
     {
         for (uint8_t more = 0; more < 3 && len < BUFFER_SIZE - 1 &&
-                               !GatewayProcessor::HasRecordTail(buffer); ++more)
+                               GatewayProcessor::NeedsMoreBytes(buffer); ++more)
         {
+            const size_t before = len;
             const size_t add = Serial.readBytes(buffer + len, BUFFER_SIZE - 1 - len);
             if (add == 0) break;
             len += add;
+            // ★붙인 조각이 **새 레코드 머리**로 시작하면 앞의 미완 레코드를 버린다. 안 버리면 좁히기가 앞
+            //  레코드를 잡고 칸마다 다른 레코드를 집어 **두 환자가 섞인 기록**이 성공음과 함께 나갔다(CC1 P1-1).
+            //  G2 는 앞부분에 이미 경계 G2 가 있을 때만 새 머리다 — 아니면 'G1 만 늦게 온' 같은 레코드의 G2 라
+            //  버리면 본체번호를 잃는다.
+            const char *chunk = buffer + before;
+            bool newHead = (chunk[0] == 'G' && chunk[1] == '1');
+            if (!newHead && chunk[0] == 'G' && chunk[1] == '2')
+            {
+                const char saved = buffer[before];
+                buffer[before] = 0;
+                newHead = GatewayProcessor::HasMarker(buffer, "G2");
+                buffer[before] = saved;
+            }
+            if (newHead)
+            {
+                memmove(buffer, chunk, len - before + 1);
+                len -= before;
+            }
         }
     }
+
+    // 꼬리 표지는 **이어 붙인 뒤** 길이로 정한다 — 붙여서 511 을 채우면 다음 버퍼가 그 전문의 꼬리다(CC1 P3-1).
+    sTailOfTruncated = (len == BUFFER_SIZE - 1);
 
     // raw 명령은 머리로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
     // (버리면 다음 스코프에 직전 환자가 기록된다). JSON 은 STX 나 '{' 로 시작하므로 겹치지 않는다.
@@ -483,7 +518,7 @@ __attribute__((unused)) void serialEvent()
     //  ';G2' 가 든 설정 JSON 을 가로챘다(BB1 P3-5). 세 PC 는 모두 G1(또는 G1G2)로 전문을 시작한다.
     // (레거시 시각 동기 'T' 는 '{' 가 없어 어차피 NotJson 으로 오므로 여기 넣지 않는다)
     const bool rawHead =
-        (deviceType == GATEWAY_TYPE_DEVICE && cmd[0] == 'G') ||
+        gatewayFrame ||
         (deviceType == SERVER_TYPE_DEVICE &&
          (cmd[0] == 'C' || cmd[0] == 'M' || cmd[0] == 'S' || buffer[0] == 'Z'));
     switch (rawHead ? SerialProcessor::ProcessKind::NotJson : serialProcessor.GetProcessKind(buffer, len, ui))
@@ -503,9 +538,9 @@ __attribute__((unused)) void serialEvent()
         serialProcessor.UpdateDateTime(rtc, ui);
         return;
     case SerialProcessor::ProcessKind::NotJson:
-        if (deviceType == GATEWAY_TYPE_DEVICE && cmd[0] == 'G')
+        if (gatewayFrame)
         {
-            gatewayProcessor.GatewaySerialEvent(cmd, rtc);
+            gatewayProcessor.GatewaySerialEvent(buffer, rtc);
             util_buzzer(500);
         }
         // 레거시 시각 동기는 타입과 무관하게 받는다(JSON cfg_set_date_time 과 같은 규칙).

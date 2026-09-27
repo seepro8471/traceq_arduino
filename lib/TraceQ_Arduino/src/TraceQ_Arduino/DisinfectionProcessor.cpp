@@ -67,7 +67,13 @@ void DisinfectionProcessor::DisinfectionProcess(
         }
         else
         {
-            DisinfectionRecord endRecord{deviceNumber, rtc.GetCurrentLocalDateTime()};
+            // 형제 셋(세척 종료·소독 종료·이동 종료)에 같은 보정 — 7차엔 이 자리만 빠졌다(CC1 P1-2).
+            //  사람 조작 없이도 방아쇠가 있다: 시작과 종료 사이에 RTC 전지가 방전되면 시계가 2026-01-01 로
+            //  고정되고, 복구는 시작 경로에만 있어 종료 터치엔 안 듣는다 → 종료가 시작보다 268일 앞섰다.
+            DisinfectionRecord endRecord{
+                deviceNumber,
+                not_before_start(isMoved ? SECTOR7_DISINFECTION_START : SECTOR5_DISINFECTION_START,
+                                 rtc.GetCurrentLocalDateTime())};
             ok = disinfection_end(isMoved, endRecord);
         }
         // 종료·이동 기록 실패도 성공으로 알리지 않는다 — 슬롯·알람을 남겨 두고 재접촉을 유도.
@@ -218,6 +224,9 @@ bool DisinfectionProcessor::disinfection_start(
 
     // 더블터치 가드로 "시작"이 재실행된 경우에는 횟수를 다시 올리지 않는다
     // (2초 안에 두 번 대면 소독 1회에 횟수 2가 되던 것 — 2.2.5 수정).
+    // [8차 판정 · 재론 금지] 커밋(위 write_process)이 확인 읽기에서 끊기면 여기까지 오지 못해 그 소독이
+    //  횟수에서 빠지고, 태그엔 커밋이 남아 재접촉이 종료가 된다 → 액교환 주기가 1회 늦어진다(CC2 P3-2).
+    //  순서를 바꾸면 **실패한 시작도 횟수를 올린다** — 그쪽이 더 나쁘다(횟수는 액교환 주기의 근거다).
     if (!isGuest && !isRestart) disinfectionOption.IncrementCount();
     return true;
 }
