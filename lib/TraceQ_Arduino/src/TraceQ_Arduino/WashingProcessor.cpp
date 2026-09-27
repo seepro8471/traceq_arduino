@@ -12,6 +12,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
 
     // 더블터치 = 태그에 적힌 시작이 2초 안 — 종료가 아니라 시작 다시 하기(소독기와 같은 규칙).
     DateTime startDt{};
+    bool isRestart = false;   // 더블터치 가드로 시작이 재실행됐는지(소독기와 같은 이름)
     if (isEnd)
     {
         const int8_t just = started_just_now(SECTOR2_WASHING_START, rtc, &startDt);
@@ -20,7 +21,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
             printer.CustomWarning(0, 2, 100, 4, F("Read Error"));   // 판정 불가 — 알람·기록 그대로, 다시 대게
             return;
         }
-        if (just) isEnd = false;
+        if (just) { isEnd = false; isRestart = true; }
     }
 
     if (isEnd)
@@ -37,7 +38,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     else
     {
         // 커밋 전 실패는 성공으로 알리지 않는다 — 알람 없이 재접촉을 유도.
-        if (!washing_start(deviceNumber, alarmOption, rtc))
+        if (!washing_start(deviceNumber, alarmOption, rtc, isRestart))
         {
             printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
             return;
@@ -79,7 +80,8 @@ void WashingProcessor::update_process(int deviceNumber)
     mCachedProcess.Rewrite       = 1;
 }
 
-bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmOption, DefaultRtc &rtc)
+bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmOption, DefaultRtc &rtc,
+                                     bool isRestart)
 {
     const auto current = rtc.GetCurrentDateTime();
     WashingRecord record{
@@ -90,15 +92,26 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
 
     // ★지난 주기 표지를 **먼저 내린다** — 커밋 전에 접촉이 끊기면 태그가 '공정 없음' 이라 소독기·서버가
     //  거부음으로 알린다. 안 내리면 지난 주기 Rewrite=2 가 남아 소독기가 그 접촉을 소독 '종료' 로 기록했다.
+    //  ★재시작(더블터치)은 건너뛴다 — 이번 주기 커밋이 이미 지웠고, 그것을 다시 0 으로 내렸다가 찢기면
+    //   **커밋된 이번 주기 세척 시작이 사라진다**(소독기·서버가 그 주기를 거부한다). 소독 시작의 `isRestart`
+    //   소거 건너뛰기와 같은 규칙.
+    //  [10차 판정] 대가: 아직 서버에 안 올린 **지난 주기**는 이 선행 쓰기 시점(접촉 초반)에 덤프 불가가 된다
+    //   — 종전엔 커밋(접촉 끝)까지 살았다. 성공한 세척 시작도 그 주기를 어차피 덮으므로 잃는 것은
+    //   "찢긴 시도에서 몇 초 일찍" 뿐이고, 안 내리면 **안 한 소독이 완료로 대장에 남는다**(9회차 P1).
     const uint8_t prevStatus = mCachedProcess.Status;
-    mCachedProcess = Process{prevStatus};
-    if (!write_process()) return false;
-
-    // 환자정보 없는 태그면 옛 환자 블록도 비운다 — PC 는 Status 를 안 보고 블록 8·9 를 등록번호·이름으로 저장한다.
-    if (prevStatus != 1)
+    if (!isRestart)
     {
-        unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
-        if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
+        mCachedProcess = Process{prevStatus};
+        if (!write_process()) return false;
+
+        // 환자정보 없는 태그면 옛 환자 블록도 비운다 — PC 는 Status 를 안 보고 블록 8·9 를 등록번호·이름으로 저장한다.
+        //  ★0 일 때만 — 레거시 2/3 은 update_process 가 처리한다(3 은 '환자정보 있음' 이라 비우면 "Status=1 인데
+        //   블록은 빈" 태그가 되고, 2 는 같은 블록을 두 번 지워 접촉 예산을 넘겼다).
+        if (prevStatus == 0)
+        {
+            unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
+            if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
+        }
     }
 
     update_process(deviceNumber);

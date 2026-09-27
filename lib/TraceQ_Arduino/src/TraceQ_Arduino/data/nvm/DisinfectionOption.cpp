@@ -29,6 +29,9 @@ int  DisinfectionOption::GetCount() const
     EEPROM.get(mCountAddr, mCount);
     return mCount < 0 ? 0 : mCount;   // 세터 범위 밖 값은 돌려주지 않는다
 }
+// [10차 판정 · 재론 금지] 이 파일의 2바이트 설정값(횟수·MaxCount·클리어횟수)도 DeviceOption 과 같다 —
+//  쓰는 중 전원이 끊기면 유효값이 남고(MaxCount 300 → 44 = 액교환 주기 왜곡) 아무도 못 잡는다.
+//  기기번호는 델파이가 목록 대조로 걸러내지만 MaxCount 는 걸러지지 않는다. 판정 근거는 DeviceOption 참조.
 void DisinfectionOption::SetCount(int count)
 {
     if (count < 0) count = 0;

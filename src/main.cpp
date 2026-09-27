@@ -487,6 +487,7 @@ __attribute__((unused)) void serialEvent()
             const size_t add = Serial.readBytes(buffer + len, BUFFER_SIZE - 1 - len);
             if (add == 0) break;
             len += add;
+            buffer[len] = 0;   // memmove 뒤 잔재가 새 데이터 바로 뒤에 남는다 — 문자열 끝을 되세운다
             // ★붙인 조각이 **새 레코드 머리**로 시작하면 앞의 미완 레코드를 버린다. 안 버리면 좁히기가 앞
             //  레코드를 잡고 칸마다 다른 레코드를 집어 **두 환자가 섞인 기록**이 성공음과 함께 나갔다(CC1 P1-1).
             //  G2 는 앞부분에 이미 경계 G2 가 있을 때만 새 머리다 — 아니면 'G1 만 늦게 온' 같은 레코드의 G2 라
@@ -494,7 +495,8 @@ __attribute__((unused)) void serialEvent()
             const char *chunk = buffer + before;
             // G1 도 **그 조각 안에 경계 G2 가 있을 때만** 새 머리다 — 등록번호가 'G1…' 인 환자의 전문이
             //  그 자리에서 갈리면 같은 레코드의 앞부분을 버려 환자를 잃었다(9차 DD1). 대가: G1 조각만 먼저 오고
-            //  G2 가 늦는 새 레코드는 본체번호를 잃는다(기기 자체 번호로 폴백) — 환자를 잃는 쪽보다 낫다.
+            //  G2 가 늦는 새 레코드는 본체번호를 잃는다 — 그때 폴백은 기기 자체 번호가 아니라 **앞서 받은
+            //  본체번호**다(mGateNumber 는 패킷을 넘어 남는다 · 10차 정정). 그래도 환자를 잃는 쪽보다 낫다.
             bool newHead = (chunk[0] == 'G' && chunk[1] == '1' && GatewayProcessor::HasMarker(chunk, "G2"));
             if (!newHead && chunk[0] == 'G' && chunk[1] == '2')
             {

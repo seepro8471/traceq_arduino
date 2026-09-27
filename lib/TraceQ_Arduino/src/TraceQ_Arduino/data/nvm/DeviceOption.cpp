@@ -56,6 +56,10 @@ int DeviceOption::GetNumber() const
     return mNumber < 0 ? 0 : mNumber > 999 ? 999 : mNumber;   // 세터 범위 밖 값은 돌려주지 않는다
 }
 
+// [10차 판정 · 재론 금지] 2바이트 int 를 쓰는 중 전원이 끊기면 **사람이 고르지 않은 유효값**이 남는다
+//  (실측 300 → 44 = 낮은 바이트만 써진 것 · 창 3ms). 범위 검사로는 못 가른다(44 도 유효값). 표지·검사합을
+//  두면 설정마다 상태가 늘고, 방아쇠는 전원 불안정뿐(사장님 판정 09-27)이라 그대로 둔다.
+//  다시 볼 조건: 전원이 불안정한 현장에서 기기번호·MaxCount 가 저 혼자 바뀐 로그가 나오면.
 void DeviceOption::SetNumber(int number)
 {
     if (number < 0) number = 0;
