@@ -311,7 +311,8 @@ int main()
         CHECK(disinfectionOption.GetCount() == 32767 && lcd_has("MaxCount Over"),
               "X2 P3-1 소독 횟수 32767 에서 +1 은 0 으로 돌지 않는다(MaxCount Over 유지)");
         // 경계 32766→32767 은 아직 센다(포화점이 한 칸 낮으면 상한 32767 을 영영 못 채운다 — Y1 P3-1 잠금 구멍)
-        disinfectionOption.SetMaximumCount(32767);
+        //  15차 C5: MaxCount 는 999 까지(넘으면 0 = 제한 없음) — 32767 ≥ 999 라 판정은 같다
+        disinfectionOption.SetMaximumCount(999);
         disinfectionOption.SetCount(32766);
         washed_scope(b, 0x96, 96);
         logs_clear();

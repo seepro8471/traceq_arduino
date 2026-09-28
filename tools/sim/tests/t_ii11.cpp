@@ -1,7 +1,8 @@
 // II-H 제안 잠금 4 — 접촉 예산(카드 동작 수)으로만 드러나는 두 봉합. HEAD 9379441 초록 · 되돌림 변이 빨강이어야 한다.
 //  G) v2.2.29 "Status==2 는 잔재 판정을 건너뛴다"(update_process 가 같은 블록을 지운다 — 중복이면 예산 초과).
 //     t_hh1b 8c 는 잔재 소거 동작을 Status 0·1·3·200 에서만 재고 **2 는 안 잰다** → 건너뛰기를 지워도 초록.
-//  H) v2.2.30 "검사일시 0 이면 블록14 를 읽지도 않는다"(접촉 예산). t_ops 상한 40 이 34→36 을 못 가른다.
+//  H) 검사일시 0 이면 잔재 소거를 하지 않는다(`Year != 0` 관문 · 접촉 예산). t_ops 상한 40 이 34→36 을 못 가른다.
+//     (v2.2.30 의 "블록14 를 읽지 않는다" 는 2.2.32 에서 블록14 를 아예 안 읽게 되어 지금은 이 관문이 잠그는 것이다.)
 #include "common.h"
 
 static SimCard mgr, sc;
@@ -15,7 +16,7 @@ int main()
     make_tag(mgr, 0x01, MANAGER_TYPE_TAG, 7, "ND01456", "KIMJH");
     touch(mgr);
 
-    // ── G) Status=2(1.0 전환 태그) + 지난 주기 잔재(검사 ≤ 지난 세척 종료) ──
+    // ── G) Status=2(1.0 전환 태그) + 지난 주기 검사 잔재 — 표지 판정은 Status 0 만, 이 갈래는 update_process 가 지운다 ──
     {
         make_tag(sc, 0x41, SCOPE_TYPE_TAG, 41, "SC0041", "S0041");
         set_process(sc, Process{2, 0, 0, 0, 0, false, 0, 0});   // 덤프 뒤(공정 0) + Status 2 — 잔재 판정 갈래에 닿는 상태(14차)
@@ -42,7 +43,7 @@ int main()
         tlog("  H 검사일시 0 세척 시작 → 동작 %u\n", (unsigned)sc.opCount);
         CHECK(get_process(sc).Rewrite == 1, "H 전제: 세척 시작 커밋");
         CHECK(sc.opCount <= 34,
-              "H 검사일시가 0 이면 블록14(지난 세척 종료)를 읽지 않는다 — 매일 도는 세척 시작 34 동작");
+              "H 검사일시가 0 이면 잔재 소거(섹터15·블록5)를 하지 않는다 — 매일 도는 세척 시작 34 동작");
     }
 
     tlog("  resets=%u\n", g_resetCount);

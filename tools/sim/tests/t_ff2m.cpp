@@ -1,5 +1,5 @@
 // 11차 FF2 P1-1 봉합 잠금 — **종료는 시작한 기기에서만**.
-//  이동 표시(mMovable)는 RAM 이라 ① 그 소독기 재부팅 ② 다른 태그 한 번 거부로 사라진다. 사라진 뒤 도착
+//  이동 표시(mMovable)는 RAM 이라 ① 그 소독기 재부팅 ② 새 1차 시작으로 사라진다(거부는 15차 A1 뒤로 안 내린다). 사라진 뒤 도착
 //  소독기에 대면 종전엔 또 '종료' 로 처리돼 앞 기기의 종료 시각을 **조용히 덮었다**(도착기 소독이 대장에서
 //  사라져 소독 횟수 과소 = 액교환이 늦어진다). 사장님 확인(09-27): 액교환 없는 기기 간 이동도, 운용 중
 //  기기번호 변경도 없다 → 다른 기기의 종료는 거부한다.
@@ -111,7 +111,8 @@ int main()
               "★② 앞 기기의 종료 기록(기기번호·시각)이 덮이지 않는다");
     }
 
-    // ── ③ 잠금: 액교환 뒤 **다른 태그가 한 번 거부**되면(재부팅 없이) 표시가 내려간다 ──
+    // ── ③ (15차 사장님 A1) 액교환 뒤 **다른 태그가 거부**돼도 표시는 남는다 — 출발기 접촉은 이동, 도착기는 2차 시작 ──
+    //  종전(2.2.5~2.2.32)은 거부가 표시를 내려 A→A 에선 꺼냄·되넣음·끝남이 전부 1차 (재)종료가 됐다(15차 III-C P1). 1.0 은 안 내렸다.
     {
         rtc_set(rel_date(15, 0, 0));
         dev_switch(0);
@@ -119,19 +120,24 @@ int main()
         touch(sc);                                     // 1차 시작(기기 2)
         rtc_set(rel_date(15, 20, 0));
         touch(clr);                                    // 액교환
-        touch(other);                                  // ★세척 안 된 스코프 거부 → 이동 표시 내려감
+        touch(other);                                  // 세척 안 된 스코프 거부 — 표시는 그대로
         rtc_set(rel_date(15, 22, 0));
-        touch(sc);                                     // 출발기 종료
+        logs_clear();
+        touch(sc);                                     // 출발기 접촉 = 이동
+        const Process pm = get_process(sc);
         const LocalDateTime t1 = get_ldt(sc, SECTOR6_DISINFECTION_END);
         rtc_set(rel_date(15, 50, 0));
         dev_switch(1);
         logs_clear();
-        touch(sc);
-        const LocalDateTime t2 = get_ldt(sc, SECTOR6_DISINFECTION_END);
-        tlog("  ③ 거부로 표시 내려간 뒤: %02u:%02u → %02u:%02u 거부=%d\n",
-             t1.Time.Hour, t1.Time.Minute, t2.Time.Hour, t2.Time.Minute, lcd_has("Other Machine"));
-        CHECK(lcd_has("Other Machine") && t2.Time.Minute == t1.Time.Minute,
-              "★③ 거부로 이동 표시가 내려간 경우도 같다(재부팅이 없어도 된다)");
+        touch(sc);                                     // 도착기(3) 2차 시작
+        const Process p2 = get_process(sc);
+        tlog("  ③ 거부 뒤 출발기: MV=%u RW=%u 1차종료 %02u:%02u · 도착기: DC=%u MN=%u 거부=%d\n",
+             pm.MovementNeeded, pm.Rewrite, t1.Time.Hour, t1.Time.Minute, p2.DisinfectionCount, p2.MachineNumber,
+             lcd_has("Other Machine"));
+        CHECK(pm.MovementNeeded == 1 && pm.Rewrite == 0 && t1.Time.Hour == 15 && t1.Time.Minute == 22,
+              "★③ 거부 뒤에도 출발기 접촉은 이동으로 기록된다(표시를 안 내린다 · 1.0 동일)");
+        CHECK(!lcd_has("Other Machine") && p2.DisinfectionCount == 2 && p2.MachineNumber == 3,
+              "★③b 그 스코프는 도착기에서 2차 시작이 된다");
     }
 
     // ── ④ 대조: 같은 기기에서의 정상 종료는 막히지 않는다(막힘이 생기면 안 된다) ──

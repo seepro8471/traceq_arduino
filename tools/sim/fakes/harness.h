@@ -18,8 +18,8 @@ struct SimCard
     // 고장 주입
     int16_t failAuthAt;       // n번째 인증 시도를 실패시킨다(카드 → IDLE). 0=없음
     int16_t failWriteAt;      // n번째 쓰기를 실패시킨다(카드 → IDLE). 0=없음
-    int16_t nackBlock;        // 이 블록 쓰기만 NACK — **카드는 살아 있다**(실물의 쓰기 거부·ACK 유실).
-                              //   가정 ③ 및 "한 블록만 실패해도 나머지는 성공" 을 표현한다. -1=없음
+    int16_t nackBlock;        // 이 블록 쓰기만 NACK(데이터 안 씀) — 카드는 AUTH 로 **산다**(다음 블록 쓰기 성공).
+                              //   README 가정 ③("NACK → IDLE" = failWriteAt)의 **반대** — 도구 안에서 갈린다 · 실기 미확인. -1=없음
     uint8_t nackBlockSkip;    // 그 블록의 처음 n회 쓰기는 통과(검증 재기록 뒤부터 실패시킬 때)
     int16_t removeAfterOps;   // 인증·읽기·쓰기 n회 뒤 필드 이탈. 0=없음
     int16_t readErrBlock;     // 이 블록 읽기를 리더 쪽 오류로(카드 상태 유지). -1=없음
@@ -79,10 +79,10 @@ const char *dwell_text(uint8_t i);
 #endif
 
 // ── 버튼 스크립트 (LOW=눌림) ──
-void buttons_script(const char *seq);
+void buttons_script(const char *seq);            // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
 void buttons_at(char btn, uint32_t atMs);        // g_ms 가 atMs 에 이르면 그 버튼('S','L','R')이 한 번 눌린다
 void buttons_hold(char btn, uint32_t untilMs);   // g_ms < untilMs 동안 그 버튼이 계속 눌린 채(붙은 채 고장·길게 누름)
-extern uint32_t g_btnIdleLimit;        // 스크립트 소진 뒤 이만큼 더 읽으면 시험을 끊는다(기본 30000)   // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
+extern uint32_t g_btnIdleLimit;        // 스크립트 소진 뒤 이만큼 더 읽으면 시험을 끊는다(기본 30000)
 extern uint16_t g_minSP;                // 버튼 읽는 자리에서 본 최저 SP
 
 // ── AA3 스택 계측 ──  (SP 는 데이터공간 주소. 스택은 아래로 자란다)
@@ -97,7 +97,8 @@ void sim_sp_leave();
 #define SIM_SP() do { const uint16_t _sp = SP; if (_sp < g_spMinAll) g_spMinAll = _sp;                       if (_sp < g_spCallMin) g_spCallMin = _sp; } while (0)
 
 // ★한계(AA1 P3-11): `hard_reset` 은 setup() 을 다시 부르지만 **함수 안 static·파일 스코프 변수를 되살리지 않는다**
-//   (실칩은 리셋에 .data/.bss 가 초기화된다 · 시뮬은 3KB 스냅샷을 8KB 안에 둘 수 없어 복원하지 않는다).
+//   (실칩은 리셋에 .data/.bss 가 초기화된다 · 시뮬(RAM 0x200~0x7FFF, 31.5KB)은 복원하지 않는다 —
+//   `.bss` 는 시험 시작 때 crt 가 한 번만 0 으로 만들고 `.data` 는 run.sh 가 main 진입 때 한 번만 채운다).
 //   리셋으로 지워지는 것을 전제하는 시험은 그 상태를 **직접** 되돌려 놓아야 한다 — 안 하면 헛초록·헛빨강이 난다.
 
 // ── soft reset 가로채기 ──

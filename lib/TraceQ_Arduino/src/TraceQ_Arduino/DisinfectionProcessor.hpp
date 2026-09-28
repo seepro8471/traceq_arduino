@@ -15,6 +15,7 @@ public:
     // 일회성 플래그(mDisposabilityFlag)가 소독 과정과 같은 곳에 충전된다.
     // (1.0은 washingProcessor에 저장하는 인스턴스 불일치 버그가 있었음)
     using RecordProcessor::SaveManagerData;
+    using RecordProcessor::ResetDisposability;
 
     void DisinfectionProcess(int deviceNumber, const AlarmOption &alarmOption,
                              DisinfectionOption &disinfectionOption, const ManagerOption &managerOption,
@@ -24,9 +25,10 @@ public:
 
 protected:
     bool disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc, const DateTime &startDt);
-    /// \param isRestart 더블터치 2초 가드로 "시작"이 재실행된 경우 — 소독 횟수를
-    ///                  중복으로 올리지 않기 위한 표시.
-    /// \return 커밋(Process 기록)까지 성공했는가 — false 면 태그는 시작 전 상태.
+    /// \param isRestart 더블터치(10초 창)로 "시작"이 재실행된 경우 — 여기서는 소독 횟수를 올리지 않는다
+    ///                  (앞 시도가 커밋 뒤 못 올렸으면 호출자가 올린다 · 16차).
+    /// \return 커밋(Process 기록)까지 성공했는가 — false 면 커밋이 확인되지 않았다(새 시작 블록 일부는
+    ///         이미 됐을 수 있고, 확인 읽기만 실패했으면 커밋도 태그에 있다).
     bool disinfection_start(int deviceNumber, bool isMoved, bool isGuest, bool isRestart,
                             const AlarmOption &alarmOption,
                             DisinfectionOption &disinfectionOption, DefaultRtc &rtc);
@@ -44,8 +46,9 @@ private:
     /**
      * \brief 소독 시작 시각 보정.
      *
-     * 태그의 세척 시작 시각이 현재 시각보다 늦으면 소독기 RTC가 초기화된 것으로
-     * 판단하고, "세척 종료 시각 + 1분"으로 소독기 RTC를 복구한 뒤 그 시각을
+     * 태그의 세척 시작 시각이 현재 시각보다 늦고 소독기 시계가 아직 안 맞춰졌으면(`IsUnsynced` —
+     * 맞춰진 시계는 PC 기준이라 따라가지 않는다) RTC가 초기화된 것으로 판단하고,
+     * "세척 종료 시각 + 1분"으로 소독기 RTC를 복구한 뒤 그 시각을
      * 반환한다. RTC 자동 복구는 1.0과 동일하며, +1분(이동 시간 반영)은
      * 2026-08-09 사용자 확정 사양. (2.0 초기 재작성에서는 RTC 복구가 소실되고
      * +3분 가산만 있었음.) 종료 기록이 0·지난 주기면 "세척 시작 + 설정된 세척 시간"

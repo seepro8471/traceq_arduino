@@ -112,6 +112,9 @@ UserInterface::MenuFunction UserInterface::SetDeviceType(DeviceOption &option)
             option.SetType(edited);
             // 타입이 변경된 경우 재시작이 필요함. (1.0은 nullptr 함수포인터 호출(UB)로
             // 주소 0 점프를 유도했음 — 명시적 소프트 리셋으로 동일 동작.)
+            // ★리셋 전에 SELECT 를 뗄 때까지 기다린다(최대 2초 · main 의 형제 셋과 같은 줄) — 안 기다리면 재시작 뒤
+            //  첫 loop 이 아직 눌린 저장 누름을 메뉴 진입으로 먹어 61초 동안 태그를 안 읽었다(15차 III-F P3-2).
+            for (uint8_t i = 0; i < 100 && digitalRead(PIN_SELECT_BUTTON) == LOW; ++i) delay(20);
             util_soft_reset();
         }
         return MenuFunction::Save;

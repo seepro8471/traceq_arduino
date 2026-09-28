@@ -24,7 +24,8 @@ public:
      *  · PC 가 `0000` 을 주거나 아직 못 받았으면 **설정값(EEPROM)**을 쓴다 — v2.2.31 부터 설정값은
      *    **PC 가 마지막으로 준 번호**다(G1 이 설정값과 다르면 1회 반영). 그래서 재기동 직후 첫 G1 전에도 맞다.
      *
-     * 즉 PC 가 이긴다. PC 가 0 을 주면 설정값으로 폴백하지 번호가 0 이 되지는 않는다(14차 II-D 정정).
+     * 즉 PC 가 이긴다. PC 가 0 을 주면 설정값, 번호를 비우면(`G1;`) 앞서 받은 번호(없으면 설정값)를 쓴다([12차 판정]) —
+     * PC 의 0 은 태그에 쓰이지 않는다.
      */
     int effective_number(int fallback) const
     {
@@ -35,8 +36,6 @@ public:
     static bool IsGatewayFrame(const char *buffer);
     /// 버퍼에 이 마커가 **필드 경계**로 있는가(맨 앞·';' 뒤·값 없는 G1 뒤·앞 패킷 끝 G5 뒤).
     static bool HasMarker(const char *buffer, const char *marker);
-    /// 버퍼에 레코드 꼬리(필드 경계의 G5)가 있는가 — 없으면 전문이 아직 덜 왔다는 뜻이다.
-    static bool HasRecordTail(const char *buffer);
     /// 마지막 레코드 머리는 있는데 **그 뒤에** 꼬리가 없다 = 전문이 덜 왔다.
     /// ★꼬리를 버퍼 전체에서 보면 앞 레코드의 G5 에 속아 뒤 레코드를 기다리지 않는다(CC1 P3-2).
     static bool NeedsMoreBytes(const char *buffer);

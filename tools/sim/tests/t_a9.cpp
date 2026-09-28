@@ -475,7 +475,7 @@ int main()
         tlog("  BB3 Z+T -> %02u:%02u 안내=%d\n", n.hour(), n.minute(), lcd_has("updated"));
         CHECK(n.hour() == 16 && n.minute() == 45 && lcd_has("updated"),
               "BB3 P2-1 'Z' 뒤에 붙은 시각 동기가 실행된다(세척관리 연결마다의 실제 전문)");
-        // 서버 발급 명령도 같은 자리 — 델파이는 333ms 마다 'Z' 를 보낸다
+        // 서버 발급 명령도 같은 자리 — 델파이는 PSOk 응답에 'Z' 를 보낸다(333ms 는 수신 타이머 주기 · 15차 K1 정정)
         as_type('S');
         rtc_set(rel_date(10, 0, 0));
         serial_inject("Z", 1);
@@ -492,7 +492,7 @@ int main()
         memcpy(&issued, sc.data[SECTOR0_TAG], sizeof(issued));
         tlog("  BB3 Z+S 발급 -> 번호=%u 안내=%d\n", (unsigned)issued.Number, lcd_has("new tag"));
         CHECK(issued.Number == 555 && lcd_has("new tag"),
-              "BB3 P2-1 'Z' 뒤에 붙은 발급 명령도 실행된다(델파이 333ms keepalive)");
+              "BB3 P2-1 'Z' 뒤에 붙은 발급 명령도 실행된다(델파이 PSOk 응답 'Z' · 세척관리 keepalive)");
         card_remove();
         run_loops(2);
     }

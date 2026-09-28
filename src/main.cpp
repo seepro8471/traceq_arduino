@@ -26,7 +26,7 @@
 // 1.0의 DATA_NEEDS_INIT(4095) 방식은 구버전이 깔려 있던 기기에서 플래그
 // 자리에 우연히 0이 있으면 초기화를 건너뛰어 "초기화 전용 빌드를 한 번
 // 올렸다가 다시 올리는" 이중 작업이 필요했다 — 도장 방식은 어떤 이전
-// 상태에서도 확실히 1회 초기화된다.
+// 상태에서도 새 판의 첫 부팅을 확실히 알아챈다(공장·손상은 초기화 · 쓰던 기기는 묻는다).
 //
 // ★도장의 재료는 **버전 문자열**이다(2.2.5 정정). 처음엔 `__DATE__ __TIME__`
 //  을 썼는데, 그것은 "main.cpp 를 다시 컴파일한 시각"이라 lib 의 .cpp 만
@@ -97,7 +97,7 @@ static bool __attribute__((noinline)) right_held_at_boot()
     return true;
 }
 
-// 업로드 직후 1회 — 설정을 지울지 묻는다. 조작은 리더기 메뉴와 같다: `<` `>` 로 고르고 MENU 로 확정.
+// 새 판 첫 부팅(또는 켤 때 RIGHT)에 쓰던 기기면 — 설정을 지울지 묻는다. 조작은 리더기 메뉴와 같다: `<` `>` 로 고르고 MENU 로 확정.
 // 10초 무응답이면 유지(안전한 쪽). 1.4.1 과 EEPROM 주소가 같아 유지하면 기기번호·세척시간·담당자·
 // 소독 횟수·액교환일이 그대로 남는다.
 static bool __attribute__((noinline)) ask_erase_settings()
@@ -192,7 +192,8 @@ void setup()
         if (!deviceOption.HasStoredSettings() || ask_erase_settings())
         {
             // update()는 이미 같은 값인 셀을 건너뛰므로 재초기화 시 빠르고 수명 소모가 적다.
-            // 쓰던 기기는 4KB×3.3ms ≈ 14초가 걸린다 — 진행을 보여 주지 않으면 고장처럼 보인다(4차 D).
+            // 공장(0xFF) 기기는 4KB×3.3ms ≈ 14초가 걸린다(한 번 소거된 기기는 0 이 아닌 칸만 써서 1초 안) —
+            //  진행을 보여 주지 않으면 고장처럼 보인다(4차 D).
             lcd.init();
             lcd.backlight();
             ui.Info(0, 0, F("Initializing...     "));
@@ -277,10 +278,10 @@ void loop()
 #endif
     ui.DisplayHome(rtc, homeNumber);
 
-    // [8차 판정 · 재론 금지] 한 loop 이 태그를 못 보는 시간이 있다 — 알림음(최대 1.6초 = 400ms 펄스 2회)·**알람
-    //  발화(실측 2430ms = 300ms 펄스 4회 · 13차 HH2 P3-1 정정)**·거부음·메뉴(사람이
-    //  나올 때까지)·PC 수신 대기. 그 사이 댔다 뗀 태그는 **통째로 없던 일이 된다**(기록은 틀리지 않고 무음이라
-    //  사람이 다시 댄다 · CC2 P3-1). 없애려면 폴링을 인터럽트로 옮겨야 해서 두지 않는다.
+    // [8차 판정 · 재론 금지] 한 loop 이 태그를 못 보는 시간이 있다 — 알림음(한 접촉 최대 2.6초 = 소독기 MaxCount Over
+    //  1초 + 환자 없음 1.6초)·**알람 발화(실측 2430ms = 300ms 펄스 4회 · 13차 HH2 P3-1 정정)**·거부음·메뉴(나올 때까지 ·
+    //  화면마다 60초 무조작이면 나간다)·PC 수신 대기. 그 사이 댔다 뗀 태그는 **통째로 없던 일이 된다**(기록은
+    //  틀리지 않고 무음이라 사람이 다시 댄다 · CC2 P3-1). 없애려면 폴링을 인터럽트로 옮겨야 해서 두지 않는다.
     // 1.0과 달리 매번 Rc522Initialize() 호출하지 않음. 죽었을 때만 재초기화.
     // [사장님 판정 09-27 · 재론 금지] 리더 표시가 꺼졌다 켜지는 일(= 이 갈래가 도는 일)은 **전원 불안정 외에는
     //  없다**. 그래서 빈도를 세는 표시도 넣지 않는다(사장님 확정). 재초기화 뒤 태그가 다시 잡히는 경우도
@@ -361,8 +362,9 @@ void loop()
         {
             // ★읽기 자체가 실패한 경우에만 사유를 표시한다. 회사코드 불일치(인증은 됐지만 다른 회사의 태그)는
             //  조용히 무시한다. 이 구분이 없어서 "태그를 댔는데 아무 반응이 없다"의 원인이 카드 문제인지 리더
-            //  문제인지 알 수 없었다 (2.2.5). ★키가 다른 카드(호텔·교통 카드)는 여기까지 못 온다 — 인증 실패로
-            //  `AuthFailed` 화면·실패음이 난다(t_rfid A2-1 이 잠근 계약 · 1.0 은 읽기 결과를 안 봐 무음이었다).
+            //  문제인지 알 수 없었다 (2.2.5). ★키가 다른 MIFARE Classic 카드는 인증 실패로 `AuthFailed` 화면·실패음이
+            //  난다(t_rfid A2-1 이 잠근 계약 · 1.0 은 읽기 결과를 안 봐 무음이었다). Classic 이 아닌 카드(교통카드 대부분)는
+            //  `Poll` 이 `Invalid` 로 걸러 여기까지 안 오고 무음이다.
             if (companyRead != RfidResult::Ok)
             {
                 ui.Info_cstr(0, 3, "     ");   // 앞 건의 스코프 번호를 지운다 — print_tag_number 의 형제(14차 II-G P3-3)
@@ -388,6 +390,9 @@ void loop()
         }
         else
         {
+            // 번호를 안 읽는 알림은 3행의 앞 건 스코프 번호를 지운다 — print_tag_number 의 형제(15차 III-F · 알림 자리 전부 =
+            //  main 6 + 발급 5(SerialProcessor · 16차))
+            ui.Info_cstr(0, 3, "     ");
             ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 처리할 수 없는 태그 = 거부음
         }
         break;
@@ -397,7 +402,10 @@ void loop()
         else if (company.TagType == MANAGER_TYPE_TAG)
             washingProcessor.SaveManagerData(recordOption, managerOption, ui);
         else
+        {
+            ui.Info_cstr(0, 3, "     ");
             ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 안 되는 태그(클리어 등) — 무음이던 것을 거부음으로 통일(사장님 09-27)
+        }
         break;
     case DISINFECTION_TYPE_DEVICE:
         if (company.TagType == SCOPE_TYPE_TAG)
@@ -406,7 +414,10 @@ void loop()
         if (company.TagType == MANAGER_TYPE_TAG)
             disinfectionProcessor.SaveManagerData(recordOption, managerOption, ui);
         if (company.TagType != SCOPE_TYPE_TAG && company.TagType != MANAGER_TYPE_TAG && company.TagType != CLEAR_TYPE_TAG)
+        {
+            ui.Info_cstr(0, 3, "     ");
             ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 무음이던 것을 거부음으로 통일(사장님 09-27)
+        }
         if (company.TagType == CLEAR_TYPE_TAG)
         {
             // ★미룸을 **맨 먼저** 세운다 — 뒤 쓰기 도중 전원이 끊겨도 다음 부팅이 교환일을 다시 쓴다.
@@ -420,8 +431,10 @@ void loop()
                 disinfectionOption.SetClearDateTime(rtc.GetCurrentLocalDateTime());
                 disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
             }
+            // [15차 사장님께 물음(09-28) · 그대로 · 재론 금지](C4) 더블터치 가드가 없어 두 번 대면 +2 — 소비처는 JSON 통계뿐(나머지는 멱등).
             disinfectionOption.IncrementClearCount();
             disinfectionProcessor.SetMovable();
+            ui.Info_cstr(0, 3, "     ");
             ui.Notify(0, 2, 500, F("Clear"));
         }
         break;
@@ -431,10 +444,14 @@ void loop()
             if (serialProcessor.IsAuthenticated())
                 serialProcessor.LoopProcess(ui);
             else
+            {
+                ui.Info_cstr(0, 3, "     ");
                 ui.Reject(0, 2, F("Not Connected"));   // PC 미인증 — 무음이던 것을 거부음으로(사장님 09-27 통일). 시리얼엔 안 낸다
+            }
         }
         else
         {
+            ui.Info_cstr(0, 3, "     ");
             ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 처리할 수 없는 태그 = 거부음
         }
         break;
@@ -459,16 +476,16 @@ __attribute__((unused)) void serialEvent()
     // ★앞 읽기가 한도(511)에서 끊겼으면 이 버퍼는 그 전문의 꼬리일 수 있다 — 값 한가운데의 'C'/'M'/'S' 가
     //  발급 명령으로 실행돼 리더 위 태그가 덮였다(Z2 P3-2). 단 **버퍼를 버리지는 않는다**: 링이 511 로 차서
     //  뒷동을 ISR 이 이미 버린 경우엔 다음 버퍼가 정당한 새 전문이라, 버리면 환자 패킷을 잃었다(AA2 P1-2).
-    //  둘을 구별할 수 없으므로 **서버 레거시 명령 실행만** 막는다(게이트웨이는 아래 머리·꼬리 관문이 본다).
+    //  둘을 구별할 수 없으므로 **서버 레거시 명령과 레거시 시각 동기('T')만** 막는다(게이트웨이는 아래 머리·꼬리 관문이 본다).
     // [6차 판정 · 재론 금지] **한 환자 전문으로는 511 을 만들 수 없다**(실측: SeePro 100B · 세척관리 최대 115B ·
-    //  올눈 5조각 167B). 쌓이는 길은 둘뿐인데 사장님 확인(09-27) 으로 둘 다 현장에 없다 — ① 올눈에서 1초 안에
+    //  델파이 TraceQ 5조각 167B). 쌓이는 길은 둘뿐인데 사장님 확인(09-27) 으로 둘 다 현장에 없다 — ① 올눈에서 1초 안에
     //  연달아 전송하지 않는다 ② 환자를 보내는 중에 리더 메뉴를 열어 두거나 첫 부팅 소거 중인 일이 없다.
     //  그래서 이 관문은 **보험**이고, 511 초과 횟수를 세는 진단 표시는 넣지 않는다(화면을 건드리지 않는다).
     static bool sTailOfTruncated = false;
     const bool isTail = sTailOfTruncated;
 
     // ★맨 앞의 'Z'(PC 가 인증·keepalive 로 보내는 한 바이트)는 건너뛰고 명령 머리를 본다 — 세척관리는 연결마다
-    //  'Z' 직후 'T…' 를, 델파이는 333ms 마다 'Z' 를 보내 한 버퍼에 붙는다. 종전엔 머리가 'Z' 라 뒤 명령이 통째로
+    //  'Z' 직후 'T…' 를 보내 한 버퍼에 붙는다(델파이는 PSOk 응답에만 'Z' — 333ms 는 그 수신 타이머 주기). 종전엔 머리가 'Z' 라 뒤 명령이 통째로
     //  유실됐다(BB3 P2-1 — 시각 동기가 자동 경로에서 한 번도 실행되지 않았고 발급 명령도 같은 자리다).
     //  인증은 버퍼 전체에서 'Z' 를 찾으므로(LegacySerialEvent) 여기서 건너뛰어도 인증은 그대로 된다.
     const char *cmd = buffer;
@@ -479,18 +496,18 @@ __attribute__((unused)) void serialEvent()
     //  찾으면 값에 ';G2' 가 든 설정 JSON 을 가로챘다(BB1 P3-5). 먼저 오는 쪽 규칙은 둘 다 맞힌다:
     //  검사명에 '{' 가 든 G 패킷은 G 마커가 앞이고, 값에 ';G2' 가 든 JSON 은 '{' 가 앞이다.
     const bool gatewayFrame =
-        deviceType == GATEWAY_TYPE_DEVICE && GatewayProcessor::IsGatewayFrame(buffer);
+        deviceType == GATEWAY_TYPE_DEVICE && GatewayProcessor::IsGatewayFrame(cmd);   // 'Z' 건너뛴 머리(형제와 같은 규칙 · 16차)
 
-    // ★전문이 덜 왔으면(마지막 머리 뒤에 꼬리가 없으면) 한 조각씩 더 기다려 이어 붙인다. 올눈은 다섯 조각을
-    //  250ms 간격으로 보내는데, 어느 이음매가 1초를 넘으면 종전엔 조각마다 따로 처리돼 환자정보가 **통째로
-    //  유실**됐다(BB2 P2-1). ★온전한 전문은 한 번도 더 기다리지 않는다.
+    // ★전문이 덜 왔으면(마지막 머리 뒤에 꼬리가 없으면) 한 조각씩 더 기다려 이어 붙인다. 올눈(ALLNuN · G2~G5 네 조각)과
+    //  델파이 TraceQ(G1~G5 다섯 조각)는 조각을 250ms 간격으로 보내는데, 어느 이음매가 1초를 넘으면 종전엔
+    //  조각마다 따로 처리돼 환자정보가 **통째로 유실**됐다(BB2 P2-1). ★온전한 전문은 한 번도 더 기다리지 않는다.
     //  ★대기를 짧게(300ms) 낮추자는 안은 **쓰지 않는다**(CC1 P3-0): 막아야 할 이음매가 정의상 1초를 넘는
     //   것이므로(1초 안이면 첫 읽기가 이미 잡았다) 짧추면 이 봉합이 존재하는 이유가 사라진다 — 실제로
     //   1.8초 이음매 잠금이 빨강이 됐다. 폴링 정지(최악 6.2초)는 전문이 덜 왔을 때만이라 감수한다.
-    if (gatewayFrame && GatewayProcessor::NeedsMoreBytes(buffer))
+    if (gatewayFrame && GatewayProcessor::NeedsMoreBytes(cmd))
     {
         for (uint8_t more = 0; more < 3 && len < BUFFER_SIZE - 1 &&
-                               GatewayProcessor::NeedsMoreBytes(buffer); ++more)
+                               GatewayProcessor::NeedsMoreBytes(cmd); ++more)
         {
             const size_t before = len;
             const size_t add = Serial.readBytes(buffer + len, BUFFER_SIZE - 1 - len);
@@ -534,12 +551,13 @@ __attribute__((unused)) void serialEvent()
 
     // raw 명령은 머리로 안다 — 환자명·검사명에 '{…}' 가 있어도 JSON 으로 오판해 버리지 않는다
     // (버리면 다음 스코프에 직전 환자가 기록된다). JSON 은 STX 나 '{' 로 시작하므로 겹치지 않는다.
-    // ★게이트웨이는 'Z' 를 건너뛴 **머리글자**로 본다 — 머리글자만 보면 앞에 한 바이트(세척관리의 30초
-    //  keepalive 'Z')만 붙어도 패킷을 통째로 버렸고(AA2 P1-1), 버퍼 어디든 G1·G2 마커를 찾으면 값 안에
-    //  ';G2' 가 든 설정 JSON 을 가로챘다(BB1 P3-5). 세 PC 는 모두 G1(또는 G1G2)로 전문을 시작한다.
+    // ★게이트웨이 전문은 위 `IsGatewayFrame`('{' 와 G 마커 중 먼저 오는 쪽)으로 가른다 — 머리글자가 아니다.
+    //  전문은 G1(델파이 TraceQ·세척관리) 또는 G2(올눈 ALLNuN — G1 을 안 보낸다)로 시작한다.
     // (레거시 시각 동기 'T' 는 '{' 가 없어 어차피 NotJson 으로 오므로 여기 넣지 않는다)
     // [14차 판정 · 재론 금지] 위 "JSON 은 겹치지 않는다" 는 W/D/G 한정이다 — 서버는 `buffer[0]=='Z'` 항 때문에 'Z' 가
-    //  앞에 붙은 JSON 을 버린다(II-A P3-3). 현장 발신자가 없고(세척관리는 JSON 을 안 보내고 설정기는 'Z' 를 안 보낸다),
+    //  앞에 붙은 JSON 을 버린다(II-A P3-3). 세척관리는 JSON 을 안 보내고, 설정기는 PSOk 에 'Z' 로 답하지만 JSON 과
+    //  한 버퍼에 겹치는 것은 PSOk 직후 JSON 이 우연히 붙을 때뿐이다(연결 직후 자동 읽기 등 — 그 명령만 무응답,
+    //  다시 누르면 된다).
     //  그 항을 지우면 같은 버퍼의 'Z' 인증이 빠지므로 그대로 둔다.
     const bool rawHead =
         gatewayFrame ||
@@ -616,7 +634,18 @@ void handle_menu(UserInterface::MenuFunction function)
             case UserInterface::MenuFunction::AlarmFlag:            function = ui.SetRecordAlarmFlag(alarmOption); continue;
             case UserInterface::MenuFunction::AlarmTimeSlot:        function = ui.SetRecordAlarmTimeSlot(deviceType, alarmOption); continue;
             case UserInterface::MenuFunction::PatientCheck:         function = ui.SetRecordPatientCheck(recordOption); continue;
-            case UserInterface::MenuFunction::ManagerDisposability: function = ui.SetRecordManagerDisposability(recordOption); continue;
+            case UserInterface::MenuFunction::ManagerDisposability:
+            {
+                const bool before = recordOption.GetManagerDisposability();
+                function = ui.SetRecordManagerDisposability(recordOption);
+                // ★[15차 사장님 A7] 설정이 바뀌면 앞서 세운 일회성 표지를 버린다 — ON→OFF→ON(재부팅 없이) 뒤 담당자 없이 첫 시작이 통과했다.
+                if (before != recordOption.GetManagerDisposability())
+                {
+                    washingProcessor.ResetDisposability();
+                    disinfectionProcessor.ResetDisposability();
+                }
+                continue;
+            }
             default: break;
             }
         }

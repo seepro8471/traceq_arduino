@@ -33,13 +33,13 @@ int main()
         deviceOption.SetNumber(1);
     }
 
-    // ── M) MaxCount 제목 4자리 ──
+    // ── M) MaxCount 제목 — 15차 C5 뒤 최댓값은 999(넘으면 0) · 3자리에서 닫는 괄호까지 보인다(4자리는 도달 불가) ──
     {
-        disinfectionOption.SetMaximumCount(9999);
+        disinfectionOption.SetMaximumCount(999);
         logs_clear();
         const int r = GUARDED(ui.SetDisinfectionMaximumCount(disinfectionOption));   // 무조작 60초 → Exit
-        tlog("  M r=%d 제목 보임=%d\n", r, (int)lcd_has("Max Count (9999)"));
-        CHECK(lcd_has("Max Count (9999)"), "M MaxCount 제목이 4자리에서도 닫는 괄호까지 보인다");
+        tlog("  M r=%d 제목 보임=%d\n", r, (int)lcd_has("Max Count (999)"));
+        CHECK(lcd_has("Max Count (999)"), "M MaxCount 제목이 최댓값 999 에서 닫는 괄호까지 보인다(15차 C5: 4자리는 0 으로)");
         disinfectionOption.SetMaximumCount(30);
     }
 
@@ -55,7 +55,38 @@ int main()
         touch(sc);
         tlog("  N 미동기+손상 시작 → RTC 년=%u\n", rtc.GetCurrentDateTime().year());
         CHECK(rtc.GetCurrentDateTime().year() == 2026,
-              "N 미동기 소독기도 손상 세척 시작(연도 0xFFFF)으로 RTC 를 2047 로 복구하지 않는다");
+              "N 미동기 소독기도 손상 세척 시작(전부 0xFF)으로 RTC 를 2047 로 복구하지 않는다");
+        rtc_set(rel_date(10, 0, 0));
+    }
+
+    // ── N2) 같은 것을 **연도만** 깨진 기록으로(월·일·시각은 정상) — 위 N 은 월 0xFF 로 무효가 되어 연도 잘림을 못 봤다 ──
+    //  15차 III-C P3-5: RTClib 이 연도를 8비트로 잘라 0xFFFF → 2047 유효 → 시작·종료 둘 다 연도만 깨지면 RTC 가 2047 이 됐다.
+    {
+        rtc_set(DateTime(2026, 1, 1, 0, 10, 0));        // 방전 표지 = IsUnsynced
+        hard_reset(false, 2);
+        unsigned char mk[ManagerOption::KEY_SIZE] = {'M', 'G', 'R', '1'};
+        unsigned char mn[ManagerOption::NAME_SIZE] = {'K', 'I', 'M'};
+        managerOption.SetData(mk, mn);
+        washed_scope(sc, 0x72, 72);
+        sc.data[SECTOR2_WASHING_START][2] = 0xFF; sc.data[SECTOR2_WASHING_START][3] = 0xFF;   // 연도 바이트만
+        sc.data[SECTOR3_WASHING_END][2]   = 0xFF; sc.data[SECTOR3_WASHING_END][3]   = 0xFF;
+        logs_clear();
+        touch(sc);
+        tlog("  N2 미동기+연도만 손상(시작·종료) → RTC 년=%u 시작기록 년=%u\n", rtc.GetCurrentDateTime().year(),
+             get_ldt(sc, SECTOR5_DISINFECTION_START).Date.Year);
+        CHECK(rtc.GetCurrentDateTime().year() == 2026,
+              "N2 연도만 깨진 세척 기록(0xFFFF)도 RTC 를 2047 로 복구하지 않는다(ToDateTime 이 2000~2099 밖을 무효로)");
+        // N2b 관문의 아래쪽(1999) — 16차 IV-C: 하한을 무는 표본이 없었다
+        rtc_set(DateTime(2026, 1, 1, 0, 10, 0));
+        hard_reset(false, 2);
+        managerOption.SetData(mk, mn);
+        washed_scope(sc, 0x73, 73);
+        sc.data[SECTOR2_WASHING_START][2] = 0xCF; sc.data[SECTOR2_WASHING_START][3] = 0x07;   // 1999
+        sc.data[SECTOR3_WASHING_END][2]   = 0xCF; sc.data[SECTOR3_WASHING_END][3]   = 0x07;
+        logs_clear();
+        touch(sc);
+        tlog("  N2b 미동기+연도 1999 → RTC 년=%u\n", rtc.GetCurrentDateTime().year());
+        CHECK(rtc.GetCurrentDateTime().year() == 2026, "N2b 연도 1999 인 세척 기록도 RTC 를 바꾸지 않는다(관문 하한)");
         rtc_set(rel_date(10, 0, 0));
     }
 

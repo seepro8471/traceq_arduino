@@ -43,6 +43,7 @@ static void as_disinfector()
 {
     deviceOption.SetType('D');
     hard_reset(false, 2);                     // ★RAM 의 host·시간창이 비어 있는 상태로
+    deviceOption.SetNumber(2);                // 표본(start_committed)의 시작 기기 = 이 기기 — 16차: 재시작은 같은 기기에서만
     managerOption.SetData(mk, mn);
     disinfectionOption.SetSimultaneousDisinfectionSlot(2);
     disinfectionOption.SetSimultaneousDisinfectionDelay(5);
@@ -81,9 +82,13 @@ int main()
         const DateTime when = rel_date(11, 30, 0);
         rtc_set(when);
         start_committed(a, 0x25, 25, when);     // 커밋됨 + 리더는 host 를 모른다(방금 하드 리셋)
-        sim_advance_ms(1200);                   // 사람이 실패음을 듣고 1.2초 뒤 다시 댄다(2초 창 안)
+        const uint8_t cBefore = disinfectionOption.GetCount();
+        sim_advance_ms(1200);                   // 사람이 실패음을 듣고 1.2초 뒤 다시 댄다(창 10초 안 · 15차 A3)
         logs_clear();
         touch(a);                               // → 종료가 아니라 **시작 재실행**
+        // 16차: 재시작인데 RAM 이 이 스코프를 몰랐다 = 앞 시도의 커밋 뒤 부수효과(횟수)가 건너뛰어진 것 → 여기서 올린다(종전 −1 영구)
+        CHECK(disinfectionOption.GetCount() == cBefore + 1,
+              "★②(16차) 확인 실패 뒤 재시작이 앞 시도의 빠진 소독 횟수를 올린다(RAM 이 모르는 재시작 = 찢긴 커밋)");
         const LocalDateTime s2 = get_ldt(a, SECTOR5_DISINFECTION_START);
         const LocalDateTime e2 = get_ldt(a, SECTOR6_DISINFECTION_END);
         // 종료 블록으로는 못 가른다 — 소독 시작은 **자동 종료를 미리 채운다**(그래서 같은 시에 종료가 찍힌다).
@@ -115,7 +120,7 @@ int main()
         tlog("  ③ 대조(안 다시 댐): a그룹=%d b그룹=%d 횟수 %u->%u\n", group_of(a), group_of(b),
              (unsigned)c0, (unsigned)disinfectionOption.GetCount());
         // [10차 판정 · 사장님 09-27] 이 상태는 **실패음이 난 접촉 뒤에만** 생기고, 현장에서는 그 스코프를
-        //  다시 대므로 ②로 낫는다. 고치려고 슬롯 확보를 커밋 앞으로 옮기면 나머지 41자리에 유령 host
+        //  다시 대므로 ②로 낫는다. 고치려고 슬롯 확보를 커밋 앞으로 옮기면 나머지 35자리(11차 실측)에 유령 host
         //  (과소 계수 = 오염된 액으로 계속 소독)가 생긴다 → 사실로만 잠근다.
         CHECK(group_of(b) == 1, "③ 지문(판정): 다시 대지 않으면 둘째 스코프도 그룹1 이 된다");
     }

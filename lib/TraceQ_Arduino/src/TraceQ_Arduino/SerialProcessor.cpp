@@ -22,7 +22,8 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     //  Status 를 커밋과 같은 쓰기로 내려 "환자정보 있음인데 블록은 빈" 태그도 생기지 않는다.
     //  대가: 커밋 뒤 소거가 실패하면 태그에 지난 환자정보·검사항목이 남고 재접촉으로는 못 지운다
     //  → 안전망은 **다음 세척 시작**이다: 선행 소거가 블록 8·9(환자)를, 잔재 판정(v2.2.29~)이 블록 5(검사일시)와
-    //    섹터15(검사항목)를 지운다. 그 판정은 블록5 가 남아 있어야 돌므로 여기 소거는 **블록5 를 마지막에** 지운다.
+    //    섹터15(검사항목)를 지운다. 그 판정은 블록5 가 남아 있어야 돌므로 블록5 는 **섹터15 뒤에** 지운다(맨 마지막은
+    //    환자 블록 8·9 — clear_patient).
     //    세척기의 '환자정보 없음' 경고는 사람에게만 알리고 PC 는 Status 를 안 보고 저장한다(9차 정정).
     const bool ok = commit_dump_done()
                  && clear_gateway_and_subject()
@@ -40,7 +41,8 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
 bool SerialProcessor::clear_gateway_and_subject()
 {
     // ★섹터15(검사항목)를 먼저, 블록5(검사일시)를 **마지막에** — 블록5 를 먼저 지우고 끊기면 다음 세척 시작의
-    //  잔재 판정이 Year==0 을 보고 건너뛰어 남은 검사항목을 다시는 못 지운다(13차 규칙의 형제 · 14차 II-G P3-1).
+    //  잔재 판정이 Year==0 을 보고 건너뛰어, 남은 검사항목이 (게이트웨이를 안 거친 주기면) 그 주기 덤프 행에 한 번
+    //  실린다(그 덤프가 지운다 · 13차 규칙의 형제 · 14차 II-G P3-1 · 16차 정정).
     if (mScanner.ClearSector(15) != RfidResult::Ok) return false;
     // SECTOR1: gateway(5) 는 단건 Clear (인접 블록 6 은 Process 라 건드리지 않는다).
     return mScanner.Clear(SECTOR1_GATEWAY) == RfidResult::Ok;
@@ -66,10 +68,10 @@ SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
 {
     if (buffer == nullptr || length == 0) return ProcessKind::NotJson;
 
-    // [5차 판정 · 재론 금지] 중첩 JSON 은 파싱 실패(2초 안내) · null 값은 0 저장 · 날짜만 온 시각은 00:00 ·
-    //  `end+1>length` 는 항상 거짓 — 세 PC 는 어느 것도 보내지 않는다.
+    // [5차 판정 · 재론 금지] 중첩 JSON 은 파싱 실패(실패음 100×4 · 15차 C3) · null 값은 0 저장 · 날짜만 온 시각은
+    //  거부(`FromString` 형식 검사 · 15차) · `end+1>length` 는 항상 거짓 — 세 PC 는 어느 것도 보내지 않는다.
     // ★정정(6·7차): *"'Z' 와 명령이 한 버퍼면 명령 유실 — 세 PC 는 안 보낸다"* 는 **틀렸다**. 세척관리는 연결마다
-    //  'Z' 직후 'T' 를, 레거시 장치엔 30초마다 'Z' 를, 델파이는 333ms 마다 'Z' 를 보낸다 → 명령 머리를 볼 때
+    //  'Z' 직후 'T' 를, 레거시 장치엔 30초마다 'Z' 를, 델파이는 PSOk 응답에 'Z' 를 보낸다 → 명령 머리를 볼 때
     //  맨 앞 'Z' 를 건너뛰도록 고쳤다(main.cpp serialEvent · LegacySerialEvent).
     // '{' .. '}' 범위만 추출 — 길이 명시.
     const size_t start = str_index_of(buffer, '{');
@@ -82,9 +84,11 @@ SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
     const auto err = deserializeJson(mDocument, buffer + start, (end - start) + 1);
     if (err)
     {
-        // [13차 HH2 P3-6] 파싱 **실패**인데 설정 저장 **성공**과 같은 1000×1 이다(1.0 승계). 두는 이유: 응답이 없어
-        //  PC 가 알고 재시도한다 → 사람이 판단할 자리가 아니다. 소리를 바꾸는 것은 사장님 판정 사항(잠금 L13).
-        printer.Notify_cstr(0, 2, 1000, err.c_str());
+        // [15차 사장님 C3] 파싱 실패는 **실패음 100×4**(Invalid DateTime·Write Error 와 같은 소리) — 종전(1.0 승계)엔 설정 저장
+        //  성공과 같은 1000×1 이라 사람이 글자로만 알았다. 성공·실패 모두 시리얼 응답이 없어 PC 는 못 가른다(잠금 L13).
+        //  글자는 고정 문구(ArduinoJson 오류 이름은 사람에게 뜻이 없고, C 문자열 갈래를 새로 링크하면 정적 RAM +20B).
+        (void)err;
+        printer.CustomWarning(0, 2, 100, 4, F("Invalid JSON"));
         return ProcessKind::DeserializeError;
     }
 
@@ -144,6 +148,7 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
         }
     }
     mScanner.EndSession();
+    printer.Info_cstr(0, 3, "     ");   // 발급 알림도 번호를 안 읽는다 — 3행의 앞 건 스코프 번호를 지운다(print_tag_number 의 형제 · 16차)
     if (isHandled)
         printer.Notify(0, 2, 500, F("tag created"));
     else
@@ -503,6 +508,7 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
     const int parsedType{legacy_parse_tag(buffer)};
     if (parsedType == -1)
     {
+        printer.Info_cstr(0, 3, "     ");
         printer.CustomWarning(0, 2, 100, 4, F("timeout or error"));
         return;
     }
@@ -553,10 +559,12 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
         auto uiString{F("new tag : clear")};
         if (buffer[0] == 'M') uiString = F("new tag : manager");
         if (buffer[0] == 'S') uiString = F("new tag : scope");
+        printer.Info_cstr(0, 3, "     ");
         printer.Notify(0, 2, 500, uiString);
     }
     else
     {
+        printer.Info_cstr(0, 3, "     ");
         printer.CustomWarning(0, 2, 100, 4, F("timeout or error"));
     }
 }
@@ -667,7 +675,7 @@ int SerialProcessor::legacy_parse_scope_tag(const char *buffer)
     memset(string, 0, sizeof(string));
     const auto idx2 = static_cast<int>(str_index_of_range(buffer, ';', idx + 1));
     if (idx2 == -1) return -1;
-    str_substring_safe(buffer, string, 16, idx + 1, idx2);
+    str_substring_safe(buffer, string, sizeof(string), idx + 1, idx2);   // 14차 [17] 봉합이 이 자리만 16 으로 남겼다(15차 · 시리얼 끝 바이트 유실)
     memcpy(mCachedTagSerial.Serial, string, sizeof(mCachedTagSerial.Serial));
 
     return SCOPE_TYPE_TAG;

@@ -129,14 +129,17 @@ int main()
         touch(a);
         CHECK(get_ldt(a, SECTOR1_GATEWAY).Time.Hour == 10, "④전제: 완전 패킷 → 검사일시 10시");
 
+        // 15차 사장님 A5: G2 없는 전문의 검사일시는 0 이 아니라 **게이트웨이 시계**(종전 계약 "0" 을 뒤집음) — 이전 10시는 이월하지 않는다
+        rtc_set(DateTime(TRACEQ_RELEASE_YEAR, TRACEQ_RELEASE_MONTH, TRACEQ_RELEASE_DAY, 14, 22, 0));
         const char p2[] = "G10000;G3PT002;KIM;G4COL;;;G5;";              // G2 없음
         serial_inject(p2, sizeof(p2) - 1); GUARDED(serialEvent()); run_loops(2);
         gw_scope(b, 0x32, 32);
         touch(b);
         const LocalDateTime g = get_ldt(b, SECTOR1_GATEWAY);
-        tlog("  ④G2 없음: 환자=[%.5s] 검사일시 년=%u 시=%u\n", (const char *)b.data[SECTOR2_PATIENT_KEY], g.Date.Year, g.Time.Hour);
-        CHECK(memcmp(b.data[SECTOR2_PATIENT_KEY], "PT002", 5) == 0 && g.Date.Year == 0 && g.Time.Hour == 0,
-              "④G2 없는 패킷 → 새 환자는 쓰되 이전 검사일시(10시)를 이월하지 않는다");
+        tlog("  ④G2 없음: 환자=[%.5s] 검사일시 년=%u %u:%02u\n", (const char *)b.data[SECTOR2_PATIENT_KEY], g.Date.Year, g.Time.Hour, g.Time.Minute);
+        CHECK(memcmp(b.data[SECTOR2_PATIENT_KEY], "PT002", 5) == 0 && g.Date.Year == TRACEQ_RELEASE_YEAR &&
+              g.Time.Hour == 14 && g.Time.Minute == 22,
+              "④G2 없는 패킷 → 새 환자를 쓰고 검사일시는 게이트웨이 시계(14:22)다 — 이전 10시를 이월하지 않는다(15차 A5)");
     }
     {
         // 일괄 쓰기(검사명 3블록)의 확인 읽기만 실패 → 검증이 죽어 있으면 성공음+Status=1 이 난다(E P2-2).

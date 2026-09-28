@@ -71,7 +71,7 @@ int main()
         touch(clr, 1, 4);
         touch(clr, 1, 4);
         tlog("  S5b clear tag x2 (<2 s): clearCount %d -> %d\n", cc0, disinfectionOption.GetClearCount());
-        // [14차 판정] 클리어 태그는 더블터치 보호가 없어 두 번 대면 +2 — 1.4.1 과 같은 설계이고 소비처는 JSON 통계뿐(II-A 판정 · II-C 는 사실로만). 잠그지 않는다.
+        // [15차 사장님께 물음(09-28) · 그대로 · 재론 금지] 클리어 태그는 더블터치 보호가 없어 두 번 대면 +2 — 1.4.1 과 같은 설계이고 소비처는 JSON 통계뿐. 잠그지 않는다.
     }
     done();
     for (;;) {}

@@ -48,11 +48,13 @@ void DisinfectionOption::IncrementCount()
 int  DisinfectionOption::GetMaximumCount() const
 {
     EEPROM.get(mMaximumCountAddr, mMaximumCount);
-    return mMaximumCount < 0 ? 0 : mMaximumCount;
+    // 게터도 세터와 같은 범위(0~999 · 15차 C5) — 구판 JSON 이 남긴 1000~32767 이 상한으로 계속 쓰이고 제목이 4~5자리가 됐다(16차)
+    return (mMaximumCount < 0 || mMaximumCount > 999) ? 0 : mMaximumCount;
 }
 void DisinfectionOption::SetMaximumCount(int maximumCount)
 {
-    if (maximumCount < 0) maximumCount = 0;
+    // [15차 사장님 C5] 999 를 넘으면 0(제한 없음) — 메뉴 제목 `Max Count (999)` 안에 들고, 메뉴·설정기 JSON 둘 다 이 세터를 지난다.
+    if (maximumCount < 0 || maximumCount > 999) maximumCount = 0;
     EEPROM.put(mMaximumCountAddr, maximumCount);
     EEPROM.get(mMaximumCountAddr, mMaximumCount);
 }

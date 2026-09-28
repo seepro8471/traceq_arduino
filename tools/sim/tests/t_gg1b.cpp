@@ -1,6 +1,7 @@
 // GG1 — 11차 FF ② 봉합 재추적: `prevStatus == 0 || prevStatus > 3` 의 **여집합 전수**와
-//   그 갈래가 비우는 블록의 범위. Status=2 갈래는 블록 5·8·9·섹터15 를 비우는데(update_process),
-//   0 과 >3 갈래(세척 시작 선행 소거)는 **블록 8·9 만** 비운다 — 어디가 진짜 안전망인지 잰다.
+//   그 갈래가 비우는 블록의 범위. Status=2 갈래는 블록 5·8·9·섹터15 를 비우고(update_process),
+//   Status 0 은 완료 뒤 검사가 있으면 표지 판정이 블록 5·섹터15 까지(사장님 선택 1), >3 갈래는 **블록 8·9 만** 비운다.
+//   블록 5·섹터15 가 남는 >3 표본(F)과 게이트웨이 접촉(G)으로 잔재가 어디서 걷히는지 잰다.
 #include "common.h"
 
 static SimCard sc, mgr;
@@ -110,9 +111,13 @@ int main()
           "E2 Status 1·3(환자정보 있음)은 옛 환자 블록이 보존된다");
     CHECK(r[2].gw && r[2].s15,
           "E3 Status=2 레거시 갈래는 블록 5(게이트웨이)·섹터15(검사항목)까지 비운다");
-    // ★E4 는 **사실 기록**이다 — CHECK 로 쓰면 이 자리를 넓히는 개선이 빨강이 된다(막힘). 아래 g1 수정안 참고.
-    tlog("  E4★ 0·>3 갈래가 블록 5 를 비우나 = %d/%d · 섹터15 를 비우나 = %d/%d (Status=2 갈래는 %d·%d)\n",
+    tlog("  E4 0·>3 갈래가 블록 5 를 비우나 = %d/%d · 섹터15 를 비우나 = %d/%d (Status=2 갈래는 %d·%d)\n",
          r[0].gw, r[5].gw, r[0].s15, r[5].s15, r[2].gw, r[2].s15);
+    // 15차 사장님 A6: 표지 판정(공정 0 + 검사 있음)은 Status 0 과 **모르는 값(>3)** 둘 다 — 손상 Status 태그가 환자 없는 행에 옛 검사를 싣지 않게.
+    CHECK(r[0].gw && r[0].s15 && r[5].gw && r[5].s15,
+          "E4(15차 A6) Status 0 과 200(>3) 둘 다 표지 판정으로 블록5·섹터15 를 비운다");
+    CHECK(!r[1].gw && !r[1].s15 && !r[3].gw && !r[3].s15,
+          "E4b Status 1·3(환자 있음)은 검사를 남긴다 — 경계는 >3 이지 >=3 이 아니다(16차 IV-H)");
     // Status==2 는 **1.0 에서 온 태그의 전환 1회**다(2.0 은 Status 에 0·1 만 쓴다) — 레거시 갈래가 블록 5·8·9 와
     //  섹터15 3블록을 비우므로 더 무겁다 → 매 주기 도는 갈래와 **따로** 잠근다(상한 하나를 올려 덮지 않는다).
     // 14차(사장님 선택 1 · 표지만 판정): Status 0(완료 뒤 · 환자 없음 · 검사 있음)도 소거 갈래다 — 태그마다 1회.
@@ -120,14 +125,14 @@ int main()
     uint16_t mx = 0, mxClear = 0;
     for (uint8_t i = 0; i < 6; ++i)
     {
-        if (sv[i] == 0 || sv[i] == 2) { if (r[i].ops > mxClear) mxClear = r[i].ops; }
-        else                           { if (r[i].ops > mx)      mx      = r[i].ops; }
+        if (sv[i] == 0 || sv[i] == 2 || sv[i] > 3) { if (r[i].ops > mxClear) mxClear = r[i].ops; }
+        else                                        { if (r[i].ops > mx)      mx      = r[i].ops; }
     }
-    tlog("  E 접촉 예산: 매 주기 갈래(1·3·4·200) 최대 %u(≤40) · 소거 갈래(0·2 · 1회) 최대 %u(≤45)\n",
+    tlog("  E 접촉 예산: 매 주기 갈래(1·3) 최대 %u(≤40) · 소거 갈래(0·2·>3 · 1회) 최대 %u(≤45)\n",
          (unsigned)mx, (unsigned)mxClear);
-    CHECK(mx <= 40, "E5 매 주기 도는 Status 갈래(1·3·4·200)는 접촉 예산 40 안");
+    CHECK(mx <= 40, "E5 매 주기 도는 Status 갈래(1·3)는 접촉 예산 40 안");
     CHECK(mxClear > mx && mxClear <= 45,
-          "E5b 소거 갈래(Status 0 표지 판정 · Status 2 레거시)는 45 안 — 태그마다 1회라 무거워도 된다");
+          "E5b 소거 갈래(Status 0·>3 표지 판정 · Status 2 레거시)는 45 안 — 태그마다 1회라 무거워도 된다");
 
     // ── F: 그 잔재가 실제로 PC 로 나가는가(Status=200 표본 한 주기 + 덤프) ──
     {
@@ -147,10 +152,10 @@ int main()
              subj, key, gw_num(sc), serial_has("Ok!"));
         CHECK(serial_has("Ok!"), "F0 양성대조: 덤프가 Ok! 로 끝났다");
         CHECK(!key, "F1 옛 등록번호는 덤프에 나가지 않는다(FF ② 봉합이 듣는다)");
-        tlog("  F★ 옛 검사항목이 덤프에 나갔나 = %d (블록 5·섹터15 는 세척 시작이 안 비운다)\n", subj);
+        tlog("  F★ 옛 검사항목이 덤프에 나갔나 = %d (Status 200 은 표지 판정 밖 — 세척 시작이 블록 5·섹터15 를 안 비운다)\n", subj);
     }
 
-    // ── G: 그러면 진짜 안전망은 어디인가 — 게이트웨이 접촉이 블록 5·섹터15 를 비운다 ──
+    // ── G: 게이트웨이 접촉(폴백)도 블록 5·섹터15 를 새로 쓴다 — 게이트웨이는 Status 를 가리지 않는다(완료만 본다) ──
     {
         dev_switch(3);                                       // G#7
         stale(sc, 0x3B, 51, 0);
@@ -166,7 +171,7 @@ int main()
              blk_zero(sc, SECTOR2_PATIENT_KEY));
         CHECK(gw_num(sc) == 7 && !blk_is(sc, SECTOR15_EXAMINATION_SUBJECT, "OLDSUBJ1") &&
               blk_zero(sc, SECTOR15_EXAMINATION_SUBJECT2) && blk_zero(sc, SECTOR15_EXAMINATION_SUBJECT3),
-              "G1 게이트웨이 접촉이 블록 5 를 자기 번호로 쓰고 섹터15(옛 검사항목)를 지운다 — 실제 안전망은 여기다");
+              "G1 게이트웨이 접촉이 블록 5 를 자기 번호로 쓰고 섹터15(옛 검사항목)를 지운다 — 세척 시작 표지 판정(Status 0 만) 밖 잔재도 걷는 자리");
     }
 
     done();

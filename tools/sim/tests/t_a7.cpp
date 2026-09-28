@@ -147,7 +147,8 @@ int main()
         memset(a.data[SECTOR2_WASHING_START], 0xFF, 10);
         touch(a);
         tlog("  C5 손상 시작기록 뒤 RTC 년=%u\n", rtc.GetCurrentDateTime().year());
-        CHECK(rtc.GetCurrentDateTime().year() == TRACEQ_RELEASE_YEAR, "C ⑤ 손상 시작 기록으로 RTC 를 2047 로 만들지 않는다");
+        // 동기된 시계에선 복구 갈래 자체가 안 돈다(`IsUnsynced` 관문) — 연도 잘림의 잠금은 t_ii13 N2(미동기 + 연도만 손상)
+        CHECK(rtc.GetCurrentDateTime().year() == TRACEQ_RELEASE_YEAR, "C ⑤ 동기된 소독기는 손상 시작 기록이 있어도 RTC 를 바꾸지 않는다(복구 갈래 미진입)");
     }
 
     // ═══ A1 P3-2 알람 줄 20자: 120분 설정 ═══
@@ -231,8 +232,11 @@ int main()
         fresh_scope(b, 0x32, 32);
         touch(b);
         tlog("  D G2 범위: RTC 년=%u 검사일시 년=%u\n", rtc.GetCurrentDateTime().year(), get_ldt(b, SECTOR1_GATEWAY).Date.Year);
-        CHECK(rtc.GetCurrentDateTime().year() == TRACEQ_RELEASE_YEAR && get_ldt(b, SECTOR1_GATEWAY).Date.Year == 0,
-              "D G2 범위 밖(월 13)은 검사일시 없음 — RTC 를 바꾸지 않는다");
+        // 15차 사장님 A5: 무효 G2 는 검사일시를 **게이트웨이 시계**로 채운다(종전 계약 "검사일시 없음(0)" 을 뒤집음) · RTC 는 그대로
+        CHECK(rtc.GetCurrentDateTime().year() == TRACEQ_RELEASE_YEAR &&
+              get_ldt(b, SECTOR1_GATEWAY).Date.Year == TRACEQ_RELEASE_YEAR &&
+              get_ldt(b, SECTOR1_GATEWAY).Date.Month == rtc.GetCurrentDateTime().month(),
+              "D G2 범위 밖(월 13)은 검사일시를 게이트웨이 시계로 채운다(15차 A5) — RTC 는 바꾸지 않는다");
 
         // Status=1 이던 태그에 새 환자를 쓰다 이름 블록만 실패 → Status 가 1 로 남으면 안 된다
         char p2[96];

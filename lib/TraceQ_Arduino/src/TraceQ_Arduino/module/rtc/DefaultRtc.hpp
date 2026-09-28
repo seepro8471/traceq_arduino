@@ -98,10 +98,10 @@ public:
     /**
      * \brief 인자로 전달받은 문자열을 통해 현재 시간을 변경한다.
      *
-     * \details
+     * \details 문자열에 없는 절반(날짜 편집이면 시·분·초)은 **저장하는 지금** 의 시계에서 가져온다.
      *
      * \param string 변경할 시간의 정보가 저장된 문자열
-     * \param dateTime 문자열이 일부의 정보만을 가지고 있을 경우 사용된다. 자세한 내용은 details를 참고할 것
+     * \param dateTime 메뉴 진입 때 시각 — Time 형식에서 "편집 중 자정을 넘겼는가" 판정에만 쓴다
      * \param format 문자열이 저장하고 있는 데이터의 형식
      */
     void FromInternalString(char *string, const DateTime &dateTime, Format format);

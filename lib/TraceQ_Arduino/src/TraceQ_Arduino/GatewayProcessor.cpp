@@ -23,11 +23,6 @@ bool GatewayProcessor::HasMarker(const char *buffer, const char *marker)
     return buffer != nullptr && find_marker(buffer, marker, 0) != static_cast<size_t>(-1);
 }
 
-bool GatewayProcessor::HasRecordTail(const char *buffer)
-{
-    return buffer != nullptr && find_marker(buffer, "G5", 0) != static_cast<size_t>(-1);
-}
-
 bool GatewayProcessor::NeedsMoreBytes(const char *buffer)
 {
     if (buffer == nullptr) return false;
@@ -45,7 +40,8 @@ bool GatewayProcessor::NeedsMoreBytes(const char *buffer)
 // [12차 판정 · 재론 금지] 환자 한 벌(키·이름·검사항목 3·일시 등)은 패킷마다 비우지만 **mGateNumber 는
 //  남긴다** — 값이 없는 패킷(`G1;`)이면 앞서 받은 본체번호를 쓰는 것이 `effective_number` 의 의도된 폴백이고,
 //  델파이는 본체번호를 설정 칸에서 옮겨 오므로 환자마다 바뀌지 않는다(MainFormSo.pas 32,551줄 · 15188·15207줄
-//  확인) · 세척관리는 그 값을 아예 안 보낸다. 비우면 그 현장에서 번호가 0 이 된다 → 고치지 말 것(GG2 P3-2).
+//  확인) · 세척관리는 그 값을 아예 안 보낸다. 비워도 `effective_number` 가 설정값(마지막 PC 번호)으로 폴백해
+//  결과는 같지만(메뉴로 설정값을 바꾼 직후만 다르다), PC 가 준 값을 버릴 이유가 없다 → 고치지 말 것(GG2 P3-2).
 void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc, DeviceOption &deviceOption)
 {
     if (buffer == nullptr) return;
@@ -78,7 +74,7 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc, D
     if (head == kNone) return;
     const char *rec = buffer + head;
     // G5 마커로 끝나지 않으면 잘린 레코드 — 받아들이면 검사항목이 통째로 빈칸으로 기록되고 성공음이 났다(Z2 P2).
-    //  세 PC 모두 레코드를 G5 로 끝낸다(올눈 MainFormSo.pas:15228 · SeePro · 세척관리).
+    //  송신 PC 모두 레코드를 G5 로 끝낸다(올눈 ALLNuN · 델파이 TraceQ MainFormSo.pas:15228 · SeePro · 세척관리).
     if (find_marker(rec, "G5", 0) == kNone) return;
 
     // G1 = 본체번호 (2.2.6, 사용자 확정). `G1{gate};G2…` 형식.
@@ -120,11 +116,23 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc, D
     if (find_string(rec, string, sizeof(string), "G2", "G3"))
         substring_for_local_date_time(string);
 
+    // ★[15차 사장님 A5] G2 가 없거나 무효(2월 30일 등)면 검사일시를 **게이트웨이 시계**로 채운다(폴백과 같은 근거 — 전문이 곧
+    //  검사 시작). 종전엔 검사일시 0 인 환자 기록이 성공음으로 남아 세척 표지 판정이 못 봤고, 무효 날짜가 RTC 를 3월 2일로
+    //  맞췄다(15차 III-D P3-2·R1). RTC 는 유효한 G2 로만 맞춘다.
+    if (mDateTime.Date.Year != 0 && !DefaultRtc::ToDateTime(mDateTime).isValid()) mDateTime = LocalDateTime{};
+    if (mDateTime.Date.Year == 0)
+    {
+        mDateTime = rtc.GetCurrentLocalDateTime();
+        return;
+    }
+
     const auto respDateTime = DefaultRtc::ToDateTime(mDateTime);
     if (respDateTime > rtc.GetCurrentDateTime())
         rtc.SetDateTime(DefaultRtc::AddTimeSpan(respDateTime, 0, 2));
 }
 
+// [사장님 09-23 판정 · 재론 금지] 받은 환자정보는 기록 뒤에도 비우지 않는다 — 다음 전문(또는 재부팅)까지 산다(한 검사에
+//  스코프 둘 · 잠금 t_gg2g G).
 void GatewayProcessor::GatewayProcess(int deviceNumber, LcdPrinter &printer)
 {
     if (!is_valid(printer)) return;

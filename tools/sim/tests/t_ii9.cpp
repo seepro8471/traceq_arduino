@@ -1,8 +1,8 @@
 // II-H 제안 잠금 2 — HEAD 9379441 초록 · 되돌림 변이 빨강이어야 한다.
 //  C) v2.2.24 P2(CC1 P2-1) `IsGatewayFrame` — 'Z' 이외의 앞바이트(';')가 붙은 온전한 전문도 게이트웨이 전문이다.
 //     `cmd[0]=='G'` 로 되돌려도 772/772 초록이었다(시험이 'Z' 앞붙음만 본다).
-//  D) v2.2.30 잔재 판정의 `!rtc.IsUnsynced()` 관문 — 방전 시계끼리 비교해 이번 검사 정보를 지우지 않는다.
-//     관문을 지워도 772/772 초록이었다(모든 잔재 시험이 동기된 시계에서만 돈다).
+//  D) 잔재 판정은 표지만(사장님 선택 1) — 시계 상태와 무관해 미동기 세척기에서도 완료 뒤 Status 0 검사는 지운다.
+//     v2.2.30 의 `!rtc.IsUnsynced()` 관문은 2.2.32 에서 시간 판정과 함께 걷어냈다(되살리면 D 가 빨강).
 #include "common.h"
 
 static SimCard sc, mgr;
@@ -41,7 +41,7 @@ int main()
               "C 'Z' 가 아닌 앞바이트(';')가 붙은 온전한 전문도 그 환자로 기록된다(IsGatewayFrame)");
     }
 
-    // ── D) 이 세척기 시계가 방전 표지(미동기)면 잔재 판정을 하지 않는다 ──
+    // ── D) 이 세척기 시계가 방전 표지(미동기)여도 표지 판정은 같다 — 완료 뒤 Status 0 검사는 지운다 ──
     {
         rtc_set(DateTime(2026, 1, 1, 0, 10, 0));            // 방전 표지 시각 = IsUnsynced
         deviceOption.SetType('W');
@@ -50,8 +50,8 @@ int main()
         make_tag(sc, 0x52, SCOPE_TYPE_TAG, 52, "SC0052", "S0052");
         set_process(sc, Process{0, 0, 0, 0, 0, false, 0, 0});   // 덤프 뒤(공정 0) — 잔재 판정이 도는 유일한 상태(14차)
         set_record(sc, SECTOR2_WASHING_START, 1, DateTime(2026, 1, 1, 0, 4, 0));
-        set_record(sc, SECTOR3_WASHING_END, 1, DateTime(2026, 1, 1, 0, 5, 0));   // 기준 ≤ 지금(방전 시계끼리)
-        set_record(sc, SECTOR1_GATEWAY, 7, DateTime(2026, 1, 1, 0, 1, 0));       // 검사 ≤ 기준
+        set_record(sc, SECTOR3_WASHING_END, 1, DateTime(2026, 1, 1, 0, 5, 0));   // 지난 세척(방전 시계 시각)
+        set_record(sc, SECTOR1_GATEWAY, 7, DateTime(2026, 1, 1, 0, 1, 0));       // 검사일시 — 판정은 시각을 안 본다
         put_block(sc, SECTOR15_EXAMINATION_SUBJECT, "DEADCLK1", 8);
         logs_clear();
         touch(sc, 2, 4);

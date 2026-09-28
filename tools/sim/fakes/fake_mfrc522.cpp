@@ -2,7 +2,8 @@
 // 모델 규칙(ISO14443-3 · MIFARE Classic):
 //  - REQA 는 IDLE 카드만 응답(→READY). HALT 는 무응답. READY/ACTIVE/AUTH 카드는 예상 밖 명령 → IDLE, 무응답.
 //  - 리더가 암호 상태면 평문 명령이 깨진다(카드 → IDLE).
-//  - 인증 실패·쓰기 실패 → 카드 IDLE. 리더 쪽 수신 오류(readErr)는 카드 상태를 바꾸지 않는다.
+//  - 인증 실패·`failWriteAt` 쓰기 실패 → 카드 IDLE. `nackBlock`·KEY_A 트레일러 쓰기 NACK 은 카드 상태 유지(AUTH)
+//    — 같은 NACK 에 두 모델(README 가정 ③ · 실기 미확인). 리더 쪽 수신 오류(readErr)는 카드 상태를 바꾸지 않는다.
 //  - HLTA 는 ACTIVE(평문)·AUTH(암호) 카드에만 듣는다.
 #include "harness.h"
 #include <MFRC522.h>

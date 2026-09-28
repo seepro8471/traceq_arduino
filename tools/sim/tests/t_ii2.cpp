@@ -141,6 +141,34 @@ int main()
         CHECK(good1000 == 1 && good100 == 0 && goodSet, "3 양성대조: 유효 시각은 반영되고 안내음 1000x1");
         CHECK(bad100 == 4 && bad1000 == 0 && badKept && badMsg,
               "3a JSON 시각 동기 무효는 실패음 100x4 + Invalid DateTime — 시계는 그대로(레거시 T 의 형제 · P3-5)");
+
+        // ③b 빈/잘린 문자열 — RTClib 은 이것을 "2000-01-01T00:00:00" 으로 메워 유효라 답했다(15차 III-C P3-1) → 길이·숫자 자리 검사
+        rtc_set(rel_date(10, 30, 0));
+        uint8_t emptyBad = 0, shortBad = 0; bool emptyKept = false, shortKept = false;
+        {
+            logs_clear(); buzz_clear();
+            static const char e[] = "{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"\"}";
+            serial_inject(e, sizeof(e) - 1); GUARDED(serialEvent());
+            emptyBad = buzz_count(100); emptyKept = rtc.GetCurrentDateTime().year() == TRACEQ_RELEASE_YEAR && rtc.GetCurrentDateTime().minute() == 30;
+            logs_clear(); buzz_clear();
+            static const char s[] = "{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-27 11\"}";
+            serial_inject(s, sizeof(s) - 1); GUARDED(serialEvent());
+            shortBad = buzz_count(100); shortKept = rtc.GetCurrentDateTime().minute() == 30;
+        }
+        tlog("  3b 빈 문자열: 100x%u 유지=%u · 잘린 문자열: 100x%u 유지=%u · 년=%u\n", (unsigned)emptyBad, (unsigned)emptyKept,
+             (unsigned)shortBad, (unsigned)shortKept, rtc.GetCurrentDateTime().year());
+        CHECK(emptyBad == 4 && emptyKept && shortBad == 4 && shortKept,
+              "3b 빈/잘린 시각 문자열은 실패음이고 시계가 2000년으로 바뀌지 않는다(FromString 길이·숫자 자리 검사)");
+        // 3c 길이는 맞는데 숫자 칸에 다른 글자 — 길이 검사만으로는 통과해 '3/' 가 29초로 읽혔다(16차 IV-H: 숫자 칸 검사가 한 번도 안 돌았다)
+        {
+            logs_clear(); buzz_clear();
+            static const char g[] = "{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-27 11:22:3/\"}";
+            serial_inject(g, sizeof(g) - 1); GUARDED(serialEvent());
+            const uint8_t garbBad = buzz_count(100);
+            const bool garbKept = rtc.GetCurrentDateTime().minute() == 30;
+            tlog("  3c 숫자 칸 오염: 100x%u 유지=%u\n", (unsigned)garbBad, (unsigned)garbKept);
+            CHECK(garbBad == 4 && garbKept, "3c 숫자 칸에 다른 글자가 있는 시각 문자열도 실패음이고 시계는 그대로(마스크의 숫자 칸 검사)");
+        }
     }
 
     // ── ④ 게이트웨이 폴백의 쓰기 순서 — Status(0) 먼저, 블록5 뒤 (II-D P3-3 · 형제 write_patient_info 와 같이) ──
@@ -200,6 +228,52 @@ int main()
         tlog("  5 재등록(Status 3) 이탈 N=4..40(%u): 정리됨 %u · 옛환자+새검사+표지 %u\n", (unsigned)nRun, (unsigned)nCleared, (unsigned)nBad);
         CHECK(nCleared > 0, "5 양성대조: Status 3 태그도 재등록의 선행 정리(Status 0)가 돈다");
         CHECK(nBad == 0, "5a 어디서 끊겨도 'Status≠0 + 옛 환자 + 새 검사일시' 가 남지 않는다(P3-6)");
+    }
+
+    // ── ②b 덤프 소거의 "섹터15 가 지워졌을 때만 블록5" — 블록61 쓰기 NACK(카드는 산다)에서 블록5 가 남아야 다음 세척이 다시 지운다 ──
+    //  15차 III-H r6b: 순서만 되돌려도(블록5 먼저) 기존 ② 는 초록(이탈만 봄) → 검사일시가 0 이 되어 옛 검사항목이 영구 잔존.
+    {
+        as_server();
+        done_cycle(sc, 0x51, 51);
+        sc.nackBlock = SECTOR15_EXAMINATION_SUBJECT2;
+        serial_inject("Z", 1);
+        logs_clear();
+        touch(sc);
+        sc.nackBlock = -1;
+        const bool committed = get_process(sc).WashingStatus == 0 && get_process(sc).DisinfectionStatus == 0;
+        const bool gwKept = get_ldt(sc, SECTOR1_GATEWAY).Date.Year != 0;
+        const bool oldLeft = any_old(sc);
+        tlog("  2b 덤프(61 NACK): 커밋=%u 블록5남음=%u 옛검사항목=%u Ok=%u\n", (unsigned)committed, (unsigned)gwKept,
+             (unsigned)oldLeft, (unsigned)serial_has("Ok!"));
+        CHECK(committed && oldLeft, "2b 전제: 덤프 커밋은 됐고 섹터15 소거는 NACK 로 반쪽이다");
+        CHECK(gwKept, "2b 섹터15 가 안 지워졌으면 블록5(검사일시)는 남긴다 — 다음 세척 시작의 판정 근거");
+        as_washer();
+        rtc_set(rel_date(11, 0, 0));
+        logs_clear();
+        touch(sc);
+        tlog("  2b 다음 세척 시작: 옛검사항목=%u 블록5년=%u WS=%u\n", (unsigned)any_old(sc),
+             get_ldt(sc, SECTOR1_GATEWAY).Date.Year, get_process(sc).WashingStatus);
+        CHECK(!any_old(sc) && get_ldt(sc, SECTOR1_GATEWAY).Date.Year == 0 && get_process(sc).WashingStatus == 1,
+              "2b 다음 세척 시작이 표지(공정 0 · Status 0 · 검사 있음)로 옛 검사항목과 블록5 를 마저 지운다");
+    }
+
+    // ── ②c 레거시 Status2 소거(update_process)도 같은 규칙 — 섹터15 NACK 면 블록5 를 남긴다(15차 III-B P3-3 · 14차는 순서만 바꿨다) ──
+    {
+        as_washer();
+        rtc_set(rel_date(12, 0, 0));
+        done_cycle(sc, 0x52, 52);
+        set_process(sc, Process{2, 0, 0, 0, 0, false, 0, 0});   // 1.0 태그의 Status 2(환자정보 삭제 대기)
+        sc.nackBlock = SECTOR15_EXAMINATION_SUBJECT2;
+        logs_clear();
+        touch(sc);
+        sc.nackBlock = -1;
+        const Process p = get_process(sc);
+        tlog("  2c Status2 세척 시작(61 NACK): Status=%u WS=%u 블록5년=%u 옛검사항목=%u 환자키=[%.8s]\n", p.Status, p.WashingStatus,
+             get_ldt(sc, SECTOR1_GATEWAY).Date.Year, (unsigned)any_old(sc), (const char *)sc.data[SECTOR2_PATIENT_KEY]);
+        CHECK(p.Status == 0 && p.WashingStatus == 1 && !blk_is(sc, SECTOR2_PATIENT_KEY, "PKEY"),
+              "2c 전제: 세척 시작은 커밋되고(Status 0 · WS 1) 환자 블록은 지워진다");
+        CHECK(any_old(sc) && get_ldt(sc, SECTOR1_GATEWAY).Date.Year != 0,
+              "2c 섹터15 가 NACK 로 남았으면 블록5(검사일시)도 남긴다 — 무조건 지우면 그 주기 덤프 행에 1.0 시절 검사가 실린다(덤프가 마저 지운다 · 영구는 아님)");
     }
 
     tlog("  resets=%u\n", g_resetCount);

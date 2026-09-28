@@ -1,7 +1,7 @@
 // HH1(13회차) 두 번째 — v2.2.29 소거의 **순서**와 범위.
-//  ⑤ 소거 도중 한 블록 쓰기가 실패하면(블록5 는 이미 0) 다음 접촉이 그 갈래를 건너뛰어 검사항목 잔재가 영구화되나
+//  ⑤ 소거 도중 섹터15 한 블록 쓰기가 실패하면 판정 근거 블록5 를 남겨(마지막·섹터15 성공 때만 지움) 다음 주기가 다시 지우나
 //  ⑥ 실제 접촉 이탈(removeAfterOps)로 같은 창에 들어가나 — 끊김 지점 전수
-//  ⑦ Status==2(레거시) 건너뛰기: `update_process` 는 섹터15 의 블록 60 만 지운다 → 61·62 가 덤프로 나가나
+//  ⑦ Status==2(레거시) 건너뛰기: `update_process` 가 섹터15 전체(60·61·62)를 지워 61·62 가 덤프로 안 나가나(13차 전엔 60 만)
 //  ⑧ 잔재 소거가 실제로 도는 갈래의 접촉 예산(Status 0·1·3·200)
 #include "common.h"
 
@@ -18,7 +18,7 @@ static void as_type(char t)
     managerOption.SetData(mk, mn);
 }
 
-// 지난 주기 잔재(검사 어제 08:00 ≤ 지난 세척 어제 09:00)를 가진 스코프
+// 지난 주기 검사 잔재(블록5 어제 08:00 · 섹터15 세 블록 · 환자 8·9)를 가진 스코프 — 시각은 판정에 안 쓰인다(표지만)
 static void stale(SimCard &c, uint8_t uid, int no, uint8_t status)
 {
     char id[10], ser[10];
@@ -84,7 +84,7 @@ int main()
         sc.nackBlock = -1;                                  // 손상이 아니라 한 번의 쓰기 실패였다
         rtc_set(rel_date(10, 20, 0));
         touch(sc, 2, 4);                                    // 세척 종료
-        const bool leakThisCycle = subj_any_old(sc);         // 이 주기 덤프에는 옛 항목이 남는다(손상 대가)
+        const bool leakThisCycle = subj_any_old(sc);         // 이 주기 덤프에는 옛 항목이 남는다(한 번의 쓰기 실패 대가 — 소거는 다음 주기 세척 시작)
         as_type('D');
         touch(mgr);
         rtc_set(rel_date(10, 30, 0));
@@ -129,7 +129,7 @@ int main()
               "6 접촉이 소거 도중 끊겨도 재접촉이 옛 검사항목을 끝까지 비운다");
     }
 
-    // ── ⑦ Status==2 건너뛰기: update_process 는 블록 60 만 지운다 → 61·62 가 남아 덤프로 나가나 ──
+    // ── ⑦ Status==2 건너뛰기: update_process 가 섹터15 전체를 지운다 → 61·62 가 덤프로 안 나가나 ──
     {
         as_type('W');
         touch(mgr);

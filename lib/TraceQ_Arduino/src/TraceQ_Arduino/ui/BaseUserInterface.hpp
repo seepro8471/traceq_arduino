@@ -4,7 +4,7 @@
 
 /**
  * \class BaseUserInterface
- * \extends AbstractUserInterface
+ * \extends LcdPrinter
  * \brief 컨텐츠를 강조하고 표시하는 기능을 구현하는 추상 클래스.
  *
  * \since 1.2

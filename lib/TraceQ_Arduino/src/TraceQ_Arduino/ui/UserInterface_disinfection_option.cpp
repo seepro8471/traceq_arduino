@@ -8,7 +8,7 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionMaximumCount(Disinfect
     const auto current{option.GetMaximumCount()};
     snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
     // title — "Max Count (NN)" = 14자+NUL (1.0은 [13]이라 2바이트 스택 오버런).
-    char title[18]{};   // "Max Count (9999)" 16자 + NUL — 설정기 spin 상한 9999
+    char title[18]{};   // "Max Count (999)" 15자 + NUL — 게터·세터·설정기 칸 상한 999(15차 C5 · 16차)
     snprintf(title, sizeof(title), "Max Count (%s)", numberBuffer);
     // line
     auto line = Line{0, 2, numberBuffer};

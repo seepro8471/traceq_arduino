@@ -12,6 +12,11 @@ LocalDateTime DefaultRtc::GetCurrentLocalDateTime()
 
 DateTime DefaultRtc::ToDateTime(const LocalDateTime &dateTime)
 {
+    // ★연도가 2000~2099 밖(0xFFFF 손상 등)이면 **무효 시각**을 돌려준다 — RTClib 은 연도를 8비트로 잘라 0xFFFF 를
+    //  2047 로 만들고 isValid 도 참이라, 손상 세척 기록이 소독기 RTC 를 2047 로 맞췄다(15차 III-C P3-5).
+    //  무효값은 2000-00-01(월 0 · isValid 거짓 · unixtime 이 작아 `> 지금` 비교도 거짓). Year 0(빈 기록)은 종전과 같다.
+    if (dateTime.Date.Year != 0 && (dateTime.Date.Year < 2000 || dateTime.Date.Year > 2099))
+        return DateTime{2000, 0, 1, 0, 0, 0};
     return DateTime{
         dateTime.Date.Year,
         dateTime.Date.Month,
@@ -87,6 +92,15 @@ char *DefaultRtc::ToInternalString(char *outBuffer, DefaultRtc::Format format)
 // [5차 판정 · 재론 금지] 연도를 2자리로 읽어 "1999-…" 가 2099 — 세 PC 는 20xx 만 보낸다.
 bool DefaultRtc::FromString(const char *string)
 {
+    // ★길이·숫자 자리부터 본다 — RTClib 은 빈/잘린 문자열을 "2000-01-01T00:00:00" 으로 메우고 유효라 답해
+    //  시계를 2000년으로 바꾸고 true 를 돌려줬다(15차 III-C P3-1). 형식 "YYYY-MM-DD hh:mm:ss"(10번째 칸은 무엇이든).
+    static const char kMask[] = "dddd-dd-dd dd:dd:dd";
+    if (string == nullptr || strlen(string) < sizeof(kMask) - 1) return false;
+    for (uint8_t i = 0; i < sizeof(kMask) - 1; ++i)
+    {
+        if (kMask[i] == 'd') { if (string[i] < '0' || string[i] > '9') return false; }
+        else if (i != 10 && string[i] != kMask[i]) return false;
+    }
     const auto date = DateTime(string);
     if (!date.isValid()) return false;
     SetDateTime(date);

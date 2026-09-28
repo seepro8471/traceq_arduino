@@ -10,7 +10,7 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
         return;
 
-    // 더블터치 = 태그에 적힌 시작이 2초 안 — 종료가 아니라 시작 다시 하기(소독기와 같은 규칙).
+    // 더블터치 = 태그에 적힌 시작이 10초 안(15차 A3) — 종료가 아니라 시작 다시 하기(소독기와 같은 규칙).
     DateTime startDt{};
     bool isRestart = false;   // 더블터치 가드로 시작이 재실행됐는지(소독기와 같은 이름)
     if (isEnd)
@@ -55,7 +55,8 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
         util_buzzer();
 }
 
-// [5차 판정 · 재론 금지] Status==2 레거시 갈래의 Clear×4 반환 무시 — 2.0 은 Status 에 0·1 만 쓴다(델파이 2/3 기록 자리 없음).
+// [5차 판정 · 재론 금지] Status==2 레거시 갈래의 Clear 셋(블록 8·9·5) 반환 무시 — `ClearSector(15)` 반환만 블록5 소거를
+//  가르는 데 쓴다(15차 D). 2.0 은 Status 에 0·1 만 쓴다(델파이 2/3 기록 자리 없음).
 void WashingProcessor::update_process(int deviceNumber)
 {
     auto current = mCachedProcess.Status;
@@ -66,12 +67,14 @@ void WashingProcessor::update_process(int deviceNumber)
         {
             // 1.0과 동일하나, 2.0의 섹터 캐시 덕에 같은 섹터 내 Clear는 인증 1회로 완료.
             // ★블록60 만 지우면 **블록61 이 덤프로 나갔다**(13차 HH1 P3-1) — 섹터15 데이터 3블록을 다 지운다.
-            // ★블록5(검사일시)는 **마지막에** — 먼저 지우고 끊기면 다음 세척 시작의 잔재 판정이 Year==0 을 보고
-            //  건너뛰어 남은 검사항목을 다시는 못 지운다(13차 규칙의 형제 · 14차 II-G P3-1).
-            mScanner.ClearSector(15);
+            // ★블록5(검사일시)는 **섹터15 가 지워졌을 때만·마지막에** — 덤프 소거·잔재 소거와 같은 순서(15차 III-B P3-3).
+            //  섹터15 가 NACK 면 블록5 도 남아 그 주기 덤프 행에 옛 검사일시·본체번호가 한 번 실린다(지웠다면 빈칸) —
+            //  이 커밋 뒤 태그는 WS=1 이라 잔재 판정을 안 타고, 덤프가 섹터15·블록5 를 지운다(16차 IV-B 정정).
+            //  접촉이 끊기면 Status 2 가 커밋 전이라 남아 재접촉이 처음부터 다시 지운다.
+            const bool subjectsCleared = mScanner.ClearSector(15) == RfidResult::Ok;
             mScanner.Clear(SECTOR2_PATIENT_KEY);
             mScanner.Clear(SECTOR2_PATIENT_NAME);
-            mScanner.Clear(SECTOR1_GATEWAY);
+            if (subjectsCleared) mScanner.Clear(SECTOR1_GATEWAY);
         }
         if (current == 3) tempStatus = 1;
         current = tempStatus;
@@ -96,8 +99,8 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
     // ★지난 주기 표지를 **먼저 내린다** — 커밋 전에 접촉이 끊기면 태그가 '공정 없음' 이라 소독기·서버가
     //  거부음으로 알린다. 안 내리면 지난 주기 Rewrite=2 가 남아 소독기가 그 접촉을 소독 '종료' 로 기록했다.
     //  ★재시작(더블터치)은 건너뛴다 — 이번 주기 커밋이 이미 지웠고, 그것을 다시 0 으로 내렸다가 찢기면
-    //   **커밋된 이번 주기 세척 시작이 사라진다**(소독기·서버가 그 주기를 거부한다). 소독 시작의 `isRestart`
-    //   소거 건너뛰기와 같은 규칙.
+    //   **커밋된 이번 주기 세척 시작이 사라진다**(소독기·서버가 그 주기를 거부한다). 소독 시작엔 선소거 자체가
+    //   없다(15차 A4).
     //  [10차 판정] 대가: 아직 서버에 안 올린 **지난 주기**는 이 선행 쓰기 시점(접촉 초반)에 덤프 불가가 된다
     //   — 종전엔 커밋(접촉 끝)까지 살았다. 성공한 세척 시작도 그 주기를 어차피 덮으므로 잃는 것은
     //   "찢긴 시도에서 몇 초 일찍" 뿐이고, 안 내리면 **안 한 소독이 완료로 대장에 남는다**(9회차 P1).
@@ -110,18 +113,27 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
         //  공정 전부 0(완료 처리됨) + Status 0(환자 없음 — 완료 커밋이 내렸거나 폴백) + 검사일시 있음 → 지운다.
         //  · 덤프 전(공정 ≠ 0)은 절대 안 지운다 — 블록5 는 게이트웨이만 쓰고 게이트웨이는 WS≠0 을 거부하므로 그 검사는
         //    진행 중 주기의 것이다(소독 뒤 재세척이 그것을 지웠던 것이 14차 II-B P1).
-        //  · Status 1(환자 있음)은 게이트웨이가 완료 뒤에 새로 쓴 검사 → 남긴다. 2·3 은 레거시(update_process) · 그 밖은 모른다.
-        //  · 대가(사장님 감수): 완료 뒤 **환자 없이(폴백)** 받은 검사일시는 여기서 지워진다 — 잃는 것은 검사 시각 하나.
+        //  · Status 1(환자 있음)은 게이트웨이가 완료 뒤에 새로 쓴 검사 → 남긴다. 2·3 은 레거시(update_process) · >3 은 0 과
+        //    같이 지운다(아래 A6).
+        //  · 대가(사장님 감수): 완료 뒤 **환자 없이(폴백)** 받은 검사는 여기서 지워진다 — 블록5 전체(본체번호·검사일시)와
+        //    섹터15 라, 세척관리 대장엔 본체번호 0000 · 검사종류 빈칸 · 검사날짜 = 소독일로 나간다.
         //  · 12·13·14차에 시간(블록10→14→24 · 관계)으로 가르려 한 것이 세 번 결함이 됐다 — "게이트웨이·세척기·소독기를
         //    거쳤는지는 표지에 있다, 왜 시간으로 가르나"(사장님). 찢긴 시도 표지도 필요 없다(재접촉이 같은 표지를 다시 본다).
         // ★소거 순서: 섹터15 먼저, 판정 근거인 블록5 는 **마지막·섹터15 가 지워졌을 때만** — 먼저 지우면 다음 접촉이
-        //  Year==0 으로 건너뛰어 검사항목을 다시는 못 지운다(HH1 ⑤). 소거 실패로 세척 시작을 막지는 않는다(HH1 P2-1).
-        // [14차 판정] `afterDump` 관문은 지금 도달 가능한 차이가 없다 — 폴백(Status 0) 검사는 첫 세척에서 이미 지워지므로
-        //  "덤프 전 + Status 0 + 검사 있음" 태그가 생기지 않는다(변이로 확인 · 무해). 사장님 규칙의 명문화로 둔다.
+        //  Year==0 으로 건너뛰어 남은 검사항목이 그 주기 덤프 행에 한 번 실린다(덤프가 지운다 · HH1 ⑤ · 16차 정정).
+        //  소거 실패로 세척 시작을 막지는 않는다(HH1 P2-1). [16차 판정] 블록5 읽기 실패도 같은 방향으로 '잔재 없음' 으로
+        //  지나간다(형제 started_just_now 와 달리 멈추지 않는다 — 남은 잔재는 그 주기 덤프에 한 번 실린다).
+        // [15차 사장님 A9 · 재론 금지] `afterDump` 관문은 둔다 — 첫 세척의 섹터15 소거가 NACK 로 실패한 태그는 같은 주기
+        //  재세척에서 다시 지우지 않는다(덤프 전은 절대 안 지운다 · 잃는 것은 찢긴 잔재 1주기). 14차 "도달 차이 없음" 은 이 경우를
+        //  못 봤다(15차 III-B P3-1 · III-H k2).
+        //  예외(위 "같은 표지" 도): 덤프 전 재세척의 선행 쓰기(공정 0) 직후 끊기면 재접촉의 afterDump 가 참 — 지워지는 것은
+        //  Status 0(·>3) 검사뿐이라 무해(16차 IV-I ④).
+        // [15차 사장님 A6] Status 0 과 **모르는 값(>3)** 둘 다 — 손상 Status 태그는 환자 블록만 비우고 Status 0 으로 커밋되므로
+        //  검사도 같이 비워야 환자 없는 행에 옛 검사가 실리지 않는다(11차 FF② 갈래와 같은 짝).
         const bool afterDump = mCachedProcess.WashingStatus == 0 && mCachedProcess.DisinfectionStatus == 0 &&
                                mCachedProcess.DisinfectionCount == 0 && mCachedProcess.MachineNumber == 0;
         WashingRecord gw{};       // 블록5 = {int 본체번호, LocalDateTime 검사일시} — 레코드와 같은 10바이트
-        if (afterDump && prevStatus == 0 &&
+        if (afterDump && (prevStatus == 0 || prevStatus > 3) &&
             mScanner.Read(SECTOR1_GATEWAY, &gw, 10) == RfidResult::Ok &&
             gw.DateTime.Date.Year != 0)
         {
@@ -161,8 +173,8 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
 
 bool WashingProcessor::washing_end(WashingRecord &record)
 {
-    // ★담당자를 먼저, **시각을 마지막에** — 반대면 담당자 블록만 실패했을 때 "오늘 종료 시각 + 지난
-    //  주기 담당자" 쌍이 남는다(그 블록들은 서버 덤프도 안 지워 옛 담당자가 늘 남아 있다).
+    // ★담당자를 먼저, **시각을 마지막에** — 반대면 담당자 블록만 실패했을 때 "새 종료 시각 + 옛 담당자" 쌍이
+    //  남는다(옛 담당자 = 종료 접촉이면 이번 주기 시작이 미리 채운 담당자 · 미리채움이면 지난 주기 담당자).
     if (!write_manager_key(SECTOR4_WASHING_END_MANAGER_KEY)) return false;
     if (!write_manager_name(SECTOR4_WASHING_END_MANAGER_NAME)) return false;
     return mScanner.Write(SECTOR3_WASHING_END, &record, 10) == RfidResult::Ok;

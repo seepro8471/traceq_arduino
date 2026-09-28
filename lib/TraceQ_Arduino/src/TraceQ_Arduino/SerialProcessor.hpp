@@ -29,7 +29,7 @@
  *
  *  - 모든 substring/검색이 dst 크기 명시(`str_substring_safe`)로만 호출.
  *
- *  - JSON 파싱은 fixed `kFrameBuffer` (512 byte) 안에서만 동작 — 1.0의 `char json[512]`
+ *  - JSON 파싱은 serialEvent 의 수신 버퍼(`kFrameBufferSize` = 512 byte) 안에서만 동작 — 1.0의 `char json[512]`
  *    + `str_substring_c_range` 콤보 대신 ArduinoJson에 frame buffer를 직접 넘김.
  *
  *  - cfg_new_tag type_id 0/2의 키 전환(공장↔TraceQ)을 RfidController의
@@ -99,7 +99,8 @@ protected:
     void update_record_option(RecordOption &recordOption);
 
 private:
-    /// PSOk 송신 후 550ms(10ms×55) 안에 'Z' 1바이트 수신 대기 (1.0과 동일).
+    /// PSOk 송신 후 550ms(10ms×55) 안에 'Z' 1바이트 수신 대기 — 시간만 1.0 과 같다. 들여다보기(peek)라
+    /// 'Z' 가 아닌 바이트가 앞이면 소비하지 않고 곧장 실패한다.
     static bool legacy_is_connected();
 
     /// 섹터의 데이터 블록들을 legacy_print_block으로 연속 출력.

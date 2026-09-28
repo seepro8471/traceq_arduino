@@ -4,6 +4,8 @@
 # 하드웨어에 닿는 함수만 fakes/ 의 가짜 정의로 링크한다. 시험마다 <출력 폴더>/<이름>.elf.
 set -e
 ROOT="$1"; OUTD="$2"; shift 2
+# 요청된 시험의 옛 결과를 **먼저** 지운다 — 빌드가 실패해도 옛 elf 가 남으면 run.sh 가 옛 결과로 초록을 낸다.
+for t in "$@"; do name=$(basename "$t" .cpp); rm -f "$OUTD/$name.elf" "$OUTD/$name.elf.data.bin" "$OUTD/$name.o"; done
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TC="/c/Users/alu5/.platformio/packages/toolchain-atmelavr/bin"
 FW="/c/Users/alu5/.platformio/packages/framework-arduino-avr"
@@ -27,9 +29,9 @@ LDF=""
 if [ "${LTO:-1}" = "1" ]; then CXXF="$CXXF -flto -fno-fat-lto-objects"; LDF="-flto -fuse-linker-plugin"; fi
 CF="-mmcu=atmega2560 -Os -g -ffunction-sections -fdata-sections -w"
 
-n=0
-cxx() { n=$((n+1)); "$TC/avr-g++" $CXXF $DEFS "${INC[@]}" $2 -c "$1" -o "$OBJ/$n.o" & }
-cc()  { n=$((n+1)); "$TC/avr-gcc" $CF $DEFS "${INC[@]}" -c "$1" -o "$OBJ/$n.o" & }
+n=0; pids=()
+cxx() { n=$((n+1)); "$TC/avr-g++" $CXXF $DEFS "${INC[@]}" $2 -c "$1" -o "$OBJ/$n.o" & pids+=($!); }
+cc()  { n=$((n+1)); "$TC/avr-gcc" $CF $DEFS "${INC[@]}" -c "$1" -o "$OBJ/$n.o" & pids+=($!); }
 
 for f in Print.cpp Stream.cpp WString.cpp abi.cpp new.cpp; do cxx "$FW/cores/arduino/$f"; done
 cxx "$FW/libraries/Wire/src/Wire.cpp"; cc "$FW/libraries/Wire/src/utility/twi.c"
@@ -40,7 +42,10 @@ while IFS= read -r f; do
 done < <(find "$ROOT/lib/TraceQ_Arduino/src" -name '*.cpp')
 cxx "$ROOT/src/main.cpp"
 cxx "$HERE/fakes/fake_hw.cpp"; cxx "$HERE/fakes/fake_mfrc522.cpp"
-wait
+# 인자 없는 `wait` 는 배경 컴파일이 실패해도 0 이다 — 하나씩 기다려 실패면 elf 를 만들지 않고 끝낸다.
+bg_fail=0
+for p in "${pids[@]}"; do wait "$p" || bg_fail=1; done
+if [ $bg_fail -ne 0 ]; then echo "★배경 컴파일 실패 — 시험 elf 를 만들지 않는다." >&2; exit 1; fi
 for t in "$@"; do
     name=$(basename "$t" .cpp)
     "$TC/avr-g++" $CXXF $DEFS "${INC[@]}" -c "$t" -o "$OUTD/$name.o"

@@ -148,6 +148,22 @@ int main()
         run_loops(2);
     }
 
+    // ── A5: SELECT 가 붙은 채(부품 불량·눌린 채 방치)여도 떼기 대기는 **2초 상한**이라 메뉴가 갇히지 않는다 ──
+    //  15차 III-H r3b: 상한(100×20ms)을 되돌리면 홈 복귀가 65초 → 210초. 시한 60초 화면 하나 + 대기 2초 안팎이어야 한다.
+    {
+        buttons_script("");
+        g_btnIdleLimit = 1000000UL;
+        const unsigned long t0 = millis();
+        buttons_hold('S', t0 + 400000UL);
+        logs_clear();
+        const int r = GUARDED(handle_menu(UserInterface::MenuFunction::Home));
+        buttons_hold(0, 0);
+        const unsigned long dt = millis() - t0;
+        tlog("  A5 SELECT 붙은 채 홈 메뉴: r=%d 경과=%lums\n", r, dt);
+        CHECK(r == 0 && dt < 120000UL, "A5 SELECT 가 붙어 있어도 떼기 대기 상한 2초라 120초 안에 홈으로 돌아온다(되돌리면 실측 400초)");
+        run_loops(2);
+    }
+
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

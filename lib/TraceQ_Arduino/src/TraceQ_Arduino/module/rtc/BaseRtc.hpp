@@ -33,7 +33,7 @@ public:
     /**
      * \brief 지정된 위치에 설정된 알람이 종료되었는지(fired) 확인하고 parameter useBuzzer의 값에 따라 buzzer를 사용한다.
      *
-     * \details 알람이 설정되지 않았다면 아무런 작업도 하지 않는다.
+     * \details 알람이 설정되지 않았다면 LED 만 끈다(슬롯이 1·2 가 아니면 아무것도 하지 않는다).
      *
      * \param slot 알람을 설정한 위치
      * \param useBuzzer 이 값이 true이면서 알람이 종료되었다면(fired) buzzer를 사용해 알린다
@@ -68,7 +68,7 @@ public:
      * \brief 지정된 위치에 알람이 설정되어있는지 확인한다.
      *
      * \param slot 확인할 위치
-     * \return 지정된 위치에 알람이 설정되어있다면 true. otherwise, flase
+     * \return 지정된 위치에 알람이 설정되어있다면 true. otherwise, false
      */
     bool HasAlarm(uint8_t slot);
 
@@ -81,7 +81,7 @@ protected:
     /**
      * \brief 지정된 위치의 알람의 종료 상태를 확인하고 그 값을 반환한다.
      * \param slot 알람을 설정한 위치
-     * \return 알람이 종료되었다면(fired) ture. otherwise, false
+     * \return 알람이 종료되었다면(fired) true. otherwise, false
      */
     bool is_alarm_fired(uint8_t slot);
 

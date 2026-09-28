@@ -1,7 +1,9 @@
 #!/bin/bash
-# 사용: run.sh <elf> [제한초]  — gdb 내장 AVR 시뮬레이터로 돌려 g_log 와 합계를 출력. 실패 있으면 종료코드 1.
+# 사용: run.sh <elf> [제한초]  — gdb 내장 AVR 시뮬레이터로 돌려 g_log 와 합계를 출력.
+# 종료코드 0 은 "done() 에 닿았고 요약이 있고 pass>0 · fail=0 · FAIL 줄 없음" 일 때뿐(TIMEOUT·요약 없음·CHECK 0개는 1).
 # gdb 시뮬레이터는 .data 초기값을 RAM 에 넣지 못한다 → main 진입 때 ELF 의 .data 를 직접 복원.
 ELF="$1"; LIMIT="${2:-600}"
+[ -f "$ELF" ] || { echo "!! elf 없음: $ELF"; exit 1; }
 TC="/c/Users/alu5/.platformio/packages/toolchain-atmelavr/bin"
 VMA=$("$TC/avr-objdump" -h "$ELF" | awk '$2==".data"{print $4}')
 VMA=$(printf '0x%x' $((16#$VMA)))
@@ -17,4 +19,9 @@ out=$(timeout "$LIMIT" "$TC/avr-gdb.exe" -batch -ex "file $EW" -ex "target sim" 
 rc=$?
 [ $rc -eq 124 ] && echo "!! TIMEOUT ${LIMIT}s"
 echo "$out" | sed -n '/^Breakpoint 2, done/,$p' | tail -n +3
-echo "$out" | grep -q "==> pass=[0-9]* fail=0" && ! echo "$out" | grep -q "^FAIL"
+# 요약은 done() 에 닿은 뒤의 출력에서만 읽는다(runall 이 보는 것과 같게) · g_failLog 가 차면 `==>` 가 줄 머리에 안 온다.
+[ $rc -eq 124 ] && exit 1
+sum=$(echo "$out" | sed -n '/^Breakpoint 2, done/,$p' | grep -o '==> pass=[0-9]* fail=[0-9]*' | tail -n 1)
+[ -z "$sum" ] && exit 1
+np=${sum#*pass=}; np=${np%% *}; nf=${sum##*fail=}
+[ "$nf" -eq 0 ] && [ "$np" -gt 0 ] && ! echo "$out" | grep -q "^FAIL"

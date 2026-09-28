@@ -97,7 +97,8 @@ int main()
     CHECK(opMgr > 0 && opWashStart > 0 && opWashEnd > 0 && opDisStart > 0 && opDisEnd > 0 && opDump > 0,
           "접촉 예산 양성대조: 여섯 조작 모두 카드 동작이 세어졌다");
     CHECK(opMgr <= 15 && opWashStart <= 40 && opWashEnd <= 30, "접촉 예산: 담당자·세척 상한 안");
-    CHECK(opDisStart <= 60 && opDisEnd <= 30, "접촉 예산: 소독 상한 안");
+    // 15차 사장님 A4: 소독 시작의 `ClearSector(5)(6)` 선소거를 뺐다(읽는 곳 없음) — 42 → 28 동작. 상한을 실측 가까이 내려 되살아나면 빨강.
+    CHECK(opDisStart <= 35 && opDisEnd <= 30, "접촉 예산: 소독 상한 안(시작 ≤35 · 선소거 없음)");
     CHECK(opDump <= 90, "접촉 예산: 서버 덤프 상한 안(가장 무거운 조작)");
 
     done();

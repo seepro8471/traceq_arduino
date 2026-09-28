@@ -23,7 +23,7 @@ void RecordProcessor::SaveManagerData(const RecordOption &recordOption,
     char idText[sizeof(mCachedTag.ID) + 1]{};
     memcpy(idText, mCachedTag.ID, sizeof(mCachedTag.ID));
     // [13차 HH2 P3-2] 소리 100×1(형제 성공음은 50×1) · ID 글자는 **200ms** 만 보여 사람이 못 읽는다(1.0 승계).
-    //  읽히게 하려면 500 이지만 소리가 500×1 로 바뀌므로 **사장님 판정 사항**. 지금 소리는 t_hh2lock L0 이 잠근다.
+    //  읽히게 하려면 500 이지만 소리가 500×1 로 바뀐다 — [15차 사장님께 물음(09-28) · 그대로 · 재론 금지](C2). 소리는 t_hh2lock L0 이 잠근다.
     printer.Notify_cstr(0, 2, 100, idText);
 }
 
@@ -70,6 +70,8 @@ bool RecordProcessor::try_load_manager_data(const ManagerOption &managerOption,
         }
         // ★여기서 소모하지 않는다 — 시작 커밋이 성공한 뒤 consume_disposability() 로. 종전엔 실패한 시작·
         //  종료 터치에도 소모돼 Write Error 뒤 재접촉이 "No Manager Info" 가 됐다(5차 C).
+        // [16차 판정] 시작 커밋 뒤 확인만 끊기고 10초 넘겨 다시 대면 종료로 처리돼 표지가 남는다(다음 스코프가 담당자 없이
+        //  시작) — 8차 확인 읽기 창과 A7 "종료 미소모" 가 겹친 드문 경우라 둔다(16차 IV-B).
     }
     load_manager_data(managerOption);
     return true;
@@ -80,19 +82,21 @@ bool RecordProcessor::hasnt_patient_info(const RecordOption &recordOption)
     return recordOption.GetPatientCheck() && mCachedProcess.Status != 1;
 }
 
-int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc, DateTime *startOut)
+int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc, DateTime *startOut, uint8_t windowSec)
 {
-    WashingRecord record{};   // 세척·소독 시작 기록은 레이아웃이 같다(번호 2 + 일시 8)
+    WashingRecord record{};   // 세척·소독 시작·종료 기록은 레이아웃이 같다(번호 2 + 일시 8)
     if (mScanner.Read(startBlock, &record, 10) != RfidResult::Ok) return -1;   // 판정 불가 — '종료' 로 떨어뜨리지 않는다
     const auto started = DefaultRtc::ToDateTime(record.DateTime);
     if (startOut != nullptr) *startOut = started;   // 종료 보정이 이 읽기를 그대로 쓴다
     if (!started.isValid()) return 0;
     const int32_t gap = (rtc.GetCurrentDateTime() - started).totalseconds();
-    // [5차 판정 · 재론 금지] 2초 창은 그대로(사장님 09-27). 커밋 뒤 확인 실패로 'Write Error' 가 난 태그를
-    //  2초 넘겨 다시 대면 종료가 되는 경우는, write_process 의 재확인(5차)으로 거의 사라지고 나머지는 감수.
-    // ★창은 뒤쪽으로만 본다 — 시계를 뒤로 돌리면 태그의 시작이 '미래' 가 되는데, 대칭 창(gap > -2)이면
-    //  종료 터치가 '시작 재실행' 이 되어 실제 종료 시각이 사라졌다(BB2 P3-1). 창 길이 2초는 그대로다.
-    return gap >= 0 && gap < 2;
+    // ★[15차 사장님 A3 · 재론 금지] 재시작 창은 **10초**(5차의 2초에서). 태그의 시작 시각은 초 단위이고 실패음(100×4 ≈ 0.8초)이
+    //  창을 먼저 먹어, 사람이 규칙대로 다시 대도 대부분 '종료' 가 되어 3초짜리 세척·소독이 성공음과 함께 완료로 남았다
+    //  (15차 III-I F1). 시작 10초 안에 진짜 종료가 오는 흐름은 없다(세척·소독 모두 분 단위). 이동 재확인(A2)은 RAM 실패 표지
+    //  10초 또는 섹터6 시각 2초(16차 재설계).
+    // ★창은 뒤쪽으로만 본다 — 시계를 뒤로 돌리면 태그의 시작이 '미래' 가 되는데, 대칭 창이면
+    //  종료 터치가 '시작 재실행' 이 되어 실제 종료 시각이 사라졌다(BB2 P3-1).
+    return gap >= 0 && gap < windowSec;
 }
 
 LocalDateTime RecordProcessor::not_before_start(const DateTime &s, const LocalDateTime &end)

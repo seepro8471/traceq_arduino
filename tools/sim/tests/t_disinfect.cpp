@@ -86,7 +86,9 @@ int main()
         touch(s5);
         const Process p = get_process(s5);
         tlog("  s5 MV=%u RW=%u\n", p.MovementNeeded, p.Rewrite);
-        CHECK(p.MovementNeeded == 0 && p.Rewrite == 2, "B2-6: 거부 뒤 종료 태그가 이동 처리되지 않음");
+        // 15차 사장님 A1(가): 거부는 이동 표시를 **내리지 않는다**(1.0 동일) — A→A 에서 거부 하나로 2차 소독이 조용히 사라졌다.
+        //  남는 방아쇠는 재부팅·새 1차 시작뿐. (종전 계약 "거부 뒤 이동 처리되지 않음" 을 뒤집음)
+        CHECK(p.MovementNeeded == 1 && p.Rewrite == 0, "B2-6(15차 A1): 거부 뒤에도 이동 표시가 남아 종료 태그는 이동 처리된다");
         recordOption.SetManagerDisposability(false);
     }
 

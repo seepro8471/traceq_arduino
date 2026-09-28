@@ -69,8 +69,8 @@ int main()
           "W1 담당자 카드 한 번으로 둘째 스코프도 같은 담당자(A)");
 
     manager(0x02, "MGRB", "NAMEB");
-    sim_advance_ms(5000);
-    logs_clear(); touch(s1);                       // 31 종료 터치(2초 창 밖)
+    sim_advance_ms(15000);                         // 시작 뒤 20초 — 재시작 창(10초 · 15차 A3) 밖에 여유를 두고(16차: 5초면 여유 1초)
+    logs_clear(); touch(s1);                       // 31 종료 터치(창 밖)
     tlog_mgr("31end", s1);
     CHECK(blk_is(s1, SECTOR3_WASHING_START_MANAGER_KEY, "MGRA"),
           "W2 담당자를 바꿔도 앞 건의 **시작** 담당자는 그대로(A)");

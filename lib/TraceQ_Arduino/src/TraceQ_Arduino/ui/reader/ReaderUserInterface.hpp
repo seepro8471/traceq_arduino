@@ -6,7 +6,7 @@
 
 /**
  * \class ReaderUserInterface
- * \extends AbstractUserInterface
+ * \extends LcdPrinter
  * \brief READER_MODE를 위해 최소한의 기능만을 지원하는 UserInterface.
  *
  * \since 1.2

@@ -341,7 +341,7 @@ class ArduinoConfigurator(QMainWindow):
 
         # 최대 소독 횟수
         self.df_max_spin = QSpinBox()
-        self.df_max_spin.setRange(0, 9999)
+        self.df_max_spin.setRange(0, 999)   # [15차 사장님 C5] 리더는 999 초과를 0(제한 없음)으로 저장한다 — 칸도 같은 범위로(16차)
         self.df_max_spin.setValue(100)
         cfg_grid.addWidget(QLabel('최대 소독횟수:'), 2, 0)
         cfg_grid.addWidget(self.df_max_spin, 2, 1)

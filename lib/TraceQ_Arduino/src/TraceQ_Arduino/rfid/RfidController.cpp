@@ -63,8 +63,8 @@ void RfidController::Reinitialize()
     //  ★[사장님 확인 09-27] 이 경우는 **현장에서 생기지 않는다** — 태그를 올려 두지 않고 접촉하고 바로 떼므로,
     //   Disconnected 된 뒤에는 태그가 이미 리더 위에 없다. 재초기화가 다시 잡을 대상이 없다.
     // ★present/prev/missCount 를 지우면 안 된다 — 칩 리셋은 안테나를 끄므로 올려 둔 카드가 전원을 잃고
-    //  정지가 풀린다. 거기에 표시까지 지우면 같은 태그가 '새 태그' 가 되어 세척·소독이 곧바로 종료로
-    //  기록된다(2초 더블터치 가드 밖). EndSession 주석이 말하는 그 실기 확인 사례 그대로다.
+    //  정지가 풀린다. 거기에 표시까지 지우면 같은 태그가 '새 태그' 가 되어, 시작 10초가 지난 태그면 세척·소독이
+    //  곧바로 종료로 기록된다(더블터치 창 밖). EndSession 주석이 말하는 그 실기 확인 사례 그대로다.
     Initialize();
 }
 
@@ -154,8 +154,8 @@ RfidController::TagStatus RfidController::Poll(bool wakeHalted)
         return TagStatus::Invalid;
     }
 
-    // UID 가 이전과 다르면 인증 캐시만 정리(반환은 prev 로 정한다 — 제품 경로에서 sameUid 는 사실상 늘 거짓,
-    // EndSession 이 매 처리 뒤 mAuthUidSize 를 0 으로 두기 때문. 5차 B 계수 1,500회 중 참 0).
+    // UID 가 이전 인증과 다르면 리더 암호·인증 캐시를 정리한다(반환은 아래 prev+lastUid 판정 — 제품 경로에서 sameUid 는
+    // 사실상 늘 거짓, EndSession 이 매 처리 뒤 mAuthUidSize 를 0 으로 두기 때문. 5차 B 계수 1,500회 중 참 0).
     bool sameUid = (mAuthUidSize != 0) &&
                    (mAuthUidSize == mMfrc522.uid.size) &&
                    (memcmp(mAuthUid, mMfrc522.uid.uidByte, mAuthUidSize) == 0);
@@ -165,7 +165,7 @@ RfidController::TagStatus RfidController::Poll(bool wakeHalted)
         dropAuthCache();
     }
 
-    // ★"같은 태그는 한 접촉에 1회만" 판정을 prev 만으로 하지 않는다 — 처리 뒤 알림음(최대 1.6초) 동안 **다른** 태그를 대면
+    // ★"같은 태그는 한 접촉에 1회만" 판정을 prev 만으로 하지 않는다 — 처리 뒤 알림음(최대 2.6초) 동안 **다른** 태그를 대면
     //  prev=참이라 KeepAlive 로 먹혀 무음이었다(5차 V2 · 사장님 09-26 "처리되게"). 같은 UID 가 계속 있으면 KeepAlive,
     //  다른 UID 면 Connected. 같은 태그를 뗐다 다시 대면 prev=거짓이라 Connected(종전과 같다).
     // [5차 판정 · 재론 금지] 태그 **둘을 겹쳐** 올리고 HaltA 가 유실되면(두 조건 동시) 앞 태그가 뒤 태그 다음에 다시 잡혀

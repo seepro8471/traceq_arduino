@@ -129,11 +129,21 @@ int main()
         tlog("  세척기 더블터치: RW=%u, 세척시간 %ld초, alarm=%d\n", get_process(f).Rewrite, (long)dur, rtc.HasAlarm(1));
         CHECK(get_process(f).Rewrite == 1 && dur >= 4L * 60 && dur < 5L * 60, "세척기 더블터치 → 0분 종료 아님(시작 유지)");
         CHECK(rtc.HasAlarm(1), "세척기 더블터치 → 알람 유지");
-        sim_advance_ms(3UL * 1000);
-        touch(f);                                      // 3초 뒤 → 정상 종료
+        sim_advance_ms(12UL * 1000);
+        touch(f);                                      // 12초 뒤 → 정상 종료 (15차 A3: 재시작 창 2→10초)
         const int32_t dur2 = (DefaultRtc::ToDateTime(get_ldt(f, SECTOR3_WASHING_END)) -
                               DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
-        CHECK(dur2 >= 3 && dur2 < 10 && !rtc.HasAlarm(1), "회귀: 2초 지나 대면 종료");
+        CHECK(dur2 >= 10 && dur2 < 20 && !rtc.HasAlarm(1), "회귀: 10초 지나 대면 종료(15차 A3 · 창 10초)");
+        // 16차: 세척기 쪽 창 배선도 문는다 — 시작 5초 뒤 재접촉은 재시작(자동 종료 4분·알람 유지 · 창 2초면 5초짜리 종료가 된다)
+        fresh(f, 0x27, 27);
+        touch(f, 1, 4);
+        sim_advance_ms(5000);
+        touch(f);
+        const int32_t dur3 = (DefaultRtc::ToDateTime(get_ldt(f, SECTOR3_WASHING_END)) -
+                              DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
+        tlog("  세척기 5초 재접촉: RW=%u 세척시간 %ld초 alarm=%d\n", get_process(f).Rewrite, (long)dur3, rtc.HasAlarm(1));
+        CHECK(get_process(f).Rewrite == 1 && dur3 >= 4L * 60 && dur3 < 5L * 60 && rtc.HasAlarm(1),
+              "회귀(16차): 세척 시작 5초 뒤 재접촉은 재시작(창 10초 · 세척기 배선)");
     }
     // ── [3차 B] 세척기: 커밋은 됐는데 확인 읽기 실패(Write Error) → 곧바로 다시 대면 재시작 ──
     {

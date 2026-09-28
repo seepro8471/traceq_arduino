@@ -31,7 +31,7 @@ UserInterface::MenuFunction UserInterface::SetRecordAlarmFlag(AlarmOption &optio
 
 UserInterface::MenuFunction UserInterface::SetRecordAlarmTimeSlot(char deviceType, AlarmOption &option)
 {
-    // "%02d" 가 3자리 이상(또는 음수)을 출력할 수 있어 여유 확보 (1.0 승계 결함).
+    // "%02d" 가 3자리(100~127 — 게터가 0..127 로 자른다)를 출력할 수 있어 여유 확보 (1.0 승계 결함).
     char numberBuffer[8]{};
     const auto isWashingType{deviceType == 'W'};
     const int8_t current = isWashingType ? option.GetTimeSlot1() : option.GetTimeSlot2();

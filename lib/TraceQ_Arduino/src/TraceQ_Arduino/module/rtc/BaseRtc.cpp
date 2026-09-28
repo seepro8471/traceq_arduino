@@ -24,7 +24,7 @@ void BaseRtc::RtcInitialize()
     mRtc.clearAlarm(2);
     // stop oscillating signals at SQW Pin
     mRtc.writeSqwPinMode(DS3231_OFF);
-    // turn off alarm 2
+    // turn off alarm 1, 2
     mRtc.disableAlarm(1);
     mRtc.disableAlarm(2);
 }

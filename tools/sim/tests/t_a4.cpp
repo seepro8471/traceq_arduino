@@ -41,7 +41,7 @@ int main()
         card_place(&a);
         run_loops(1);                                    // 세척 시작(태그를 계속 올려 둔 상태)
         CHECK(get_process(a).Rewrite == 1 && rtc.HasAlarm(1), "①전제: 세척 시작 + 알람");
-        sim_advance_ms(3000);                            // 3초 — 더블터치 창(2초) 밖
+        sim_advance_ms(12000);                           // 12초 — 더블터치 창(10초 · 15차 A3) 밖(3초면 이제 재시작이라 이 잠금이 눈멀었다 · 16차)
         g_versionReg = 0x00;                             // 리더 죽음 → 다음 루프 Reinitialize
         run_loops(1);
         g_versionReg = 0x92;
@@ -52,7 +52,7 @@ int main()
         CHECK(g_fieldDrop >= 1, "①전제: 리셋으로 카드가 전원을 잃었다");
         const int32_t wd = dur_s(a, SECTOR2_WASHING_START, SECTOR3_WASHING_END);
         CHECK(wd >= 4L * 60 && wd < 5L * 60 && rtc.HasAlarm(1),
-              "①재초기화 뒤에도 올려 둔 태그를 3초짜리 종료로 재처리하지 않는다(자동종료 4분 유지)");
+              "①재초기화 뒤에도 올려 둔 태그를 12초짜리 종료로 재처리하지 않는다(자동종료 4분 유지)");
     }
 
     // ── ② 지원 안 되는 카드를 반드시 정지(HALT)시킨다(B P2-2) ──

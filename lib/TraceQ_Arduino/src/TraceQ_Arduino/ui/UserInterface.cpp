@@ -118,7 +118,7 @@ void UserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
     {
         mHomeShownNumber = deviceNumber;
         // 항상 15열부터 5칸 — 두 자리는 앞에 공백. 자릿수가 바뀌어도 잔상이 없다(1행 20자 채움과 같은 규칙).
-        if (deviceNumber >= 1000)    snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%5d", deviceNumber);   // 게이트웨이 본체번호 4자리(SeePro 자유 입력) — 숫자만
+        if (deviceNumber >= 1000)    snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%5d", deviceNumber);   // 도달 불가(번호 상한 DeviceOption::kNumberMax=999 — G1·세터·게터가 자른다) · 방어로 둔다
         else if (deviceNumber >= 100) snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%d", mType, deviceNumber);
         else                          snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), " %c:%02d", mType, deviceNumber);
         mLcd.setCursor(15, 3);
@@ -333,7 +333,8 @@ UserInterface::MenuFunction UserInterface::select(Line &line, const __FlashStrin
     return select_impl(line, p1, p2, p3, p4, start);
 }
 
-// [5차 판정 · 재론 금지] 숫자 메뉴는 범위 밖 값을 말없이 잘라 저장(날짜는 경고+폐기 — 형제 규칙 다름, 1.0 동일) · 편집 화면이
+// [5차 판정 · 재론 금지] 숫자 메뉴는 범위 밖 값을 말없이 세터 규칙대로 저장(대개 잘라서 · MaxCount 는 999 초과면 0 —
+//  15차 C5)(날짜는 경고+폐기 — 형제 규칙 다름, 1.0 동일) · 편집 화면이
 //  'Edit' 4자를 매 루프 다시 씀(메뉴 안이라 태그와 무관) · select_impl 둘의 default 가 다름(둘 다 도달 불가) ·
 //  EEPROM 타입 손상 기기는 같은 타입을 골라도 복구 기록 안 됨(다음 판 첫 부팅에 소거 — 이론상).
 UserInterface::MenuFunction UserInterface::edit_number_impl(Line &line)

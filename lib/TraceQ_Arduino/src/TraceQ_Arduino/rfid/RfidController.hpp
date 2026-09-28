@@ -20,8 +20,8 @@
  *
  *  2) 안전한 종료
  *     `EndSession()` 단일 진입점에서 PICC_HaltA → PCD_StopCrypto1 보장.
- *     Read/Write 재시도 안에서는 캐시를 무효화한다. 마지막 실패 뒤엔 캐시가 남지만 다음 인증이
- *     다시 잡는다 — 결과는 같고 실패 경로에서 동작이 1회 더 일어난다(14차 II-E 실측).
+ *     Read/Write 재시도 안에서는 캐시를 무효화한다. 쓰기(writeVerified)의 마지막 실패 뒤엔 캐시가 남지만
+ *     (읽기는 버린다) 다음 인증이 다시 잡는다 — 결과는 같고 실패 경로에서 동작이 1회 더 일어난다.
  *
  *  3) 트레일러/제조사 블록 보호
  *     `Write/Clear` 진입 시 IsSectorTrailer/IsManufacturerBlock 검사.
@@ -32,8 +32,8 @@
  *     TRACEQ_RFID_MAX_WRITE_RETRIES 는 **총 시도 횟수**(3 = 재시도 2). 읽기는 총 2회.
  *
  *  5) 태그 발급 키 전환
- *     InstallTraceQKeys/RestoreFactoryKeys — 1.0의 SetAccessMethod/
- *     InitAccessMethod와 동일 절차(공장 FF 키 ↔ TraceQ KEY_B).
+ *     InstallTraceQKeys/RestoreFactoryKeys(공장 FF 키 ↔ TraceQ KEY_B) — Install 은 1.0 SetAccessMethod 와
+ *     같은 트레일러를 쓰되 이미 바뀐 섹터는 건너뛴다(멱등) · Restore 는 1.0 InitAccessMethod 와 동일.
  *     (SPI 속도는 벤더 사본의 `MFRC522_SPICLOCK`(platformio.ini)로 정한다.)
  *
  *  6) 초기화 대기
@@ -133,7 +133,7 @@ public:
     /// 디버그용: 마지막 MFRC522 상태 코드.
     MFRC522::StatusCode LastStatus() const { return mLastStatus; }
 
-    /// 진단용 레지스터 읽기 (examples/RegisterProbe 전용 — 운영 경로 미사용).
+    /// 진단용 레지스터 읽기 (examples/RegisterProbe·IntegrityTest 전용 — 운영 경로 미사용).
     uint8_t ReadReg(MFRC522::PCD_Register reg) { return mMfrc522.PCD_ReadRegister(reg); }
 
 private:
