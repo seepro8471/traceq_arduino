@@ -148,7 +148,7 @@ public:
 protected:
     // 메뉴 무조작 시한(사장님 09-25): 60초 동안 아무 버튼도 안 누르면 저장 없이 홈으로 나간다.
     // 메뉴에 머무는 동안은 태그를 전혀 읽지 않으므로, 열어 두고 자리를 비우거나 버튼이 붙어 고장나도
-    // 기기가 영영 멈추지 않게. 눌린 버튼을 읽을 때마다 활동 시각을 갱신한다.
+    // 기기가 영영 멈추지 않게. 활동 시각은 버튼이 **눌리는 에지**에서만 갱신한다(누른 채로는 안 늘어난다).
     static constexpr unsigned long kMenuIdleMs{60000UL};
     unsigned long mMenuActiveAt{0};
     inline void menu_touch() { mMenuActiveAt = millis(); }
@@ -325,10 +325,10 @@ private:
     /**
      * \brief 현재 기기의 타입과 번호를 출력하기 위한 버퍼. Home 화면 구성에 사용된다.
      *
-     * \details col 16, row 3에 표시된다.
+     * \details row 3 의 col 15 부터 5칸(" W:01" · "W:120" · "W:999")에 표시된다.
      */
-    // "%c:%02d" — device_number는 JSON으로 3자리 이상 설정될 수 있으므로
-    // int16 최대(5자리)까지 수용 (1.0은 [5]라 3자리부터 오버런).
+    // 서식은 자릿수에 따라 셋 — device_number 는 JSON·G1 으로 3자리까지 온다(상한 999 = kNumberMax).
+    // 버퍼는 int16 최대(5자리)+NUL 까지 수용 (1.0은 [5]라 3자리부터 오버런).
     char mDeviceInfoBuffer[8]{};
 
     // Home 화면 갱신 최소화용 캐시 (2.2.5) — 값이 바뀐 항목만 LCD 에 다시 쓴다.

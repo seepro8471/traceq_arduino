@@ -279,15 +279,22 @@ int main()
         touch(b);
         CHECK(get_process(b).MovementNeeded == 1, "X1 P3-4 Process 블록 읽기 실패(세 번째 갈래)도 이동 플래그를 지킨다");
     }
-    // W1 P3-2: 본체번호 4자리는 숫자만 5칸
+    // W1 P3-2 → 14차 정정: 4자리 본체번호는 **있을 수 없다** — RAM(mGateNumber)·EEPROM 둘 다 kNumberMax(999)를 지켜
+    //  G1=9999 는 무시되고 설정값이 그대로 쓰인다(종전 계약 "숫자만 5칸" 은 4자리가 통과하던 시절의 것 · II-G P3-4).
+    //  3행 배치(5칸 · 20열 안)는 t_ii4 B2 가 0/5/7/120/999 로 잠근다.
     reboot_as('G');
     {
+        const int setting = deviceOption.GetNumber();
         char pk[96];
         snprintf(pk, sizeof(pk), "G19999;G2%u;%u;%u;5;10;0;0;G3PT1;A;G4EGD;;;G5;",
                  (unsigned)TRACEQ_RELEASE_YEAR, (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY);
         serial_inject(pk, strlen(pk)); GUARDED(serialEvent()); run_loops(1);
         ui.InvalidateHome(); logs_clear(); run_loops(1);
-        CHECK(lcd_has(" 9999") && !lcd_has("G:9999"), "W1 P3-2 본체번호 4자리는 숫자만 5칸(20열 밖으로 안 나감)");
+        tlog("  W1 G1=9999 뒤: 설정값=%d 태그에 쓸 번호=%d 3행=[%.20s]\n", deviceOption.GetNumber(),
+             gatewayProcessor.effective_number(deviceOption.GetNumber()), lcd_row(3));
+        CHECK(!lcd_has("9999") && deviceOption.GetNumber() == setting &&
+              gatewayProcessor.effective_number(deviceOption.GetNumber()) == setting,
+              "W1 P3-2(14차) 상한 밖 본체번호(9999)는 화면·태그·설정값 어디에도 안 들어간다");
     }
 
     // ═══ X2 잠금 ═══

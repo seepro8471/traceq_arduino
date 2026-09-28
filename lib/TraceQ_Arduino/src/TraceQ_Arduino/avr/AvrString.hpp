@@ -17,11 +17,6 @@
 
 constexpr size_t TRACEQ_STR_MAX_SCAN_LEN{512};
 
-// 데이터 도메인 상한 — Tag/Manager 등에서 사용.
-constexpr size_t TRACEQ_TAG_ID_MAX{14};        // Tag ID
-constexpr size_t TRACEQ_TAG_SERIAL_MAX{16};    // TagSerial.Serial
-constexpr size_t TRACEQ_MANAGER_KEY_MAX{14};
-constexpr size_t TRACEQ_MANAGER_NAME_MAX{16};
 
 bool   str_all_match(const unsigned char *src, char condition);
 bool   str_all_match_cstr(const unsigned char *src, const unsigned char *condition);

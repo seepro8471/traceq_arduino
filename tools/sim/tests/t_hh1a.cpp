@@ -44,7 +44,7 @@ static void scope(SimCard &c, uint8_t uid, int no, uint8_t status,
     snprintf(id, sizeof(id), "SC%04d", no);
     snprintf(ser, sizeof(ser), "S%04d", no);
     make_tag(c, uid, SCOPE_TYPE_TAG, no, id, ser);
-    set_process(c, Process{status, 1, 1, 1, 1, false, 0, 2});
+    set_process(c, Process{status, 0, 0, 0, 0, false, 0, 0});
     set_record(c, SECTOR2_WASHING_START, 1, ws);
     set_record(c, SECTOR3_WASHING_END, 1, we);
     set_record(c, SECTOR1_GATEWAY, 7, exam);
@@ -186,7 +186,7 @@ int main()
         tlog("  4a 같은 초: 비워짐=%u 연도=%u 항목='%.8s' RW=%u 오류=%u\n", (unsigned)gone,
              get_ldt(sc, SECTOR1_GATEWAY).Date.Year, (const char *)sc.data[SECTOR15_EXAMINATION_SUBJECT],
              get_process(sc).Rewrite, (unsigned)lcd_has("Error"));
-        CHECK(gone, "4a 검사일시가 지난 주기 세척 종료와 같은 초면 잔재로 보고 비운다(<= 의 = 쪽)");
+        CHECK(gone, "4a 완료 뒤 Status 0 + 검사일시 있음 → 지운다(표지만 · 시각은 보지 않는다)");
 
         as_type('W');
         touch(mgr);
@@ -198,7 +198,8 @@ int main()
         const bool kept1s = subj_is(sc, "GTSUBJ01") && get_ldt(sc, SECTOR1_GATEWAY).Date.Year != 0;
         tlog("  4b 1초 뒤: 보존=%u 항목='%.8s' RW=%u\n", (unsigned)kept1s,
              (const char *)sc.data[SECTOR15_EXAMINATION_SUBJECT], get_process(sc).Rewrite);
-        CHECK(kept1s, "4b 검사일시가 지난 주기 세척 종료보다 1초라도 뒤면 이번 검사다 — 지우지 않는다");
+        // [사장님 선택 1 · 09-28] 시각은 보지 않는다 — Status 0(환자 없음)이면 지난 세척보다 뒤인 검사일시(폴백)도 지워진다.
+        CHECK(!kept1s, "4b 검사일시가 지난 세척 종료보다 뒤여도 Status 0 이면 지운다 — 폴백 검사일시는 감수(표지만 판정)");
     }
 
     // ── ⑨ 검사일시가 **출시일보다 앞**(2026-01-01) — 잔재로 판정해 비운다 ──

@@ -81,7 +81,10 @@ int main()
         tlog("  4 G1=1234 2회 · 설정값=%d · 쓴 바이트=%lu\n",
              deviceOption.GetNumber(), (unsigned long)g_eepromWrites);
         CHECK(deviceOption.GetNumber() == 7 && g_eepromWrites == 0,
-              "4 상한(999) 밖 번호는 설정값을 바꾸지 않는다 — 잘리면 EEPROM 을 전문마다 쓴다");
+              "4 상한(999) 밖 번호는 설정값을 바꾸지 않는다 — 관문이 없으면 세터가 잘라 틀린 999 가 저장된다");
+        // ★RAM 경로(태그·화면에 쓸 번호)도 같은 상한 — 여기만 받으면 재기동 전후 번호가 갈린다(14차 II-G P3-4)
+        CHECK(gatewayProcessor.effective_number(deviceOption.GetNumber()) == 7,
+              "4b 상한 밖 번호는 태그·화면에 쓸 번호(RAM)도 바꾸지 않는다 — EEPROM 과 같은 정본 상한");
     }
 
     // ── ⑤ 게이트웨이가 아닌 기기는 G1 전문으로 설정값이 안 바뀐다 ──

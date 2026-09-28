@@ -115,13 +115,19 @@ int main()
          r[0].gw, r[5].gw, r[0].s15, r[5].s15, r[2].gw, r[2].s15);
     // Status==2 는 **1.0 에서 온 태그의 전환 1회**다(2.0 은 Status 에 0·1 만 쓴다) — 레거시 갈래가 블록 5·8·9 와
     //  섹터15 3블록을 비우므로 더 무겁다 → 매 주기 도는 갈래와 **따로** 잠근다(상한 하나를 올려 덮지 않는다).
-    uint16_t mx = 0;
-    for (uint8_t i = 0; i < 6; ++i) if (sv[i] != 2 && r[i].ops > mx) mx = r[i].ops;
-    tlog("  E 접촉 예산: 매 주기 갈래 최대 %u(≤40) · Status=2 전환 1회 %u(≤45)\n",
-         (unsigned)mx, (unsigned)r[2].ops);
-    CHECK(mx <= 40, "E5 매 주기 도는 Status 갈래는 접촉 예산 40 안");
-    CHECK(r[2].ops > mx && r[2].ops <= 45,
-          "E5b Status=2(1.0 전환 태그 1회) 갈래는 45 안 — 레거시 소거 몫만큼 무겁다");
+    // 14차(사장님 선택 1 · 표지만 판정): Status 0(완료 뒤 · 환자 없음 · 검사 있음)도 소거 갈래다 — 태그마다 1회.
+    //  매 주기 갈래 = Status 1·3(환자 있음 → 남긴다) · 4·200(모르는 값 → 8·9 만 비움). 소거 갈래 = Status 0(표지 판정) · 2(레거시).
+    uint16_t mx = 0, mxClear = 0;
+    for (uint8_t i = 0; i < 6; ++i)
+    {
+        if (sv[i] == 0 || sv[i] == 2) { if (r[i].ops > mxClear) mxClear = r[i].ops; }
+        else                           { if (r[i].ops > mx)      mx      = r[i].ops; }
+    }
+    tlog("  E 접촉 예산: 매 주기 갈래(1·3·4·200) 최대 %u(≤40) · 소거 갈래(0·2 · 1회) 최대 %u(≤45)\n",
+         (unsigned)mx, (unsigned)mxClear);
+    CHECK(mx <= 40, "E5 매 주기 도는 Status 갈래(1·3·4·200)는 접촉 예산 40 안");
+    CHECK(mxClear > mx && mxClear <= 45,
+          "E5b 소거 갈래(Status 0 표지 판정 · Status 2 레거시)는 45 안 — 태그마다 1회라 무거워도 된다");
 
     // ── F: 그 잔재가 실제로 PC 로 나가는가(Status=200 표본 한 주기 + 덤프) ──
     {

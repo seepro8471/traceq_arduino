@@ -25,7 +25,7 @@ static void stale(SimCard &c, uint8_t uid, int no, uint8_t status)
     snprintf(id, sizeof(id), "SC%04d", no);
     snprintf(ser, sizeof(ser), "S%04d", no);
     make_tag(c, uid, SCOPE_TYPE_TAG, no, id, ser);
-    set_process(c, Process{status, 1, 1, 1, 1, false, 0, 2});
+    set_process(c, Process{status, 0, 0, 0, 0, false, 0, 0});
     set_record(c, SECTOR2_WASHING_START, 1, yday(9, 0));
     set_record(c, SECTOR3_WASHING_END, 1, yday(9, 4));
     set_record(c, SECTOR1_GATEWAY, 7, yday(8, 0));
@@ -95,6 +95,7 @@ int main()
         touch(mgr);
         rtc_set(rel_date(12, 0, 0));
         logs_clear(); buzz_clear();
+        set_process(sc, Process{});   // MODEL: 덤프 커밋(뒤 소거 실패)
         touch(sc, 2, 4);                                    // 다음 주기 세척 시작
         tlog("  5c 이 주기 잔존=%u · 다음 주기 세척 시작 뒤 잔존=%u RW=%u 블록5비움=%u\n",
              (unsigned)leakThisCycle, (unsigned)subj_any_old(sc), get_process(sc).Rewrite,
@@ -162,14 +163,13 @@ int main()
         CHECK(!leak61, "7b Status==2 갈래도 옛 검사항목(블록61)을 덤프로 내보내지 않는다");
     }
 
-    // ── ⑧ 접촉 예산 — **정상 갈래**와 **잔재 소거 갈래**를 따로 잠근다 ──
-    //    ⓐ 잔재 없음(검사일시 0 = 게이트웨이를 안 쓰는 현장) ⓑ 게이트웨이 정상(이번 검사 — 읽기만 늘어난다)
-    //    ⓒ 잔재 소거가 실제로 도는 갈래. ⓒ 는 **태그마다 한 번뿐**이다 — 소거가 성공하면 블록5 가 0 이 되어
-    //    다음 주기는 ⓐ 로 내려간다(업그레이드 직후 1회). 그래서 ⓐⓑ 는 t_ops 와 같은 40 으로 두고
-    //    ⓒ 만 따로 50 으로 박는다. ★상한을 올려 덮지 않는다 — 정상 갈래가 무거워지면 ⓐⓑ 가 빨강이 된다.
+    // ── ⑧ 접촉 예산 — **정상 갈래**와 **소거가 도는 갈래**를 따로 잠근다(사장님 선택 1: 표지만 판정) ──
+    //    정상 = 검사일시 없음(Status 0/1) · 검사 있음 + Status 1(환자 있음 — 남긴다) → t_ops 와 같은 40.
+    //    소거 = 완료 뒤 Status 0 + 검사일시 있음(잔재든 폴백이든) → 태그마다 한 번뿐인 비용, 따로 50.
+    //    ★상한을 올려 덮지 않는다 — 정상 갈래가 무거워지면 8a 가 빨강이 된다.
     {
-        uint16_t mxNormal = 0;
-        for (uint8_t i = 0; i < 2; ++i)                      // ⓐ Status 0 / 1
+        uint16_t mxNormal = 0, mxClear = 0;
+        for (uint8_t i = 0; i < 2; ++i)                      // 잔재 없음 · Status 0 / 1
         {
             as_type('W');
             touch(mgr);
@@ -181,7 +181,7 @@ int main()
             if (sc.opCount > mxNormal) mxNormal = sc.opCount;
             tlog("  8a 잔재 없음 Status=%u → 동작 %u\n", (unsigned)(i == 0 ? 0 : 1), sc.opCount);
         }
-        for (uint8_t i = 0; i < 2; ++i)                      // ⓑ 게이트웨이 정상 — 검사일시가 이번 검사
+        for (uint8_t i = 0; i < 2; ++i)                      // 검사 있음(이번 검사) · Status 0(폴백) / 1(환자)
         {
             as_type('W');
             touch(mgr);
@@ -190,16 +190,17 @@ int main()
             rtc_set(rel_date(10, 0, 0));
             sc.opCount = 0;
             touch(sc, 2, 4);
-            if (sc.opCount > mxNormal) mxNormal = sc.opCount;
-            tlog("  8b 게이트웨이 정상 Status=%u → 동작 %u · 검사일시보존=%u\n",
-                 (unsigned)(i == 0 ? 0 : 1), sc.opCount,
-                 (unsigned)(get_ldt(sc, SECTOR1_GATEWAY).Date.Year != 0));
+            const bool kept = get_ldt(sc, SECTOR1_GATEWAY).Date.Year != 0;
+            if (i == 1) { if (sc.opCount > mxNormal) mxNormal = sc.opCount; }
+            else        { if (sc.opCount > mxClear)  mxClear  = sc.opCount; }
+            tlog("  8b 검사 있음 Status=%u → 동작 %u · 검사일시보존=%u\n", (unsigned)(i == 0 ? 0 : 1), sc.opCount, (unsigned)kept);
+            if (i == 1) CHECK(kept, "8b 환자 있는 검사(Status 1)는 남긴다");
+            else        CHECK(!kept, "8b 폴백 검사(Status 0)는 지운다 — 선택 1 의 대가");
         }
         CHECK(mxNormal > 0 && mxNormal <= 40,
-              "8a 잔재가 없는 세척 시작(게이트웨이 유무 무관)은 접촉 예산 40 안 — t_ops 와 같은 상한");
+              "8a 정상 갈래(잔재 없음 · 환자 있는 검사)의 세척 시작은 접촉 예산 40 안 — t_ops 와 같은 상한");
 
         const uint8_t sv[4] = {0, 1, 3, 200};
-        uint16_t mx = 0;
         for (uint8_t i = 0; i < 4; ++i)
         {
             as_type('W');
@@ -209,12 +210,14 @@ int main()
             sc.opCount = 0;
             touch(sc, 2, 4);
             const uint16_t ops = sc.opCount;
-            if (ops > mx) mx = ops;
-            tlog("  8c Status=%3u 잔재 소거 → 동작 %u · 검사일시비움=%u\n", sv[i], ops,
-                 (unsigned)(get_ldt(sc, SECTOR1_GATEWAY).Date.Year == 0));
+            const bool cleared = get_ldt(sc, SECTOR1_GATEWAY).Date.Year == 0;
+            if (cleared) { if (ops > mxClear) mxClear = ops; }
+            else         { if (ops > mxNormal) mxNormal = ops; }
+            tlog("  8c Status=%3u 옛 검사 → 동작 %u · 검사일시비움=%u\n", sv[i], ops, (unsigned)cleared);
         }
-        CHECK(mx > mxNormal && mx <= 50,
-              "8c 잔재 소거가 도는 세척 시작은 50 안 — 태그마다 한 번뿐인 비용(정상 갈래보다 무겁다)");
+        CHECK(mxNormal <= 40, "8c 표지가 '남긴다' 인 갈래(Status 1·3·200)는 40 안");
+        CHECK(mxClear > mxNormal && mxClear <= 50,
+              "8c 소거가 도는 갈래(완료 뒤 Status 0 + 검사 있음)는 50 안 — 태그마다 한 번뿐인 비용");
     }
 
     // ── ⑫ 접촉 이탈 지점 전수 — **이번 검사**가 지워지는 N 이 몇 개인가(P1-1 의 빈도) ──
@@ -229,7 +232,7 @@ int main()
             snprintf(id, sizeof(id), "SC%04d", 100 + n);
             snprintf(ser, sizeof(ser), "S%04d", 100 + n);
             make_tag(sc, (uint8_t)(0x80 + (n & 0x1F)), SCOPE_TYPE_TAG, 100 + n, id, ser);
-            set_process(sc, Process{1, 1, 1, 1, 1, false, 0, 2});
+            set_process(sc, Process{1, 0, 0, 0, 0, false, 0, 0});
             set_record(sc, SECTOR2_WASHING_START, 1, yday(9, 0));
             set_record(sc, SECTOR3_WASHING_END, 1, yday(9, 4));
             set_record(sc, SECTOR1_GATEWAY, 7, rel_date(8, 0, 0));      // 이번 검사

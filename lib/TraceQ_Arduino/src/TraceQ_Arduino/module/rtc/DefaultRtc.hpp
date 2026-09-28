@@ -92,7 +92,8 @@ public:
      * @brief
      * @param string
      */
-    void FromString(const char *string);
+    /// 문자열 시각을 시계에 넣는다. 무효면 **안 넣고 false** — 호출자가 성공음을 내기 전에 봐야 한다.
+    bool FromString(const char *string);
 
     /**
      * \brief 인자로 전달받은 문자열을 통해 현재 시간을 변경한다.

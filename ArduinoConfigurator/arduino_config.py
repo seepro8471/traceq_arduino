@@ -320,7 +320,7 @@ class ArduinoConfigurator(QMainWindow):
         cfg_grid.addWidget(QLabel('기기 타입:'), 0, 0)
         cfg_grid.addWidget(self.type_combo, 0, 1)
 
-        # 기기 번호
+        # 기기 번호 — [14차 사장님 판정(09-28) · 재론 금지] 99 그대로(리더 상한 999 는 상한일 뿐 · 병원 본체번호는 99 이하)
         self.num_spin = QSpinBox(); self.num_spin.setRange(0, 99)
         cfg_grid.addWidget(QLabel('기기 번호:'), 0, 2)
         cfg_grid.addWidget(self.num_spin, 0, 3)

@@ -26,7 +26,10 @@ void DisinfectionProcessor::DisinfectionProcess(
 
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
     {
-        mMovable = false;   // 위 두 거부와 같이 이동 플래그도 내린다
+        // 위 두 거부와 같이 이동 플래그를 내리되 **이미 이동한 스코프는 예외** — 12차가 `:70` 에만 `!isMoved` 를
+        //  넣어, 일회성 담당자 ON 에서 이동한 스코프를 다시 대면 `No Manager Info` 거부가 플래그를 내려 욕조에
+        //  남은 스코프 전부가 조용히 1차 종료됐다(14차 II-C P2-4 · 형제 문). 이동한 스코프는 새 시작이 아니다.
+        if (!isMoved) mMovable = false;
         return;
     }
 
@@ -53,6 +56,18 @@ void DisinfectionProcessor::DisinfectionProcess(
             simultaneously = false;
             isEnd = false;
             isRestart = true;   // 시작 재실행 — 소독 횟수는 다시 올리지 않는다
+            // ★재시작인데 RAM 슬롯이 이 스코프를 모르면(앞 시도의 커밋이 확인 읽기에서 끊겨 set_guest/set_host 가
+            //  안 불림) 태그에 **커밋된 DETAIL 그룹**을 믿는다 — 종전엔 RAM 만 보고 guest 를 host 로 다시 써서
+            //  커밋된 그룹2 를 1 로 덮고 host·시간창을 그 스코프로 옮겼다(뒤 스코프가 guest 로 박혀 횟수 −1 ·
+            //  14차 II-C P2-3). host 재시작은 그룹1 이라 행위 그대로 · 읽기 실패면 종전처럼 RAM.
+            if (disinfectionOption.GetSimultaneousDisinfectionSlot() >= 2 &&
+                !is_host(mCachedTag.Number) && !is_guest(mCachedTag.Number))
+            {
+                DisinfectionDetail committed{};
+                if (mScanner.Read(isMoved ? SECTOR14_DISINFECTION_DETAIL2 : SECTOR14_DISINFECTION_DETAIL,
+                                  &committed, 10) == RfidResult::Ok)
+                    isGuest = (committed.GroupNumber == 2);
+            }
         }
     }
 
@@ -62,11 +77,8 @@ void DisinfectionProcessor::DisinfectionProcess(
     //  기록되고 2차 소독이 유실됐다(과소 계수 = 액교환이 늦어진다 · GG2 P2-1). 5차 판정은 피해를 "다시 댄 그
     //  스코프" 로만 봤는데 실제로는 **남은 전부**였다 — 첫 접촉이 성공음이라 사람이 알 수도 없다.
     //  이미 이동한 스코프는 새 시작이 아니므로 세지 않는다(이 한 낱말이 주석의 원래 뜻을 되살린다).
-    // [12차 판정 · 재론 금지] 대가 하나: **도착 기기에서도 액교환을 한** 경우 이동 플래그가 2차 시작을 넘어
-    //  살아남아, 그 스코프를 또 대면 2차 종료가 '3차 이동' 이 되고 한 번 더 대면 종료 시각이 미리채움으로
-    //  덮이며 그 소독기 횟수가 1→2 가 된다(과다 계수 = 액교환이 일러지는 **안전한 방향** · GG1 §5 실측).
-    //  액교환을 두 기기에서 하고 접촉을 세 번 더 해야 하는 좁은 조합이고, 막는 쪽(`!isMoved` 를 이동 선택에도
-    //  넣기)은 `[5차 판정 ③]`("또 이동시키면 2차 기록이 덮인다 = 조작 오류 범위")과 부딪히므로 그대로 둔다.
+    // 14차(사장님 09-28): 액교환한 **같은 소독기에 되넣어 2차**를 하는 흐름(A→A)이 정상 운용이다 — 그때 이 표시는
+    //  2차 시작을 넘어 살아 있으므로, 이미 이동한 스코프(isMoved)의 종료 접촉은 아래에서 이동으로 받지 않는다.
     if (mMovable && !isEnd && !isMoved) mMovable = false;
 
     if (isEnd)
@@ -78,13 +90,18 @@ void DisinfectionProcessor::DisinfectionProcess(
         //  Reject 는 시리얼 에코가 없어 PC 와이어 계약은 그대로다. [11차 판정 · 재론 금지] 이 거부를 PC 로그에도
         //  남기자(RejectDebug + 세척관리 문구 처리 = 양쪽 짝 출하)는 **하지 않는다**(사장님 09-27) — 사람은
         //  소독기 화면 글자와 거부음으로 안다.
-        if (!mMovable && mCachedProcess.MachineNumber != deviceNumber)
+        // [14차 사장님 판정 · 재론 금지] 이미 이동한 스코프(2차 중·2차 뒤)의 다른 기기 접촉도 **같은 `Other Machine`** 이다 —
+        //  "이미 이동함" 안내로 바꾸지 않는다(동작·소리·태그 동일 · 흔한 착각에선 "기기2 로 가라" 가 더 맞는 힌트 · 문구를 안 늘린다).
+        // ★이미 이동한 스코프(isMoved)는 다시 이동하지 않는다 — 자기 기기면 2차 종료, 아니면 Other Machine.
+        //  A→A 2차에서 이 기기의 이동 표시가 살아 있어 2차 종료가 '이동'(RW=0)으로 적혔고, 그 뒤 한 번만 더 대면
+        //  시작 경로(더블터치 가드 없음)가 2차 시작을 지금 시각으로 다시 쓰고 종료는 미리채움·횟수 +1 이었다(14차 GG2 ⑧⑨).
+        if ((!mMovable || isMoved) && mCachedProcess.MachineNumber != deviceNumber)
         {
             printer.Reject(0, 2, F("Other Machine"));
             return;
         }
         bool ok;
-        if (mMovable)
+        if (mMovable && !isMoved)
         {
             ok = disinfector_move(deviceNumber, isMoved, rtc, startDt);
         }
@@ -153,7 +170,8 @@ void DisinfectionProcessor::DisinfectionProcess(
         util_buzzer();
 }
 
-// [5차 판정 · 재론 금지] 1.0 과 같은 설계라 둔다: ③ 이동해 온 스코프를 또 이동시키면 2차 기록이 덮인다(조작 오류 범위)
+// [5차 판정 · 재론 금지] 1.0 과 같은 설계라 둔다: ③ 태그의 소독 칸은 둘뿐 — 이동해 온 스코프는 다시 이동하지 않는다
+//  (14차 정정 · 사장님 09-28 A→A 사실: 자기 기기면 2차 종료 · 다른 기기면 Other Machine — 종전 '2차 기록이 덮인다' 는 없어짐)
 //  ⑥ 알람 슬롯은 기기당 하나(뒤 스코프가 앞 알람을 덮음) ⑦ 이동+RTC 방전 복구가 1차 종료보다 앞설 수 있음
 //  ⑧ 복구 추정의 세척 시간은 소독기 자신의 슬롯1(PC JSON 으로만 설정 — 이 추정 자체는 1.0 에 없고 09-23 결정)
 //  ⑫ 일회성 ON 에서 담당자 미등록 종료는 담당자 0.

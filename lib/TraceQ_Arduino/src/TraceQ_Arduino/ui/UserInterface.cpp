@@ -105,7 +105,8 @@ void UserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
         mLcd.print(mHomeShownDateTime);
     }
 
-    // 버전·기기정보는 부팅 후 바뀌지 않는다(타입 변경 시 재시작) — 1회만 출력.
+    // 버전은 부팅 후 바뀌지 않는다(타입 변경 시 재시작) — 이 블록은 버전만 1회 그린다. 기기정보(번호)는
+    //  JSON·G1 으로 운용 중에 바뀌므로 아래에서 홈마다 다시 그린다(14차 II-F 정정).
     if (!mHomeStaticShown)
     {
         mLcd.setCursor(6, 3);

@@ -65,11 +65,13 @@ void WashingProcessor::update_process(int deviceNumber)
         if (current == 2)
         {
             // 1.0과 동일하나, 2.0의 섹터 캐시 덕에 같은 섹터 내 Clear는 인증 1회로 완료.
-            mScanner.Clear(SECTOR1_GATEWAY);
+            // ★블록60 만 지우면 **블록61 이 덤프로 나갔다**(13차 HH1 P3-1) — 섹터15 데이터 3블록을 다 지운다.
+            // ★블록5(검사일시)는 **마지막에** — 먼저 지우고 끊기면 다음 세척 시작의 잔재 판정이 Year==0 을 보고
+            //  건너뛰어 남은 검사항목을 다시는 못 지운다(13차 규칙의 형제 · 14차 II-G P3-1).
+            mScanner.ClearSector(15);
             mScanner.Clear(SECTOR2_PATIENT_KEY);
             mScanner.Clear(SECTOR2_PATIENT_NAME);
-            // ★블록60 만 지우면 **블록61 이 덤프로 나갔다**(13차 HH1 P3-1) — 섹터15 데이터 3블록을 다 지운다.
-            mScanner.ClearSector(15);
+            mScanner.Clear(SECTOR1_GATEWAY);
         }
         if (current == 3) tempStatus = 1;
         current = tempStatus;
@@ -102,6 +104,31 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
     const uint8_t prevStatus = mCachedProcess.Status;
     if (!isRestart)
     {
+        // 완료 처리가 지우다 끊긴 검사 잔재(블록5 검사일시·본체번호 · 섹터15 검사항목)를 비운다 — 안 지우면 옛 검사항목이
+        //  다음 주기 덤프에 실렸다(12차 GG1 P3-5).
+        // ★[사장님 선택 09-28 · 재론 금지] 판정은 **표지로만** 한다(시간 비교 없음):
+        //  공정 전부 0(완료 처리됨) + Status 0(환자 없음 — 완료 커밋이 내렸거나 폴백) + 검사일시 있음 → 지운다.
+        //  · 덤프 전(공정 ≠ 0)은 절대 안 지운다 — 블록5 는 게이트웨이만 쓰고 게이트웨이는 WS≠0 을 거부하므로 그 검사는
+        //    진행 중 주기의 것이다(소독 뒤 재세척이 그것을 지웠던 것이 14차 II-B P1).
+        //  · Status 1(환자 있음)은 게이트웨이가 완료 뒤에 새로 쓴 검사 → 남긴다. 2·3 은 레거시(update_process) · 그 밖은 모른다.
+        //  · 대가(사장님 감수): 완료 뒤 **환자 없이(폴백)** 받은 검사일시는 여기서 지워진다 — 잃는 것은 검사 시각 하나.
+        //  · 12·13·14차에 시간(블록10→14→24 · 관계)으로 가르려 한 것이 세 번 결함이 됐다 — "게이트웨이·세척기·소독기를
+        //    거쳤는지는 표지에 있다, 왜 시간으로 가르나"(사장님). 찢긴 시도 표지도 필요 없다(재접촉이 같은 표지를 다시 본다).
+        // ★소거 순서: 섹터15 먼저, 판정 근거인 블록5 는 **마지막·섹터15 가 지워졌을 때만** — 먼저 지우면 다음 접촉이
+        //  Year==0 으로 건너뛰어 검사항목을 다시는 못 지운다(HH1 ⑤). 소거 실패로 세척 시작을 막지는 않는다(HH1 P2-1).
+        // [14차 판정] `afterDump` 관문은 지금 도달 가능한 차이가 없다 — 폴백(Status 0) 검사는 첫 세척에서 이미 지워지므로
+        //  "덤프 전 + Status 0 + 검사 있음" 태그가 생기지 않는다(변이로 확인 · 무해). 사장님 규칙의 명문화로 둔다.
+        const bool afterDump = mCachedProcess.WashingStatus == 0 && mCachedProcess.DisinfectionStatus == 0 &&
+                               mCachedProcess.DisinfectionCount == 0 && mCachedProcess.MachineNumber == 0;
+        WashingRecord gw{};       // 블록5 = {int 본체번호, LocalDateTime 검사일시} — 레코드와 같은 10바이트
+        if (afterDump && prevStatus == 0 &&
+            mScanner.Read(SECTOR1_GATEWAY, &gw, 10) == RfidResult::Ok &&
+            gw.DateTime.Date.Year != 0)
+        {
+            if (mScanner.ClearSector(15) == RfidResult::Ok)
+                (void)mScanner.Clear(SECTOR1_GATEWAY);
+        }
+
         mCachedProcess = Process{prevStatus};
         if (!write_process()) return false;
 
@@ -114,41 +141,6 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
         {
             unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
             if (mScanner.WriteBlocks(SECTOR2_PATIENT_KEY, 2, zero) != RfidResult::Ok) return false;
-        }
-
-        // 지난 검사의 게이트웨이 잔재(블록5 검사일시·본체번호 · 섹터15 검사항목)를 비운다 — 서버도 게이트웨이도
-        //  없는 현장에선 아무도 안 지워 **어제 검사항목이 오늘 대장에 실렸다**(12차 GG1 P3-5 실측).
-        // 판정은 시계창이 아니라 **관계**로: 현장 순서가 검사 → 세척이므로 검사일시가 **지난 주기 세척 종료보다
-        //  뒤**면 이번 검사(자정을 넘겨도 맞다) · 앞이면 지난 주기 잔재다. 못 읽거나 이상하면 손대지 않는다.
-        //  ★기준은 블록14(세척 종료)다. 블록10(세척 시작)은 **이 함수가 커밋 전에 실패한 앞 시도에서 이번 시각으로
-        //   써 둘 수 있어**, 재접촉이 이번 검사를 잔재로 오판해 지웠다(13차 HH1 P1-1 · 이탈 지점 33 중 16).
-        //  Status==2(레거시)는 `update_process` 가 같은 블록들을 이미 지우므로 건너뛴다(중복이면 예산 초과).
-        //  검사일시 0 이거나 이 리더 시계가 방전 표지면 읽지도 않는다(접촉 예산 · 기준이 진짜라는 보증도 없다).
-        WashingRecord gw{};         // 블록5 = {int 본체번호, LocalDateTime 검사일시} — 레코드와 같은 10바이트
-        WashingRecord lastEnd{};
-        if (prevStatus != 2 && !rtc.IsUnsynced() &&
-            mScanner.Read(SECTOR1_GATEWAY, &gw, 10) == RfidResult::Ok &&
-            gw.DateTime.Date.Year != 0 &&
-            mScanner.Read(SECTOR3_WASHING_END, &lastEnd, 10) == RfidResult::Ok)
-        {
-            const auto exam = DefaultRtc::ToDateTime(gw.DateTime);
-            const auto prev = DefaultRtc::ToDateTime(lastEnd.DateTime);
-            // 기준이 현재보다 뒤면 손상(연도 0xFFFF → RTClib 2047 · isValid 는 참)이거나 미리채운 미래 종료다
-            //  → 그 값으로는 판정하지 않는다(형제 자리 DisinfectionProcessor 도 같은 상한을 쓴다).
-            // [13차 판정 · 재론 금지] 게이트웨이 시계가 방전된 채 쓴 검사일시(2026-01-01)는 이 판정에서
-            //  늘 잔재로 보여 이번 검사 정보가 지워진다(HH1 P3-2). 그래도 막지 않는다 — 막으려면 "출시일보다
-            //  앞인 검사일시" 를 전부 제외해야 하고, 그러면 **업그레이드 직후 한동안 남아 있는 진짜 잔재**를
-            //  오래 못 지운다. 게이트웨이 시계가 죽은 동안은 검사일시 자체가 무의미하다.
-            if (exam.isValid() && prev.isValid() && prev <= current && exam <= prev)
-            {
-                // ★판정의 근거인 블록5 를 **마지막에**, 그리고 **섹터15 가 실제로 지워졌을 때만** 지운다.
-                //  먼저 지우거나 실패를 무시하고 지우면, 다음 접촉이 Year==0 을 보고 이 갈래를 건너뛰어
-                //  남은 검사항목을 **다시는 못 지운다**(HH1 ⑤). 블록5 를 남겨 두면 다음 접촉이 다시 시도한다.
-                // ★소거 실패로 세척 시작을 **막지는 않는다**: 이것은 이번 주기의 기록이 아니라 지난 잔재의 청소다.
-                //  막았더니 블록5 가 쓰기 불가인 태그 하나가 **영구 세척 불가**가 됐다(HH1 P2-1).
-                if (mScanner.ClearSector(15) == RfidResult::Ok)
-                    (void)mScanner.Clear(SECTOR1_GATEWAY);
-            }
         }
     }
 

@@ -20,7 +20,8 @@
  *
  *  2) 안전한 종료
  *     `EndSession()` 단일 진입점에서 PICC_HaltA → PCD_StopCrypto1 보장.
- *     Read/Write 오류 경로도 캐시를 무효화해 다음 인증이 깨끗하게 시작.
+ *     Read/Write 재시도 안에서는 캐시를 무효화한다. 마지막 실패 뒤엔 캐시가 남지만 다음 인증이
+ *     다시 잡는다 — 결과는 같고 실패 경로에서 동작이 1회 더 일어난다(14차 II-E 실측).
  *
  *  3) 트레일러/제조사 블록 보호
  *     `Write/Clear` 진입 시 IsSectorTrailer/IsManufacturerBlock 검사.
@@ -28,16 +29,15 @@
  *
  *  4) 쓰기 검증 + 재시도
  *     TRACEQ_RFID_VERIFY_WRITES=1 이면 쓰기 후 같은 블록을 read-back 비교.
- *     실패 시 TRACEQ_RFID_MAX_WRITE_RETRIES 까지 재시도.
+ *     TRACEQ_RFID_MAX_WRITE_RETRIES 는 **총 시도 횟수**(3 = 재시도 2). 읽기는 총 2회.
  *
  *  5) 태그 발급 키 전환
  *     InstallTraceQKeys/RestoreFactoryKeys — 1.0의 SetAccessMethod/
  *     InitAccessMethod와 동일 절차(공장 FF 키 ↔ TraceQ KEY_B).
- *     (참고: 한때 SPI 8 MHz 상향을 선언했으나 MFRC522 1.2.0에는 해당 매크로가
- *     없어 무효였음 — SPI는 라이브러리 기본 속도로 동작한다.)
+ *     (SPI 속도는 벤더 사본의 `MFRC522_SPICLOCK`(platformio.ini)로 정한다.)
  *
- *  6) 비-블로킹 초기화
- *     pcd_reset은 micros() 기반 타임아웃(150ms).
+ *  6) 초기화 대기
+ *     pcd_reset 은 millis() 기반으로 최대 150ms 를 **막고** 기다린다(비-블로킹이 아니다).
  *
  *  7) 1K/4K 자동 감지
  *     PICC_TYPE_MIFARE_1K 와 _4K 모두 허용.
@@ -109,9 +109,9 @@ public:
     RfidResult WriteTrailer(uint8_t trailerBlock, const uint8_t trailerData[16]);
 
     /**
-     * 공장 태그(KEY_A/B = FF×6) → TraceQ 태그: 전 섹터(0~15) 트레일러에
-     * [KEY_A=FF 유지, AccessBits g0~g3=3, KEY_B=AccessKey]를 기록.
-     * 1.0 `RfidScanner::SetAccessMethod`와 동일 절차 (KEY_A(FF)로 인증).
+     * 공장 태그(KEY_A/B = FF×6) → TraceQ 태그: 섹터(0~15) 트레일러에
+     * [KEY_A=FF 유지, AccessBits g0~g3=3, KEY_B=AccessKey]를 기록. **이미 바뀐 섹터는 건너뛴다**(멱등 —
+     * 1.0 `RfidScanner::SetAccessMethod` 는 전 섹터를 무조건 썼다). KEY_A(FF)로 인증.
      * cfg_new_tag type_id 0 경로에서 사용.
      */
     RfidResult InstallTraceQKeys();

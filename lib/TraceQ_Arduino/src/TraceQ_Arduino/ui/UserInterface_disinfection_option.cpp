@@ -71,8 +71,8 @@ UserInterface::MenuFunction UserInterface::SetDisinfectionGroupDelay(Disinfectio
 
 UserInterface::MenuFunction UserInterface::SetDisinfectionRange(DisinfectionOption &option)
 {
-    // int16 최댓값(5자리)+NUL 까지 수용 — JSON 원격 설정으로 100 이상이 되면
-    // "%02d" 가 3자리 이상을 출력해 [3] 버퍼를 넘긴다(1.0 승계 결함).
+    // Range 는 게터가 0..2 로 자르므로 "100 이상" 은 있을 수 없다 — 버퍼 크기는 형제(MaxCount·GroupDelay)와 맞춰
+    // 둔 것이다(종전 주석은 MaxCount 것을 복사한 것 · 14차 II-F 정정).
     char numberBuffer[8]{};
     const auto current{option.GetSimultaneousDisinfectionSlot()};
     snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);

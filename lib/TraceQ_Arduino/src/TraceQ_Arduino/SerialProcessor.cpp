@@ -21,10 +21,8 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     //  PC 에 이미 저장된 행의 그 칸들(검사일시·검사항목·환자)이 빈 값으로 덮어써진다.
     //  Status 를 커밋과 같은 쓰기로 내려 "환자정보 있음인데 블록은 빈" 태그도 생기지 않는다.
     //  대가: 커밋 뒤 소거가 실패하면 태그에 지난 환자정보·검사항목이 남고 재접촉으로는 못 지운다
-    //  → 안전망은 **다음 세척 시작의 선행 소거**인데 그것은 **블록 8·9(환자 키·이름)뿐**이다.
-    //    ★12차 정정: 블록 5(검사일시·본체번호)와 섹터15(검사항목)는 그 소거가 안 지운다 →
-    //    **옛 검사항목이 다음 주기 덤프에 실제로 나간다**(GG1 P3-5 실측). 그 둘의 진짜 안전망은
-    //    **다음 검사의 게이트웨이 접촉**이고, 게이트웨이를 안 쓰는 현장에는 안전망이 없다.
+    //  → 안전망은 **다음 세척 시작**이다: 선행 소거가 블록 8·9(환자)를, 잔재 판정(v2.2.29~)이 블록 5(검사일시)와
+    //    섹터15(검사항목)를 지운다. 그 판정은 블록5 가 남아 있어야 돌므로 여기 소거는 **블록5 를 마지막에** 지운다.
     //    세척기의 '환자정보 없음' 경고는 사람에게만 알리고 PC 는 Status 를 안 보고 저장한다(9차 정정).
     const bool ok = commit_dump_done()
                  && clear_gateway_and_subject()
@@ -41,9 +39,11 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
 
 bool SerialProcessor::clear_gateway_and_subject()
 {
+    // ★섹터15(검사항목)를 먼저, 블록5(검사일시)를 **마지막에** — 블록5 를 먼저 지우고 끊기면 다음 세척 시작의
+    //  잔재 판정이 Year==0 을 보고 건너뛰어 남은 검사항목을 다시는 못 지운다(13차 규칙의 형제 · 14차 II-G P3-1).
+    if (mScanner.ClearSector(15) != RfidResult::Ok) return false;
     // SECTOR1: gateway(5) 는 단건 Clear (인접 블록 6 은 Process 라 건드리지 않는다).
-    if (mScanner.Clear(SECTOR1_GATEWAY) != RfidResult::Ok) return false;
-    return mScanner.ClearSector(15) == RfidResult::Ok;
+    return mScanner.Clear(SECTOR1_GATEWAY) == RfidResult::Ok;
 }
 
 bool SerialProcessor::commit_dump_done()
@@ -214,8 +214,10 @@ void SerialProcessor::UpdateDateTime(DefaultRtc &rtc, LcdPrinter &printer)
     const char *dateTime = mDocument["device_date_time"].as<const char *>();
     if (dateTime != nullptr)
     {
-        rtc.FromString(dateTime);
-        printer.Notify(0, 2, 1000, F("updated"));
+        // 실패는 실패음 100×4 — 레거시 `T`(LegacySetDateTime)와 같은 규칙. 종전엔 무효 시각에도 `updated`
+        //  1000×1 이 나서 시계가 안 바뀐 것을 사람이 알 수 없었다(13차 HH2 P2-1 의 JSON 형제 · 14차 II-G P3-5).
+        if (rtc.FromString(dateTime)) printer.Notify(0, 2, 1000, F("updated"));
+        else                          printer.CustomWarning(0, 2, 100, 4, F("Invalid DateTime"));
     }
 }
 
@@ -226,10 +228,16 @@ bool SerialProcessor::update_device_option(DeviceOption &deviceOption, DefaultRt
     //  ② 같은 JSON 을 보낼 때마다 매번 재시작했다.
     const char *type = mDocument["device_type"].as<const char *>();
     bool typeChanged = false;
-    if (type != nullptr && type[0] != 0 && type[0] != deviceOption.GetType())   // "" 는 무시 — 종전엔 W 로 바뀌며 재시작
+    // 소문자는 대문자로 · W/D/S/G 밖은 **무시** — 종전엔 "s" 가 SetType 의 EEPROM 폴백(W)을 타 서버가 세척기로
+    //  바뀌며 재시작했다(14차 II-D P3-10). 설정기는 대문자만 보내지만 규칙을 맞춘다. "" 도 무시(종전 W 재시작).
+    char t = (type != nullptr) ? type[0] : 0;
+    if (t >= 'a' && t <= 'z') t = static_cast<char>(t - ('a' - 'A'));
+    const bool known = (t == GATEWAY_TYPE_DEVICE || t == WASHING_TYPE_DEVICE ||
+                        t == DISINFECTION_TYPE_DEVICE || t == SERVER_TYPE_DEVICE);
+    if (known && t != deviceOption.GetType())
     {
         const char before = deviceOption.GetType();
-        deviceOption.SetType(type[0]);
+        deviceOption.SetType(t);
         typeChanged = (deviceOption.GetType() != before);
     }
     if (mDocument.containsKey("device_number"))
@@ -238,8 +246,10 @@ bool SerialProcessor::update_device_option(DeviceOption &deviceOption, DefaultRt
         if (number != deviceOption.GetNumber()) deviceOption.SetNumber(number);
     }
 
+    // 설정 저장의 부수 필드 — 무효면 시계만 안 바꾸고 저장은 성공으로 알린다(설정기는 PC 시계에서 만들어 무효가
+    //  없고, 저장 성공음 뒤에 실패음을 겹치면 저장이 실패한 줄 안다). 시각 동기 **명령**(UpdateDateTime)은 실패음.
     const char *dateTime = mDocument["device_date_time"].as<const char *>();
-    if (dateTime != nullptr) rtc.FromString(dateTime);
+    if (dateTime != nullptr) (void)rtc.FromString(dateTime);
     return typeChanged;
 }
 
@@ -312,7 +322,8 @@ void SerialProcessor::update_record_option(RecordOption &recordOption)
 // ─────────────────────────────────────────────────────────────────────────
 
 // 실패는 **실패음 100×4**, 성공(`updated`)은 안내음 1000×1 로 갈린다 — 종전엔 둘이 펄스·횟수·글자 시간까지
-//  같아 시계가 맞았는지 사람이 알 수 없었다(13차 HH2 P2-1 · 잠금 `t_hh2fix`). 성공 쪽은 1.0 승계라 그대로 둔다.
+//  같아 시계가 맞았는지 사람이 알 수 없었다(13차 HH2 P2-1). 네 실패 자리 전부 잠금: 범위 검사는 `t_hh2fix` ·
+//  칸 부족·경계 254·isValid 는 `t_ii8`(14차 II-H — 13차엔 한 자리만 잠겨 있었다). 성공 쪽은 1.0 승계라 그대로 둔다.
 void SerialProcessor::LegacySetDateTime(const char *buffer, DefaultRtc &rtc, LcdPrinter &printer)
 {
     if (buffer == nullptr || buffer[0] != 'T') return;
@@ -624,18 +635,18 @@ int SerialProcessor::legacy_parse_tag(const char *buffer)
 
 int SerialProcessor::legacy_parse_manager_tag(const char *buffer)
 {
-    char string[16]{};
+    char string[17]{};   // 16바이트 필드 + NUL — [16] 이면 15바이트만 남아 한글 8자 이름의 끝 글자가 깨졌다(게이트웨이 형제와 같이 · 14차 II-E)
     // tag id: "M<key>;<name>;"의 첫 ';'까지.
     const auto idx = static_cast<int>(str_index_of(buffer, ';'));
     if (idx == -1) return -1;
-    str_substring_safe(buffer, string, 16, 1, idx);
+    str_substring_safe(buffer, string, sizeof(string), 1, idx);
     memcpy(mCachedTag.ID, string, sizeof(mCachedTag.ID));
 
     // name: 두 번째 ';'까지.
     memset(string, 0, sizeof(string));
     const auto idx2 = static_cast<int>(str_index_of_range(buffer, ';', idx + 1));
     if (idx2 == -1) return -1;
-    str_substring_safe(buffer, string, 16, idx + 1, idx2);
+    str_substring_safe(buffer, string, sizeof(string), idx + 1, idx2);
     memcpy(mCachedTagSerial.Serial, string, sizeof(mCachedTagSerial.Serial));
 
     return MANAGER_TYPE_TAG;
@@ -643,11 +654,11 @@ int SerialProcessor::legacy_parse_manager_tag(const char *buffer)
 
 int SerialProcessor::legacy_parse_scope_tag(const char *buffer)
 {
-    char string[16]{};
+    char string[17]{};   // 16바이트 필드 + NUL — [16] 이면 15바이트만 남아 한글 8자 이름의 끝 글자가 깨졌다(게이트웨이 형제와 같이 · 14차 II-E)
     // number: "S<번호>;<시리얼>;"의 첫 ';'까지.
     const auto idx = static_cast<int>(str_index_of(buffer, ';'));
     if (idx == -1) return -1;
-    str_substring_safe(buffer, string, 16, 1, idx);
+    str_substring_safe(buffer, string, sizeof(string), 1, idx);
     const int number = str_atoi(string);
     if (number < 0) return -1;   // 빈값·비숫자·범위 밖은 발급 실패 — 종전엔 -1(0xFFFF) 번호 태그가 'new tag' 됐다(5차 D)
     mCachedTag.Number = number;

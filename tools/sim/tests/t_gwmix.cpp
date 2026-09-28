@@ -72,7 +72,8 @@ int main()
     {
         sim_advance_ms(60UL * 1000);
         const uint32_t t2 = g_ms + 50;
-        const char c1[] = "G19999;";
+        // 표본은 상한(999) 안의 번호로 — 14차부터 RAM 경로도 kNumberMax 를 지켜 4자리 G1 은 무시된다(t_gnum 4b)
+        const char c1[] = "G10777;";
         const char c2[] = "G22026;9;23;4;14;20;0;G3EEEEE;NAMEE;;G4SUBJE;;;G5;";
         serial_queue(c1, sizeof(c1) - 1, t2);
         serial_queue(c2, sizeof(c2) - 1, t2 + 1800);
@@ -82,10 +83,11 @@ int main()
         logs_clear();
         run_loops(1);
         touch(c);
-        tlog("  (c) 키=%.8s 본체번호표시=%d\n", (const char *)c.data[SECTOR2_PATIENT_KEY], lcd_has(" 9999"));
+        tlog("  (c) 키=%.8s 본체번호표시=%d 3행=[%.20s]\n", (const char *)c.data[SECTOR2_PATIENT_KEY],
+             lcd_has(":777"), lcd_row(3));
         CHECK(memcmp(c.data[SECTOR2_PATIENT_KEY], "EEEEE", 5) == 0,
               "P1-1(c) 대조: G1 만 늦게 온 같은 레코드는 버리지 않는다");
-        CHECK(lcd_has(" 9999"), "P1-1(c) 대조: 늦게 온 G1 의 본체번호가 살아 있다");
+        CHECK(lcd_has(":777"), "P1-1(c) 대조: 늦게 온 G1 의 본체번호(777)가 살아 있다");
     }
 
     // (d) 앞 레코드가 **온전**하고 뒤 레코드가 쪼개진 경우 — 꼬리를 버퍼 전체에서 보면 앞의 G5 에 속아

@@ -49,6 +49,9 @@ int main()
         //      여기서 본체번호를 잃으면 부팅 뒤 첫 환자의 게이트웨이 번호가 기기 자체 번호로 떨어진다.
         hard_reset(false, 2);                       // mGateNumber 를 -1 로 되돌린다(부팅 뒤 첫 전문)
         deviceOption.SetType('G');
+        // ★설정값을 PC 번호(7)와 다르게 — (1a) 뒤엔 v2.2.31 이 설정값을 7 로 저장해 G1 을 잃어도 폴백이 7 을 내
+        //  이 CHECK 가 헛초록이었다(14차 II-H P2-②). 11 로 두면 G1 을 잃는 순간 태그에 11 이 찍혀 빨강이 된다.
+        deviceOption.SetNumber(11);
         sim_advance_ms(60UL * 1000);
         const char p2[] = "ZG17;G22026;9;23;3;12;15;0;G3PT0002;NAMEB;;G4SUBJB;;;G5;";
         serial_inject(p2, sizeof(p2) - 1);
@@ -61,7 +64,8 @@ int main()
              (const char *)b.data[SECTOR2_PATIENT_KEY], d.Time.Hour, d.Time.Minute);
         CHECK(memcmp(b.data[SECTOR2_PATIENT_KEY], "PT0002", 6) == 0,
               "(1b) 전제: 'Z' 가 붙은 전문도 그 환자로 기록된다(AA2 P1-1 유지)");
-        CHECK(gate_of(b) == 7, "(1b) 'Z' 가 붙어도 G1 본체번호 7 이 살아 있다");
+        CHECK(gate_of(b) == 7 && gatewayProcessor.GateNumber() == 7,
+              "(1b) 'Z' 가 붙어도 G1 본체번호 7 이 살아 있다(설정값 11 이 아니라 · RAM 도 7)");
     }
 
     // ─────────────────── §2 서버 덤프: Ok! 를 안 낼 때 와이어에 남는 것 ───────────────────

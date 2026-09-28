@@ -1,4 +1,4 @@
-// TraceQ Arduino 2.1 — 메인.
+// TraceQ Arduino 2.x — 메인.
 //
 // 1.0(=1.4.1) main.cpp의 동작 흐름을 유지하되, 다음 변경 사항을 반영:
 //   * 매 루프 Rc522Initialize() 재호출 제거 → IsAlive() 실패 시에만 Reinitialize().
@@ -20,8 +20,9 @@
 #include "TraceQ_Arduino.hpp"
 
 // 펌웨어 도장(uint32) 저장 주소 — 옵션 영역(0~177) 밖.
-// 저장된 도장 ≠ 현재 펌웨어 도장이면 "새 펌웨어의 첫 부팅"으로 판단해
-// EEPROM 전체(설정값 포함)를 소거하고 기본값을 기록한다 (2.2.3, 사용자 확정).
+// 저장된 도장 ≠ 현재 펌웨어 도장이면 "새 펌웨어의 첫 부팅"으로 판단한다 (2.2.3, 사용자 확정) —
+// 공장 초기·손상이면 EEPROM 전체(설정값 포함)를 소거하고 기본값을 기록하고, **쓰던 기기면 지울지 묻는다**
+// (2.2.9~ · 10초 무응답 = 유지).
 // 1.0의 DATA_NEEDS_INIT(4095) 방식은 구버전이 깔려 있던 기기에서 플래그
 // 자리에 우연히 0이 있으면 초기화를 건너뛰어 "초기화 전용 빌드를 한 번
 // 올렸다가 다시 올리는" 이중 작업이 필요했다 — 도장 방식은 어떤 이전
@@ -31,7 +32,7 @@
 //  을 썼는데, 그것은 "main.cpp 를 다시 컴파일한 시각"이라 lib 의 .cpp 만
 //  고친 빌드에서는 값이 그대로여서 초기화가 돌지 않고, 반대로 무관한 헤더를
 //  건드리면 초기화가 도는 비결정적 규칙이었다. 버전 기준이면 규칙이 명확하다:
-//  **버전을 올린 펌웨어를 올리면 완전 초기화, 같은 버전 재업로드는 설정 유지.**
+//  **버전을 올린 펌웨어를 올리면 첫 부팅에 초기화(쓰던 기기면 묻는다), 같은 버전 재업로드는 설정 유지.**
 constexpr uint16_t FIRMWARE_STAMP_ADDR{4088};
 
 static uint32_t firmware_stamp()
@@ -174,7 +175,15 @@ void setup()
     rtc.RtcInitialize();
     rfid.Initialize();
 
-    // 새 빌드의 첫 부팅 — 쓰던 기기면 설정을 지울지 묻고, 공장 초기·손상이면 묻지 않고 초기화한다.
+    // 177번지(액교환일 미룸)의 **알 수 없는 값**(3~255)은 **도장 블록보다 먼저** 정리한다 — 뒤에 두면 판 바꿈 유지
+    //  갈래의 `!HasPendingClear()` 가 손상값(!=0)을 '미룸 있음' 으로 읽어 교환일이 빈 채 굳고 스스로 낫지 않았다
+    //  (v2.2.15 에 내가 뒤로 옮겼다 · 14차 II-A P3-1). 같은 판 재부팅에서도 손상값이면 다음 loop 의 ApplyPendingClear
+    //  가 교환일을 '지금' 으로 덮었다(5차 V3). 정상 미룸(1·2)은 시계를 아직 못 맞춘 기기라 그대로.
+    if (disinfectionOption.GetClearPending() > DisinfectionOption::kPendingDefault)
+        disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
+
+    // 새 판(버전)의 첫 부팅 또는 켤 때 RIGHT — 쓰던 기기면 설정을 지울지 묻고(10초 무응답 = 유지), 공장 초기·손상이면
+    //  묻지 않고 초기화한다.
     uint32_t storedStamp{};
     EEPROM.get(FIRMWARE_STAMP_ADDR, storedStamp);
     const uint32_t currentStamp = firmware_stamp();
@@ -239,10 +248,6 @@ void setup()
         }
         EEPROM.put(FIRMWARE_STAMP_ADDR, currentStamp);
     }
-    // 177번지(액교환일 미룸)의 **알 수 없는 값**(3~255)은 매 부팅에 정리한다 — 같은 판 재부팅에서도 손상값이면 다음 loop 의
-    // ApplyPendingClear 가 교환일을 '지금' 으로 덮었다(5차 V3). 정상 미룸(1·2)은 시계를 아직 못 맞춘 기기라 그대로.
-    if (disinfectionOption.GetClearPending() > DisinfectionOption::kPendingDefault)
-        disinfectionOption.SetClearPending(DisinfectionOption::kPendingNone);
 
     deviceType = deviceOption.GetType();
     // readBytes 는 마지막 바이트 뒤 이만큼 조용해야 끝난다. 올눈(ALLNuN)은 G2~G5 를 250ms 간격으로
@@ -354,12 +359,15 @@ void loop()
         companyRead = rfid.Read(SECTOR0_COMPANY, &company, sizeof(Company));
         if (companyRead != RfidResult::Ok || company.CompanyCode != TRACEQ_COMPANY_CODE)
         {
-            // ★읽기 자체가 실패한 경우에만 사유를 표시한다. 회사코드 불일치는
-            //  "우리 태그가 아님"(호텔 카드 등)이라 1.0처럼 조용히 무시해야
-            //  한다. 이 구분이 없어서 "태그를 댔는데 아무 반응이 없다"의 원인이
-            //  카드 문제인지 리더 문제인지 알 수 없었다 (2.2.5).
+            // ★읽기 자체가 실패한 경우에만 사유를 표시한다. 회사코드 불일치(인증은 됐지만 다른 회사의 태그)는
+            //  조용히 무시한다. 이 구분이 없어서 "태그를 댔는데 아무 반응이 없다"의 원인이 카드 문제인지 리더
+            //  문제인지 알 수 없었다 (2.2.5). ★키가 다른 카드(호텔·교통 카드)는 여기까지 못 온다 — 인증 실패로
+            //  `AuthFailed` 화면·실패음이 난다(t_rfid A2-1 이 잠근 계약 · 1.0 은 읽기 결과를 안 봐 무음이었다).
             if (companyRead != RfidResult::Ok)
+            {
+                ui.Info_cstr(0, 3, "     ");   // 앞 건의 스코프 번호를 지운다 — print_tag_number 의 형제(14차 II-G P3-3)
                 ui.CustomDebug(0, 2, 100, 4, RfidResultName(companyRead));   // 읽기 실패 = 실패음(다시 대면 됨)
+            }
             rfid.EndSession();
             return;
         }
@@ -494,6 +502,10 @@ __attribute__((unused)) void serialEvent()
             //  G2 는 앞부분에 이미 경계 G2 가 있을 때만 새 머리다 — 아니면 'G1 만 늦게 온' 같은 레코드의 G2 라
             //  버리면 본체번호를 잃는다.
             const char *chunk = buffer + before;
+            // ★조각 앞의 keepalive 'Z' 는 건너뛰고 본다 — 형제(아래 머리글자 판정 · 발급 머리)는 'Z' 를 건너뛰는데
+            //  여기만 날것이라, 'Z' 로 시작하는 새 레코드가 앞 미완 레코드와 섞여 **두 환자가 한 기록**으로 나갔다
+            //  (14차 II-A P3-2 · CC1 P1-1 과 같은 부류). 알려진 발신자엔 방아쇠가 없지만 규칙을 형제와 맞춘다.
+            while (*chunk == 'Z') ++chunk;
             // G1 도 **그 조각 안에 경계 G2 가 있을 때만** 새 머리다 — 등록번호가 'G1…' 인 환자의 전문이
             //  그 자리에서 갈리면 같은 레코드의 앞부분을 버려 환자를 잃었다(9차 DD1). 대가: G1 조각만 먼저 오고
             //  G2 가 늦는 새 레코드는 본체번호를 잃는다 — 폴백은 **앞서 G1 으로 받은 값이 있으면 그 값**,
@@ -509,8 +521,9 @@ __attribute__((unused)) void serialEvent()
             }
             if (newHead)
             {
-                memmove(buffer, chunk, len - before + 1);
-                len -= before;
+                const size_t drop = static_cast<size_t>(chunk - buffer);   // 앞 미완 레코드 + 건너뛴 'Z'
+                memmove(buffer, chunk, len - drop + 1);
+                len -= drop;
                 cmd = buffer;   // 버린 앞부분을 가리키던 포인터를 새 머리로
             }
         }
@@ -525,6 +538,9 @@ __attribute__((unused)) void serialEvent()
     //  keepalive 'Z')만 붙어도 패킷을 통째로 버렸고(AA2 P1-1), 버퍼 어디든 G1·G2 마커를 찾으면 값 안에
     //  ';G2' 가 든 설정 JSON 을 가로챘다(BB1 P3-5). 세 PC 는 모두 G1(또는 G1G2)로 전문을 시작한다.
     // (레거시 시각 동기 'T' 는 '{' 가 없어 어차피 NotJson 으로 오므로 여기 넣지 않는다)
+    // [14차 판정 · 재론 금지] 위 "JSON 은 겹치지 않는다" 는 W/D/G 한정이다 — 서버는 `buffer[0]=='Z'` 항 때문에 'Z' 가
+    //  앞에 붙은 JSON 을 버린다(II-A P3-3). 현장 발신자가 없고(세척관리는 JSON 을 안 보내고 설정기는 'Z' 를 안 보낸다),
+    //  그 항을 지우면 같은 버퍼의 'Z' 인증이 빠지므로 그대로 둔다.
     const bool rawHead =
         gatewayFrame ||
         (deviceType == SERVER_TYPE_DEVICE &&
@@ -576,6 +592,10 @@ void handle_menu(UserInterface::MenuFunction function)
         ui.ClearScreen();
         ui.InvalidateHome();   // 지운 화면 — 홈 복귀 시 전체 재출력
         delay(500);
+        // ★손을 뗄 때까지 기다린다(2초 상한) — 화면 전환의 형제 셋(부팅 선택창·홈→메뉴·**여기**) 중 여기만 빠져,
+        //  항목을 0.6초 넘게 누르면 다음 화면의 첫 읽기가 같은 누름을 새 누름으로 먹어 `R S L S` 가 번호 01→11 ·
+        //  알람 04→14 로 저장되고 Type 은 재시작까지 했다(5차 V3 P2-1 의 형제 · 14차 II-F P2-1).
+        for (uint8_t i = 0; i < 100 && digitalRead(PIN_SELECT_BUTTON) == LOW; ++i) delay(20);
 
         switch (function)
         {

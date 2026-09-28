@@ -13,8 +13,9 @@ public:
     void SetType(char type);
     /// 쓰던 기기인가(타입 원값이 W/D/S/G) — 공장 초기·손상이면 false.
     bool HasStoredSettings() const;
-    /// 기기번호 상한 — 화면 5칸(" W:99"/"W:999"). 세터·게터·게이트웨이 G1 관문이 **이 하나**를 쓴다
-    ///  (관문이 세터보다 넓으면 잘린 값이 매번 달라 EEPROM 을 전문마다 쓰게 된다 · 13차).
+    /// 기기번호 상한 — 화면 5칸(" W:99"/"W:999"). 세터·게터·게이트웨이 G1 관문(RAM·EEPROM 둘 다)이 **이 하나**를 쓴다.
+    ///  관문이 없으면 세터가 1000 이상을 999 로 잘라 **틀린 번호 999 가 저장된다**(14차 II-E 측정 — 13차에 내가
+    ///  "전문마다 EEPROM 을 쓴다" 고 적은 것은 틀렸다: put 은 같은 바이트를 안 쓴다).
     static constexpr int kNumberMax = 999;
     int  GetNumber() const;
     void SetNumber(int number);

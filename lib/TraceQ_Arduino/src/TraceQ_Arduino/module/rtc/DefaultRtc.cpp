@@ -56,23 +56,23 @@ char *DefaultRtc::ToInternalString(char *outBuffer, DefaultRtc::Format format)
     {
     case Format::Date:
     {
-        // buffer size >= 8
-        sprintf(outBuffer, "%02d%02d%02d",
-                now.year() - 2000, now.month(), now.day());
+        // buffer size >= 8 — RTC 쓰레기값(0xFF 레지스터)이면 %02d 가 3자리 이상을 내므로 길이를 자른다(14차 II-C P3-3)
+        snprintf(outBuffer, 8, "%02d%02d%02d",
+                 now.year() - 2000, now.month(), now.day());
         break;
     }
     case Format::Time:
     {
-        // buffer size >= 8
-        sprintf(outBuffer, "%02d%02d%02d",
-                now.hour(), now.minute(), now.second());
+        // buffer size >= 8 — 위와 같은 이유로 길이를 자른다
+        snprintf(outBuffer, 8, "%02d%02d%02d",
+                 now.hour(), now.minute(), now.second());
         break;
     }
     case Format::DateTime:
     {
-        // buffer size >= 20
-        sprintf(outBuffer, "%04d/%02d/%02d %02d:%02d:%02d",
-                now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
+        // buffer size >= 20 — 위와 같은 이유로 길이를 자른다(정상값은 19자 + NUL)
+        snprintf(outBuffer, 20, "%04d/%02d/%02d %02d:%02d:%02d",
+                 now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
         break;
     }
     default:
@@ -85,13 +85,12 @@ char *DefaultRtc::ToInternalString(char *outBuffer, DefaultRtc::Format format)
 }
 
 // [5차 판정 · 재론 금지] 연도를 2자리로 읽어 "1999-…" 가 2099 — 세 PC 는 20xx 만 보낸다.
-void DefaultRtc::FromString(const char *string)
+bool DefaultRtc::FromString(const char *string)
 {
     const auto date = DateTime(string);
-    if (date.isValid())
-    {
-        SetDateTime(date);
-    }
+    if (!date.isValid()) return false;
+    SetDateTime(date);
+    return true;
 }
 
 void DefaultRtc::FromInternalString(char *string, const DateTime &entry, DefaultRtc::Format format)

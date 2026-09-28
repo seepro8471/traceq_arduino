@@ -27,7 +27,7 @@ static void scope_with_exam(SimCard &c, uint8_t uid, int no, const DateTime &las
     snprintf(id, sizeof(id), "SC%04d", no);
     snprintf(ser, sizeof(ser), "S%04d", no);
     make_tag(c, uid, SCOPE_TYPE_TAG, no, id, ser);
-    set_process(c, Process{0, 1, 1, 1, 1, false, 0, 2});      // 어제 주기(덤프 안 함)
+    set_process(c, Process{0, 0, 0, 0, 0, false, 0, 0});      // 어제 주기(덤프 안 함)
     set_record(c, SECTOR2_WASHING_START, 1, lastWash);
     set_record(c, SECTOR3_WASHING_END, 1, lastWash);
     set_record(c, SECTOR1_GATEWAY, 7, exam);                  // 블록5 = 본체번호 + 검사일시
@@ -67,13 +67,14 @@ int main()
         as_type('W');
         touch(mgr);
         scope_with_exam(sc, 0x32, 32, yday(9, 0), rel_date(8, 0, 0), "NEWSUBJ1");
+        set_process(sc, Process{1, 0, 0, 0, 0, false, 0, 0});   // 환자 있음(Status 1) — 완료 뒤 게이트웨이가 새로 쓴 검사
         logs_clear();
         touch(sc, 2, 4);
         const LocalDateTime gw = get_ldt(sc, SECTOR1_GATEWAY);
         tlog("  ② 이번 검사: 항목보존=%u 검사시각=%02u:%02u\n", (unsigned)subj_is(sc, "NEWSUBJ1"),
              gw.Time.Hour, gw.Time.Minute);
         CHECK(subj_is(sc, "NEWSUBJ1") && gw.Time.Hour == 8,
-              "② 이번 검사의 검사일시·검사항목은 보존된다");
+              "② 완료 뒤 게이트웨이가 환자와 함께 쓴 이번 검사(Status 1)는 보존된다(표지만 판정)");
     }
 
     // ── ③ ★자정 넘김: 검사(어제 23:50) > 지난 세척(어제 09:00) → 보존 ──
@@ -83,13 +84,14 @@ int main()
         touch(mgr);
         rtc_set(DateTime(rel_date(0, 10, 0).unixtime()));     // 오늘 00:10 에 세척
         scope_with_exam(sc, 0x33, 33, yday(9, 0), yday(23, 50), "NIGHTSUB");
+        set_process(sc, Process{1, 0, 0, 0, 0, false, 0, 0});   // 환자 있음(Status 1)
         logs_clear();
         touch(sc, 2, 4);
         const LocalDateTime gw = get_ldt(sc, SECTOR1_GATEWAY);
         tlog("  ③ 자정 넘김: 항목보존=%u 검사시각=%02u:%02u(어제)\n", (unsigned)subj_is(sc, "NIGHTSUB"),
              gw.Time.Hour, gw.Time.Minute);
         CHECK(subj_is(sc, "NIGHTSUB") && gw.Time.Hour == 23,
-              "★③ 자정을 넘긴 검사(23:50 → 00:10 세척)는 보존된다 — 관계로 판정하므로");
+              "★③ 자정을 넘긴 검사(23:50 → 00:10 세척 · Status 1)도 보존된다 — 표지로 판정하니 시각은 무관");
         rtc_set(rel_date(10, 0, 0));
     }
 

@@ -92,11 +92,13 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc, D
             char gateText[8]{};
             str_substring_safe(string, gateText, sizeof(gateText), 0, sep);
             const int parsed = str_atoi(gateText);   // "0002" → 2, 비숫자면 -1
-            if (parsed >= 0) mGateNumber = static_cast<int16_t>(parsed);
+            // 상한은 EEPROM 관문(아래)과 **같은 정본** — RAM 만 받으면 1000 이상이 태그·화면엔 쓰이고 설정값엔
+            //  안 들어가 재기동 전후 번호가 갈린다(14차 II-G P3-4). 상한 밖은 앞서 받은 값(없으면 설정값)을 쓴다.
+            if (parsed >= 0 && parsed <= DeviceOption::kNumberMax) mGateNumber = static_cast<int16_t>(parsed);
             // ★사장님 결정(09-28): PC 번호를 **설정값에도 반영**한다 — 다를 때만 1회. 그래야 전원을 다시 켜
             //  첫 G1 이 오기 전에도(mGateNumber = -1) 맞는 번호로 기록하고, 설정기·메뉴에도 그 번호가 보인다.
             //  0 과 범위 밖은 쓰지 않는다: PC 는 0 을 막았지만 리더는 그것을 믿지 않고(찢긴 전문이 0 을 준다),
-            //  상한을 넘는 값은 세터가 잘라 매 전문마다 달라져 EEPROM 을 계속 쓴다 → 상한은 정본 하나를 쓴다.
+            //  상한을 넘는 값은 세터가 999 로 잘라 **틀린 번호 999 가 저장된다**(14차 측정 정정) → 상한은 정본 하나.
             // [13차 판정 · 재론 금지] `!=` 관문은 **최적화**다(EEPROM 읽기 2회 절약) — 지워도 행위는 같다.
             //  `EEPROM.put` 이 같은 바이트를 안 쓴다는 것을 변이로 측정했다(N3: 전문마다 SetNumber 를 불러도
             //  쓴 바이트 0). 사장님 계약의 핵심인 "전문마다 쓰지 않는다(수명)" 는 t_gnum ② 가 잠근다.
@@ -153,8 +155,10 @@ bool GatewayProcessor::write_no_patient_info(const Gateway &gateway, const char 
     //  남아 세척기가 남의 환자로 통과시킨다(더 나쁨).
     // ★9차 정정: 뒤 소거가 실패해 옛 환자가 남는 창의 안전망은 세척기 경고가 아니라(사람에게만 알린다)
     //  **다음 세척 시작의 선행 소거**다 — PC 는 Status 를 안 보고 블록 8·9 를 저장한다.
-    if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return false;
+    // ★코드가 주석과 반대였다 — 블록5 를 먼저 쓰고 Status 를 뒤에 써서, 그 사이에 끊기면 "옛 환자 + Status 1 +
+    //  새 검사일시" 가 남았다(형제 write_patient_info 는 Status 먼저 · 14차 II-D P3-3). 판정대로 Status 먼저.
     if (!write_process()) return false;
+    if (mScanner.Write(SECTOR1_GATEWAY, &gateway, 10) != RfidResult::Ok) return false;
 
     // SECTOR2 환자 키/이름 두 블록 일괄 0으로 — 인증 1회.
     unsigned char zero[2 * MIFARE_BLOCK_SIZE]{};
@@ -168,7 +172,9 @@ bool GatewayProcessor::write_patient_info(int deviceNumber)
 {
     // ★이미 '환자정보 있음'(Status=1) 인 태그면 먼저 내린다 — 아래 쓰기가 중간에 실패하면 "Status=1 +
     //  새 키 + 옛 이름" 같은 혼합 태그가 남았다(5차 D). 내려 두면 실패 시 세척기가 '환자정보 없음' 을 알린다.
-    if (mCachedProcess.Status == 1)
+    //  ★1 만 보면 델파이 시절 Status 2·3(세척기는 3 을 '환자정보 있음' 으로 읽는다)이 선행 정리를 건너뛴다 — 0 이
+    //   아니면 전부 내린다(형제 세척기의 진리표와 같은 뜻 · 14차 II-D P3-6 · 도달은 1.0 태그뿐).
+    if (mCachedProcess.Status != 0)
     {
         mCachedProcess.Status = 0;
         if (!write_process()) return false;
