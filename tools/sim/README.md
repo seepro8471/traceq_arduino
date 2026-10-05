@@ -28,7 +28,8 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
 이 장치가 증명하지 못하는 가정 (실기로만 닫힌다 — 3차 G 갈래)
 1. ✅**실기 확인(09-24)** "정지시키지 못한 카드는 REQA 에 한 번 걸러 응답한다" — 스코프 태그를 30초 올려 둬도 1회만 처리됐다(폴링 ~1000회).
 2. ✅**실기 확인(09-24)** "인증 실패 → 카드 IDLE" — 타사 카드를 30초 올려 둬도 경고 1회였다.
-3. "쓰기 NACK → 카드 IDLE" — **도구 안에서 자기모순(15회차 III-J H1) · 실기 확인 필요**. `failWriteAt` 은 NACK 뒤 카드 IDLE(이 가정),
+3. "쓰기 NACK → 카드 IDLE" — **도구 안에서 자기모순(15회차 III-J H1) · 실기 미확인 · [10-05 사장님 판정 · 재론 금지] 이대로 둔다**
+   (실사용은 실기 확인: 실패음 뒤 다시 대면 정상 · 실물로 닫을 진단은 없다 — `integrity` env 는 SPI 오류 건수만 잰다). `failWriteAt` 은 NACK 뒤 카드 IDLE(이 가정),
    `nackBlock`·KEY_A 트레일러 쓰기 NACK 은 카드가 AUTH 로 산다(반대) — 실물은 한 가지다(데이터시트 EV1 Rev 3.2 에 NAK 뒤 상태 서술 없음).
    IDLE 에 기대는 시험: `failWriteAt` 을 쓰는 t_disinfect·t_rfid·t_notify·t_hh2w·t_hh2g·t_hh2s · 산다에 기대는 시험: t_hh1a 2b·3a · t_hh1b 5a·5a2
    (III-J 변이 실측 · v2.2.32 기준 — 그 뒤 `nackBlock` 을 새로 쓴 시험(t_ii2)은 미측정).
