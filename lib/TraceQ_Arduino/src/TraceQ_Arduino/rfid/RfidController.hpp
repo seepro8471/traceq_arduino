@@ -135,6 +135,10 @@ public:
 
     /// 진단용 레지스터 읽기 (examples/RegisterProbe·IntegrityTest 전용 — 운영 경로 미사용).
     uint8_t ReadReg(MFRC522::PCD_Register reg) { return mMfrc522.PCD_ReadRegister(reg); }
+    /// 리더 모듈 상태를 PC 에 알린다 — 라이브러리 줄 그대로(`Firmware Version: 0x.. = ..` · 0x00/0xFF 면 `WARNING: Communication failure…`).
+    /// 올눈(델파이)·SeePro 가 이 줄로 "리더기 연결 콘넥터 확인" 음성을 낸다(사장님 수락 10-07). 호출자가 부팅 1회 + 살아있음↔죽음 에지에서만 부른다.
+    /// 라이브러리 함수를 부르지 않고 같은 글자를 여기서 낸다 — 시뮬 가짜 MFRC522 에 그 함수가 없고, 와이어 글자는 이제 제품의 계약이다(t_ii20).
+    void ReportVersionToSerial();
 
 private:
     bool ensureAuthenticated(uint8_t block);   // 섹터 캐시 활용 인증

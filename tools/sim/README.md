@@ -31,8 +31,8 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
 3. "쓰기 NACK → 카드 IDLE" — **도구 안에서 자기모순(15회차 III-J H1) · 실기 미확인 · [10-05 사장님 판정 · 재론 금지] 이대로 둔다**
    (실사용은 실기 확인: 실패음 뒤 다시 대면 정상 · 실물로 닫을 진단은 없다 — `integrity` env 는 SPI 오류 건수만 잰다). `failWriteAt` 은 NACK 뒤 카드 IDLE(이 가정),
    `nackBlock`·KEY_A 트레일러 쓰기 NACK 은 카드가 AUTH 로 산다(반대) — 실물은 한 가지다(데이터시트 EV1 Rev 3.2 에 NAK 뒤 상태 서술 없음).
-   IDLE 에 기대는 시험: `failWriteAt` 을 쓰는 t_disinfect·t_rfid·t_notify·t_hh2w·t_hh2g·t_hh2s · 산다에 기대는 시험: t_hh1a 2b·3a · t_hh1b 5a·5a2
-   (III-J 변이 실측 · v2.2.32 기준 — 그 뒤 `nackBlock` 을 새로 쓴 시험(t_ii2)은 미측정).
+   IDLE 에 기대는 시험: `failWriteAt` 을 쓰는 t_disinfect·t_rfid·t_notify·t_hh2w·t_hh2g·t_hh2s · 산다에 기대는 시험: t_hh1a 2b·3a · t_hh1b 5a·5a2 ·
+   t_ii2 ②c · t_ii18 A9 둘 (17차 V-J k1 실측 · t_gg2m ⑫g 는 `nackBlock` 이지만 두 모델 모두 같은 결과).
 4. 게이트웨이 조각 시험은 `serial_queue` 의 도착 시각 하나에 기댄다(실물 USB-CDC 간격은 실측 필요).
 
 가짜가 실물과 다르다고 아는 곳
@@ -45,3 +45,10 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
   - LCD 20칸 넘는 글자는 버린다 — 실물 HD44780 20x4 는 0행→2행, 1행→3행으로 넘어가 잔상이 남는다.
   - 트레일러 읽기가 저장된 키 바이트를 그대로 돌려준다 — 실물은 KEY_A 를 00 으로, 읽기 불가 KEY_B 도 00 으로 준다.
   - DS3231 초 위상 고정 — `rtc_set` 순간이 늘 초의 0ms 라 더블터치 2초 창이 시뮬에선 늘 2초, 실물에선 위상 따라 1~2초.
+  - **큰 시각 점프 뒤 첫 접촉 루프에서 알람이 울린다**(2.4초 막힘 · 13종에서 관측) — 실물이면 쉬는 동안 이미 울렸을 알람이다. 그래서
+    "종료가 알람을 지운다" 를 잠그려면 **알람 전 시각**에 종료해야 한다(17차: t_disinfect·t_smoke 의 옛 잠금이 늘 참이었다).
+  - `run_loops` 는 Arduino 코어의 `serialEventRun`(loop 마다 serialEvent) 을 흉내 내지 않는다 — 코어처럼 바꿔 32종을 돌려도 결과 동일(17차).
+  - `hard_reset` 이 못 지우는 것: 제품의 유일한 함수 static `sTailOfTruncated` · `g_ms`(millis 는 계속 간다 — 부팅 직후 조건은 `g_ms` 를 직접 놓는다) ·
+    수신 버퍼 `s_in`. 16차 RAM 실패 표지(`mFailScope/mFailMs`)는 지워진다(실측).
+  - 로그 버퍼(LCD 1536 · 시리얼 2048 · 부저 64)가 차면 `!! … log full` 을 한 번 찍는다 — 그 뒤의 "없음" 판정은 못 믿는다(17차 · 문구는
+    PROGMEM — 하네스 문자열은 .data 라 t_a4 의 RAM 관문 3B 여유를 먹는다).

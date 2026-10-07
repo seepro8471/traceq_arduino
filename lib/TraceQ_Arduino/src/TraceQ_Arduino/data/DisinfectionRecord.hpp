@@ -21,3 +21,5 @@ struct DisinfectionDetail
     explicit DisinfectionDetail(int n) : GroupNumber(n) {}
     DisinfectionDetail(const LocalDateTime &dt, int n) : DateTime(dt), GroupNumber(n) {}
 };
+static_assert(sizeof(DisinfectionRecord) == 10, "DisinfectionRecord must be the 10 tag bytes (number 2 + datetime 8)");
+static_assert(sizeof(DisinfectionDetail) == 10, "DisinfectionDetail must be the 10 tag bytes (datetime 8 + group 2)");

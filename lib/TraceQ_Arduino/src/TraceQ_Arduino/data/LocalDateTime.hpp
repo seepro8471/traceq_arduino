@@ -33,3 +33,5 @@ struct LocalDateTime
     LocalDateTime(const LocalDate &d, uint8_t dow, const LocalTime &t)
         : Date(d), DayOfWeek(dow), Time(t) {}
 };
+// 태그 레코드·EEPROM(교환일 169~176)이 이 8바이트 레이아웃에 기댄다 — 크기만 잠근다(AVR: 패딩 없음 · 17차)
+static_assert(sizeof(LocalDateTime) == 8, "LocalDateTime must be 8 bytes (year 2 + month/day 2 + dow 1 + h/m/s 3)");

@@ -321,6 +321,15 @@ int main()
               "Y1 P3-1 32766 에서 +1 은 32767(상한 도달 → MaxCount Over)");
         disinfectionOption.SetCount(0);
         disinfectionOption.SetMaximumCount(0);
+        // 형제: 액교환 횟수(IncrementClearCount)도 32767 에서 멈춘다(17차 V-E — 종전엔 0 으로 돌았다 · 경계 32766→32767 은 센다)
+        disinfectionOption.SetClearCount(32766);
+        disinfectionOption.IncrementClearCount();
+        const int cc1 = disinfectionOption.GetClearCount();
+        disinfectionOption.IncrementClearCount();
+        const int cc2 = disinfectionOption.GetClearCount();
+        tlog("  Y1b 액교환 횟수 32766 → %d → %d\n", cc1, cc2);
+        CHECK(cc1 == 32767 && cc2 == 32767, "Y1b(17차) 액교환 횟수도 32767 에서 포화(0 으로 돌지 않는다)");
+        disinfectionOption.SetClearCount(0);
         // ★7차 사장님 판정(PC 우선): 시계가 **맞는** 소독기는 앞선 세척기에 끌려가지 않는다.
         //  (5차엔 반대로 "따라간다" 를 계약으로 박아 뒀다 — v2.2.21 부터 PC 가 연결마다 시계를 맞추므로 뒤집혔다)
         rtc_set(rel_date(10, 0, 0));

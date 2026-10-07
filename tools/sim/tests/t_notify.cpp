@@ -179,8 +179,9 @@ int main()
         CHECK(warned("Read Error", 50), "게이트웨이 읽기 실패 → Read Error + 경고음(형제와 같은 알림)");
     }
 
-    // ── 서버: 덤프 뒤 초기화가 **어느 쓰기에서 실패하든** 알리고, 재접촉으로 복구된다 ──
+    // ── 서버: 덤프 뒤 완료 커밋이 실패하면 알리고 재접촉으로 복구된다 · 커밋 뒤 소거 실패는 **완료음**(17차 판정 · 사장님이 뒤집을 수 있음) ──
     //    덤프 자체가 Clear 2회(블록 18·52)를 쓰므로 그 뒤 쓰기는 3번째부터. 소거·Process 를 모두 덮는다.
+    //    종전(~2.2.33)은 소거 실패도 Write Error 라 규칙대로 다시 대면 Not W and D 거부 + 세척관리 "정보 없음" 이 반복됐다(PC 는 저장됨).
     reboot_as('S');
     serial_inject("Z", 1);
     GUARDED(serialEvent());
@@ -216,7 +217,11 @@ int main()
         tlog("  서버 off=%u: lcd=[%.40s] 경고음=%u 완료음=%u WS=%u DC=%u\n",
              off, g_lcdLog, buzz_count(100), buzz_count(150), p.WashingStatus, p.DisinfectionCount);
         CHECK(serial_has("Ok!"), "서버: 덤프 자체는 나갔다(와이어 불변)");
-        CHECK(warned("Write Error", 150), "서버 초기화 실패 → Write Error + 경고음, 완료음 없음");
+        if (off == 3)
+            CHECK(warned("Write Error", 150), "서버 완료 커밋 실패(off=3) → Write Error + 경고음, 완료음 없음(재접촉이 같은 덤프를 다시 낸다)");
+        else
+            CHECK(!lcd_has("Write Error") && buzz_count(150) == 1 && buzz_count(100) == 0,
+                  "서버 커밋 뒤 소거 실패 → 완료음(17차 판정 · PC 저장됨·태그 완료 · 남은 칸은 다음 세척 시작이 지운다)");
         // ★"환자정보 있음(Status=1)인데 환자 블록은 빈" 태그가 남으면 세척기의 미기재 경고가 무력화된다.
         CHECK(!(p.Status == 1 && b.data[SECTOR2_PATIENT_KEY][0] == 0),
               "서버 초기화 실패 → '환자정보 있음 + 빈 블록' 태그를 남기지 않는다");
@@ -269,7 +274,8 @@ int main()
         const Process p = get_process(b);
         tlog("  서버 소거만 실패: lcd=[%.40s] 경고음=%u 완료음=%u WS=%u\n",
              g_lcdLog, buzz_count(100), buzz_count(150), p.WashingStatus);
-        CHECK(warned("Write Error", 150), "서버 소거 실패 → Write Error + 경고음, 완료음 없음");
+        CHECK(!lcd_has("Write Error") && buzz_count(150) == 1 && buzz_count(100) == 0,
+              "서버 소거만 실패 → 완료음(17차 판정 · 커밋은 이미 끝나 다시 댈 이유가 없다)");
         // 새 순서에서는 완료 커밋이 이미 끝나 있다 — 완료 처리는 살아 있고 2차 덤프는 나가지 않는다.
         CHECK(p.WashingStatus == 0 && p.Status == 0, "서버 소거 실패 → 완료 처리는 유지된다");
         b.readErrBlock = -1; b.readErrTimes = 0;

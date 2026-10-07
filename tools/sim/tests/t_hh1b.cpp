@@ -215,7 +215,7 @@ int main()
             else         { if (ops > mxNormal) mxNormal = ops; }
             tlog("  8c Status=%3u 옛 검사 → 동작 %u · 검사일시비움=%u\n", sv[i], ops, (unsigned)cleared);
         }
-        CHECK(mxNormal <= 40, "8c 표지가 '남긴다' 인 갈래(Status 1·3·200)는 40 안");
+        CHECK(mxNormal <= 40, "8c 표지가 '남긴다' 인 갈래(Status 1·3 — 200 은 15차 A6 로 소거 갈래 · 17차 라벨 정정)는 40 안");
         CHECK(mxClear > mxNormal && mxClear <= 50,
               "8c 소거가 도는 갈래(완료 뒤 Status 0 + 검사 있음)는 50 안 — 태그마다 한 번뿐인 비용");
     }

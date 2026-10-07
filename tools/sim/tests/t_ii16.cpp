@@ -142,6 +142,21 @@ int main()
         tlog("  A7 서버 S 발급: 앞건표시=%u 발급알림=%u 뒤3행=[%.20s]\n", (unsigned)shown7, (unsigned)issued7, lcd_row(3));
         CHECK(shown7 && issued7, "A7 전제: 앞 건 번호가 떴고 서버 발급 알림이 났다");
         CHECK(!row3_is("00041"), "A7 서버 레거시 발급 알림도 3행의 앞 건 번호를 남기지 않는다");
+        // A7b·A7c (17차 V-H U6·U7) 발급 **실패** 두 갈래(파싱 실패 · 카드 없이 시한 초과)도 3행을 지운다 — 위는 성공 갈래만 돌았다
+        done_cycle(sc, 0x41, 41); serial_inject("Z", 1); touch(sc);
+        const bool shown7b = row3_is("00041");
+        static const char bad[] = "S;";
+        logs_clear(); serial_inject(bad, sizeof(bad) - 1); GUARDED(serialEvent()); run_loops(4);
+        const bool err7b = lcd_has("timeout or error");
+        tlog("  A7b 파싱 실패: 앞건표시=%u 알림=%u 뒤3행=[%.20s]\n", (unsigned)shown7b, (unsigned)err7b, lcd_row(3));
+        CHECK(shown7b && err7b && !row3_is("00041"), "A7b 레거시 발급 파싱 실패 알림도 3행의 앞 건 번호를 남기지 않는다");
+        done_cycle(sc, 0x41, 41); serial_inject("Z", 1); touch(sc);
+        const bool shown7c = row3_is("00041");
+        static const char nocard[] = "S556;SER556;";
+        logs_clear(); serial_inject(nocard, sizeof(nocard) - 1); GUARDED(serialEvent()); run_loops(4);   // 카드를 안 댄다 → 시한 초과
+        const bool err7c = lcd_has("timeout or error");
+        tlog("  A7c 시한 초과: 앞건표시=%u 알림=%u 뒤3행=[%.20s]\n", (unsigned)shown7c, (unsigned)err7c, lcd_row(3));
+        CHECK(shown7c && err7c && !row3_is("00041"), "A7c 레거시 발급 시한 초과 알림도 3행의 앞 건 번호를 남기지 않는다");
 
         reboot_as('W');
         make_tag(sc, 0x41, SCOPE_TYPE_TAG, 41, "SC0041", "S0041");
@@ -166,18 +181,19 @@ int main()
         g_btnIdleLimit = 1000000UL;
         buttons_script("RSRRS");
         const uint16_t rc0 = g_resetCount;
-        buttons_hold('S', millis() + 1200UL);
+        // 스크립트 모형(B2 와 같은 방식): 저장 'S' 뒤에 'S' 60개 = 떼기 대기(20ms 읽기)로 1.2초 동안 아직 눌림. 종전의 `buttons_hold` 1.2초는
+        //  저장 누름(시작 뒤 약 1.8초)보다 먼저 끝나 떼기 대기를 지워도 초록인 헛것이었다(17차 V-J R-3). 대기를 지우면 리셋 뒤 첫 loop 가 'S' 를 읽어 메뉴.
+        buttons_script("RSRRS" "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS");
         GUARDED(handle_menu(UserInterface::MenuFunction::Type));
         const bool reset3 = (g_resetCount != rc0);
         power_restore();
         hard_reset(false, 0);
         logs_clear();
         const int r2 = GUARDED(loop());
-        buttons_hold(0, 0);
         const bool menu3 = lcd_has("home") || lcd_has("Number");
-        tlog("  B3 누름 1200ms: reset=%u type=%c 첫 loop r=%d 메뉴화면=%u\n", (unsigned)reset3, deviceOption.GetType(), r2, (unsigned)menu3);
+        tlog("  B3 스크립트 S×60(1.2초): reset=%u type=%c 첫 loop r=%d 메뉴화면=%u\n", (unsigned)reset3, deviceOption.GetType(), r2, (unsigned)menu3);
         CHECK(reset3 && deviceOption.GetType() == 'D' && !menu3,
-              "B3(16차) 저장 누름이 1.2초 이어져도 리셋 전 떼기 대기(최대 2초)가 기다려 재시작 뒤 메뉴로 다시 들어가지 않는다");
+              "B3(16차·17차 표본 3초) 저장 누름이 리셋 시점을 넘겨 이어져도 떼기 대기(최대 2초)가 기다려 재시작 뒤 메뉴로 다시 들어가지 않는다");
 
         // B4: 저장 누름 뒤 SELECT 가 **붙은 채**(스크립트로 'S' 를 500회 더 읽힘 = 10초) — 떼기 대기는 100회×20ms 상한이라 2초 뒤 리셋.
         //  기준(dtBase) 은 같은 조작을 붙지 않은 채로 잰 시간. 상한이 없으면 +10초 · 대기 자체가 없으면 +0 → 둘 다 빨강.

@@ -10,7 +10,9 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
         return;
 
-    // 더블터치 = 태그에 적힌 시작이 10초 안(15차 A3) — 종료가 아니라 시작 다시 하기(소독기와 같은 규칙).
+    // 더블터치 = 태그에 적힌 시작이 10초 안(15차 A3) — 종료가 아니라 시작 다시 하기(소독기와 같은 창). 소독기는 16차부터 **같은 기기**
+    //  에서만 재시작인데 세척기엔 기기 조건이 없다 — 10초 안 다른 세척기 접촉이 그 세척기로 재시작되고 앞 세척기 알람은 남는다
+    //  (17차 사실 · 세척기엔 Other Machine 관문이 없어 그대로 둔다).
     DateTime startDt{};
     bool isRestart = false;   // 더블터치 가드로 시작이 재실행됐는지(소독기와 같은 이름)
     if (isEnd)
@@ -67,7 +69,7 @@ void WashingProcessor::update_process(int deviceNumber)
         {
             // 1.0과 동일하나, 2.0의 섹터 캐시 덕에 같은 섹터 내 Clear는 인증 1회로 완료.
             // ★블록60 만 지우면 **블록61 이 덤프로 나갔다**(13차 HH1 P3-1) — 섹터15 데이터 3블록을 다 지운다.
-            // ★블록5(검사일시)는 **섹터15 가 지워졌을 때만·마지막에** — 덤프 소거·잔재 소거와 같은 순서(15차 III-B P3-3).
+            // ★[15차 사장님 B3 (가) · 재론 금지] 블록5(검사일시)는 **섹터15 가 지워졌을 때만·마지막에** — 덤프 소거·잔재 소거와 같은 순서(15차 III-B P3-3).
             //  섹터15 가 NACK 면 블록5 도 남아 그 주기 덤프 행에 옛 검사일시·본체번호가 한 번 실린다(지웠다면 빈칸) —
             //  이 커밋 뒤 태그는 WS=1 이라 잔재 판정을 안 타고, 덤프가 섹터15·블록5 를 지운다(16차 IV-B 정정).
             //  접촉이 끊기면 Status 2 가 커밋 전이라 남아 재접촉이 처음부터 다시 지운다.
@@ -128,7 +130,7 @@ bool WashingProcessor::washing_start(int deviceNumber, const AlarmOption &alarmO
         //  못 봤다(15차 III-B P3-1 · III-H k2).
         //  예외(위 "같은 표지" 도): 덤프 전 재세척의 선행 쓰기(공정 0) 직후 끊기면 재접촉의 afterDump 가 참 — 지워지는 것은
         //  Status 0(·>3) 검사뿐이라 무해(16차 IV-I ④).
-        // [15차 사장님 A6] Status 0 과 **모르는 값(>3)** 둘 다 — 손상 Status 태그는 환자 블록만 비우고 Status 0 으로 커밋되므로
+        // [15차 사장님 A6 · 재론 금지] Status 0 과 **모르는 값(>3)** 둘 다 — 손상 Status 태그는 환자 블록만 비우고 Status 0 으로 커밋되므로
         //  검사도 같이 비워야 환자 없는 행에 옛 검사가 실리지 않는다(11차 FF② 갈래와 같은 짝).
         const bool afterDump = mCachedProcess.WashingStatus == 0 && mCachedProcess.DisinfectionStatus == 0 &&
                                mCachedProcess.DisinfectionCount == 0 && mCachedProcess.MachineNumber == 0;

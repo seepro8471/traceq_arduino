@@ -143,6 +143,27 @@ int main()
         tlog("  2d 'Z'+G1 조각: 본체번호=%d 키=[%.5s] Status=%u\n", gwNo, (const char *)b.data[SECTOR2_PATIENT_KEY], get_process(b).Status);
         CHECK(gwNo == 3 && memcmp(b.data[SECTOR2_PATIENT_KEY], "HHHHH", 5) == 0 && get_process(b).Status == 1,
               "2d 'Z' 뒤 G1 조각이 먼저 와도 본체번호 3 과 환자가 기록된다(전문 판정이 'Z' 를 건너뛴다)");
+
+        // ②e (17차) 'Z' 가 붙은 **G2 머리 미완 레코드** 뒤에 새 레코드(G2 머리)가 1초 넘게 늦게 오면 — 이어 붙이기의 새 머리 판정도
+        //  'Z' 를 건너뛴 머리로 앞부분의 경계 G2 를 찾아야 앞 미완 레코드를 버린다(16차 두 형제의 셋째 — 날것이면 두 환자가 섞였다)
+        hard_reset(false);
+        deviceOption.SetNumber(7);
+        rtc_set(DateTime(2026, 9, 23, 9, 30, 0));
+        const uint32_t t4 = g_ms + 50;
+        // 'Z' + G3 한가운데서 끊긴 미완 조각 — 머리 뒤 꼬리가 없어야 기다림(이어 붙이기)이 돈다(";" 로 끝나면 바로 처리돼 아무것도 못 가른다 · 17차 변이 z3 초록으로 잡음)
+        static const char f1[] = "ZG22026;9;23;4;16;05;0;G3AAA";
+        static const char f2[] = "G22026;9;23;4;17;30;0;G3BBBBB;NAMEB;;G4SUBJB;;;G5;";    // 새 레코드(온전)
+        serial_queue(f1, sizeof(f1) - 1, t4);
+        serial_queue(f2, sizeof(f2) - 1, t4 + 1800);
+        pump(8000);
+        fresh_scope(b, 0x65, 65);
+        logs_clear(); buzz_clear();
+        touch(b);
+        const LocalDateTime ex = get_ldt(b, SECTOR1_GATEWAY);
+        tlog("  2e 'Z'+G2 미완 뒤 새 레코드: 키=[%.5s] 검사시각=%02u:%02u Status=%u\n", (const char *)b.data[SECTOR2_PATIENT_KEY],
+             ex.Time.Hour, ex.Time.Minute, get_process(b).Status);
+        CHECK(memcmp(b.data[SECTOR2_PATIENT_KEY], "BBBBB", 5) == 0 && ex.Time.Hour == 17 && ex.Time.Minute == 30 && get_process(b).Status == 1,
+              "2e 'Z'+G2 미완 레코드 뒤 새 레코드는 섞이지 않고 새 레코드의 환자·검사시각만 기록된다(새 머리 판정도 'Z' 건너뜀)");
     }
 
     // ── ③ [14차 판정 · 재론 금지] 서버는 Z+JSON 을 버린다(W 는 받는다) — 바꾸면 이 CHECK 를 판정과 함께 뒤집는다 ──

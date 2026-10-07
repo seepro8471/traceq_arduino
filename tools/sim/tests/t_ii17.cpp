@@ -54,7 +54,7 @@ int main()
              (int)lcd_has("> Erase all"), (int)lcd_has("Initializing"));
         CHECK(lcd_has("Keep settings?") && lcd_has("> Erase all") && !lcd_has("Initializing"),
               "L-b 전제: 선택창이 뜨고 커서가 초기화 쪽으로 갔다가 유지로 확정됐다(설정 유지)");
-        CHECK(p30 == 2, "L-b 선택 이동은 누를 때마다 30ms 1회(오른쪽·왼쪽 = 2회)");
+        CHECK(p30 == 2, "L-b 선택 이동음 30ms — 짧게 한 번씩 누른 오른쪽·왼쪽 = 2회(누르고 있으면 약 0.11초마다 반복 · 17차 실측)");
         CHECK(p50 == 2, "L-b 확정 50ms 1회 + 부팅 완료 50ms 1회 = 50ms 2회");
     }
 

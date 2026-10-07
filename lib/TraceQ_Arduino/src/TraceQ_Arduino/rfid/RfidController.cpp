@@ -74,6 +74,25 @@ bool RfidController::IsAlive()
     return (v != 0x00) && (v != 0xFF);
 }
 
+void RfidController::ReportVersionToSerial()
+{
+    // MFRC522::PCD_DumpVersionToSerial() 과 글자가 같다 — 올눈은 ':' 로 갈라 앞 `Firmware Version` · 뒤 ` 0x0 = (unknown)` 을 보고,
+    //  SeePro 는 0x0/0xFF 줄과 WARNING 줄을 본다(둘 다 '\n' 종단). 0x00/0xFF = SPI 끊김(IsAlive 와 같은 판정).
+    const uint8_t v = mMfrc522.PCD_ReadRegister(MFRC522::VersionReg);
+    Serial.print(F("Firmware Version: 0x"));
+    Serial.print(v, HEX);
+    switch (v)
+    {
+    case 0x88: Serial.println(F(" = (clone)")); break;
+    case 0x90: Serial.println(F(" = v0.0")); break;
+    case 0x91: Serial.println(F(" = v1.0")); break;
+    case 0x92: Serial.println(F(" = v2.0")); break;
+    default:   Serial.println(F(" = (unknown)")); break;
+    }
+    if (v == 0x00 || v == 0xFF)
+        Serial.println(F("WARNING: Communication failure, is the MFRC522 properly connected?"));
+}
+
 void RfidController::pcdSoftReset()
 {
     mMfrc522.PCD_WriteRegister(MFRC522::CommandReg, MFRC522::PCD_SoftReset);

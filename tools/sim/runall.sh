@@ -1,8 +1,11 @@
 #!/bin/bash
 # 사용: runall.sh <펌웨어 루트> <출력 폴더>  — 등록된 시험 전부 빌드·실행, 요약 한 줄씩.
 ROOT="$1"; OUTD="$2"
+# 인자 둘이 비면 빈 경로로 빌드해 전량 "빌드 실패" 로 보인다 · 출력 폴더에 공백이 있으면 run.sh 가 전량 TIMEOUT 으로 보인다(17차 · 둘 다 겪음)
+[ -n "$ROOT" ] && [ -n "$OUTD" ] || { echo "사용: runall.sh <펌웨어 루트> <출력 폴더(공백 없는 경로)>"; exit 2; }
+case "$OUTD" in *" "*) echo "!! 출력 폴더에 공백 — gdb 가 elf 를 못 연다: $OUTD"; exit 2 ;; esac
 HERE="$(cd "$(dirname "$0")" && pwd)"
-T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10 t_sp t_ops t_gwmix t_dd t_dd3s t_dd3g t_dd1 t_dd1b t_dd1c t_dd1d t_ee1a t_ee1b t_ee1c t_ee1d t_ee1e t_ee2r t_ff1a t_ff1b t_ff1c t_ff2a t_ff2m t_gg2g t_gg2s t_gg2w t_gg2m t_gg1a t_gg1b t_subj t_hh1a t_hh1b t_gnum t_ii1 t_ii2 t_ii3 t_ii4 t_ii5 t_ii6 t_ii7 t_ii8 t_ii9 t_ii10 t_ii11 t_ii12 t_ii13 t_ii14 t_ii15 t_ii16 t_ii17 t_ii18)
+T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10 t_sp t_ops t_gwmix t_dd t_dd3s t_dd3g t_dd1 t_dd1b t_dd1c t_dd1d t_ee1a t_ee1b t_ee1c t_ee1d t_ee1e t_ee2r t_ff1a t_ff1b t_ff1c t_ff2a t_ff2m t_gg2g t_gg2s t_gg2w t_gg2m t_gg1a t_gg1b t_subj t_hh1a t_hh1b t_gnum t_ii1 t_ii2 t_ii3 t_ii4 t_ii5 t_ii6 t_ii7 t_ii8 t_ii9 t_ii10 t_ii11 t_ii12 t_ii13 t_ii14 t_ii15 t_ii16 t_ii17 t_ii18 t_ii19 t_ii20)
 # 소리·글자 계측 시험 — `-DHH2_DWELL` 이 필요해서 **따로** 빌드한다(그 계측을 전부에 넣으면 t_a4 가 정적 RAM 관문 28000B 를 넘는다).
 T2=(t_hh2w t_hh2g t_hh2s t_hh2lock t_hh2lock2 t_hh2fix)
 rm -rf "$OUTD"
@@ -22,7 +25,7 @@ run_group() {
     echo "$bout" | grep -v "^warning\|lto-wrapper" | grep -E "★|error:|RAM" | head -5
     [ $brc -ne 0 ] && { echo "!! build.sh 실패(rc=$brc) — 관문 위반이면 elf 가 지워진다"; }
     for t in "${names[@]}"; do
-        [ -f "$outd/$t.elf" ] || { echo "$t: ==> pass=0 fail=1 (빌드 실패)  1 FAIL"; continue; }
+        [ -f "$outd/$t.elf" ] || { echo "$t: ==> pass=0 fail=1 (빌드 실패)  1 FAIL"; TOTAL_FAIL=$((TOTAL_FAIL+1)); continue; }   # 종료코드에도 센다(17차: 빌드 실패에 0 이 났다)
         local res sum nf
         res=$(bash "$HERE/run.sh" "$outd/$t.elf" 180)
         sum=$(echo "$res" | grep '==>')

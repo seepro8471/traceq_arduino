@@ -74,7 +74,7 @@ int main()
         CHECK(ctlCount, "① 양성대조: guest 는 소독 횟수를 올리지 않는다(배치 1회)");
     }
 
-    // ── ② 사장님 판정의 근거: 실패음 뒤 **2초 안에 다시 대면** host 를 되찾는다 ──
+    // ── ② 사장님 판정의 근거: 실패음 뒤 **10초 안에 다시 대면**(15차 A3) host 를 되찾는다 ──
     bool reGuest = false, reStart = false;
     {
         as_disinfector();
@@ -102,8 +102,29 @@ int main()
         tlog("  ② 재접촉(1.2초): 시작=%02u:%02u:%02u 종료시=%02u · b그룹=%d 횟수 %u->%u\n",
              s2.Time.Hour, s2.Time.Minute, s2.Time.Second, e2.Time.Hour, group_of(b),
              (unsigned)c0, (unsigned)disinfectionOption.GetCount());
-        CHECK(reStart, "② 실패음 뒤 2초 안 재접촉은 '종료' 가 아니라 시작 재실행이다");
+        CHECK(reStart, "② 실패음 뒤 10초 안 재접촉은 '종료' 가 아니라 시작 재실행이다");
         CHECK(reGuest, "★② 그 재접촉이 host 를 되찾아 둘째 스코프가 guest(그룹2)로 기록된다 — 사장님 판정의 근거");
+    }
+
+    // ── ②r (17차 V-J R-1) 같은 것을 **실제 찢긴 시작**으로 — 위 ② 는 상태를 손으로 만들어 "횟수는 커밋 뒤에 올린다" 순서를 못 잠갔다
+    //  (IncrementCount 를 커밋 앞으로 옮기면 찢긴 시작 +1 · 재시작 +1 = +2 인데 ② 는 초록). 실제 찢김 + 재접촉 = 정확히 +1.
+    {
+        as_disinfector();
+        touch(mgr);
+        rtc_set(rel_date(12, 30, 0));
+        washed(a, 0x27, 27);
+        const uint8_t cBefore = disinfectionOption.GetCount();
+        a.readErrBlock = SECTOR1_PROCESS; a.readErrSkip = 1; a.readErrTimes = 30;   // 커밋은 닿고 확인 읽기 실패
+        logs_clear(); touch(a, 1, 4);
+        a.readErrBlock = -1; a.readErrTimes = 0; a.readErrSkip = 0;
+        const bool torn = lcd_has("Write Error") && get_process(a).Rewrite == 2;
+        const uint8_t cTorn = disinfectionOption.GetCount();
+        sim_advance_ms(1200);
+        logs_clear(); touch(a);                                                     // 재시작(RAM 은 a 를 모른다)
+        tlog("  ②r 실제 찢김: torn=%d 횟수 %u -> %u -> %u\n", torn, (unsigned)cBefore, (unsigned)cTorn, (unsigned)disinfectionOption.GetCount());
+        CHECK(torn && cTorn == cBefore, "②r 전제: 커밋은 닿았고 확인 실패로 Write Error — 그 접촉은 횟수를 안 올렸다(횟수는 커밋 뒤)");
+        CHECK(disinfectionOption.GetCount() == cBefore + 1,
+              "②r(17차) 실제 찢긴 시작 + 재접촉 = 횟수 정확히 +1 — 횟수를 커밋 앞으로 옮기면 +2 가 된다(순서 잠금)");
     }
 
     // ── ③ 대조: 다시 대지 않고 둘째 스코프를 대면 그룹1 둘이 된다(이 결함의 지문) ──

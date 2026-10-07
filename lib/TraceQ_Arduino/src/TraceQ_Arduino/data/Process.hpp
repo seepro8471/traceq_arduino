@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 struct Process
-{   // 태그 블록 6 의 9바이트와 같은 레이아웃 — 아래 static_assert 가 지킨다(AVR: int 2바이트, 패딩 없음)
+{   // 태그 블록 6 의 9바이트와 같은 레이아웃 — 아래 static_assert 는 **크기**만 지킨다(순서·패딩은 AVR ABI: int 2바이트, 패딩 없음)
     uint8_t Status{0};
     uint8_t DisinfectionCount{0};
     uint8_t WashingStatus{0};

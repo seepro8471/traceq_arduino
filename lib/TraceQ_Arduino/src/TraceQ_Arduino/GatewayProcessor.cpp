@@ -116,7 +116,7 @@ void GatewayProcessor::GatewaySerialEvent(const char *buffer, DefaultRtc &rtc, D
     if (find_string(rec, string, sizeof(string), "G2", "G3"))
         substring_for_local_date_time(string);
 
-    // ★[15차 사장님 A5] G2 가 없거나 무효(2월 30일 등)면 검사일시를 **게이트웨이 시계**로 채운다(폴백과 같은 근거 — 전문이 곧
+    // ★[15차 사장님 A5 · 재론 금지] G2 가 없거나 무효(2월 30일 등)면 검사일시를 **게이트웨이 시계**로 채운다(폴백과 같은 근거 — 전문이 곧
     //  검사 시작). 종전엔 검사일시 0 인 환자 기록이 성공음으로 남아 세척 표지 판정이 못 봤고, 무효 날짜가 RTC 를 3월 2일로
     //  맞췄다(15차 III-D P3-2·R1). RTC 는 유효한 G2 로만 맞춘다.
     if (mDateTime.Date.Year != 0 && !DefaultRtc::ToDateTime(mDateTime).isValid()) mDateTime = LocalDateTime{};

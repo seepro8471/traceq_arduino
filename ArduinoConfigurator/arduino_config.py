@@ -348,13 +348,13 @@ class ArduinoConfigurator(QMainWindow):
 
         # 동시소독 딜레이
         self.df_delay_spin = QSpinBox()
-        self.df_delay_spin.setRange(0, 999)
+        self.df_delay_spin.setRange(0, 120)   # 리더는 0~120 으로 자른다(DisinfectionOption constrain) — 칸도 같은 범위로(17차 · MaxCount 칸의 형제)
         cfg_grid.addWidget(QLabel('동시소독 딜레이:'), 2, 2)
         cfg_grid.addWidget(self.df_delay_spin, 2, 3)
 
         # 동시소독 슬롯
         self.df_slot_spin = QSpinBox()
-        self.df_slot_spin.setRange(0, 99)
+        self.df_slot_spin.setRange(0, 2)   # 리더는 0~2 로 자른다(동시소독 슬롯) — 칸도 같은 범위로(17차)
         self.df_slot_spin.setValue(1)
         cfg_grid.addWidget(QLabel('동시소독 슬롯:'), 3, 0)
         cfg_grid.addWidget(self.df_slot_spin, 3, 1)

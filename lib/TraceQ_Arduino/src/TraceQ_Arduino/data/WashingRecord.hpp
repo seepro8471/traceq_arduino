@@ -10,3 +10,4 @@ struct WashingRecord
     WashingRecord() = default;
     WashingRecord(int mn, const LocalDateTime &dt) : MachineNumber(mn), DateTime(dt) {}
 };
+static_assert(sizeof(WashingRecord) == 10, "WashingRecord must be the 10 tag bytes (number 2 + datetime 8)");

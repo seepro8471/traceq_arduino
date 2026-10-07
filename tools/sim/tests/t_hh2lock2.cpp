@@ -43,7 +43,7 @@ int main()
           "N2 공정 블록 읽기 실패 = 실패음(RecordProcessor.cpp:43)");
     a.readErrBlock = -1; a.readErrTimes = 0;
 
-    // ── N3 소독 종료 터치의 더블터치 판정 읽기 실패 = 실패음 (DisinfectionProcessor.cpp:48) ──
+    // ── N3 소독 종료 터치의 더블터치 판정 읽기 실패 = 실패음 (DisinfectionProcessor 종료 갈래 `just < 0`) ──
     reboot_as('D');
     touch(mgr);
     fresh_scope(a, 0x13, 13);
@@ -55,10 +55,10 @@ int main()
     tlog("  N3 소독 판정 읽기 실패: 100=%u 50=%u lcd=%d\n",
          buzz_count(100), buzz_count(50), lcd_has("Read Error"));
     CHECK(lcd_has("Read Error") && buzz_count(100) == 4 && buzz_count(50) == 0,
-          "N3 소독 더블터치 판정 읽기 실패 = 실패음(DisinfectionProcessor.cpp:48)");
+          "N3 소독 더블터치 판정 읽기 실패 = 실패음(DisinfectionProcessor 종료 갈래 `just < 0`)");
     a.readErrBlock = -1; a.readErrTimes = 0;
 
-    // ── N4 설정기 발급(cfg_new_tag) 대기 만료 = 실패음 (SerialProcessor.cpp:148) ──
+    // ── N4 설정기 발급(cfg_new_tag) 대기 만료 = 실패음 (SerialProcessor `timeout or error`) ──
     reboot_as('S');
     snd_begin();
     serial_inject("{\"cmd\":\"cfg_new_tag\",\"type_id\":1}", 34);

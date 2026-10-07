@@ -311,6 +311,162 @@ int main()
              pf.DisinfectionCount, (unsigned)buzz_count(50));
         CHECK(lcd_has("Read Error") && pf.MovementNeeded && pf.Rewrite == 0 && pf.DisinfectionCount == 1 && buzz_count(50) == 0,
               "⑫f 섹터6 읽기 실패면 Read Error — 재확인도 2차 시작도 아니다(판정 불가)");
+        CHECK(buzz_count(100) == 4 && buzz_count(600) == 0 && buzz_count(500) == 0,
+              "⑫f 그 소리는 실패음 100×4(거부음·안내음·무음이 아니다 · 17차 V-F 소리 68자리 중 마지막 안 잠김)");
+    }
+    // ── ⑫g (17차 · 7갈래 독립 발견) 이동이 **커밋 전**에 실패(실패음 · 표지 세워짐) → 재접촉 이동 성공 → 10초 안 되넣기는 2차 시작 ──
+    //  16차는 표지를 재확인에서만 지워, 성공한 재이동 뒤에도 표지가 살아 첫 실패 10초 안 되넣기(A→A 2차 시작)를 재확인으로 삼켰다
+    //  (태그 불변·알람 0·횟수 0·성공음 → 20분 뒤 종료 접촉이 2차 '시작' 으로). 되넣기 3초·8초 둘 다 2차 시작이어야 한다.
+    for (uint8_t k = 0; k < 2; ++k)
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0); disinfectionOption.SetCount(9);
+        started_at2(a, 0x8B + k, 91 + k);
+        rtc_set(rel_date(18, 0, 0)); touch(clr);
+        sim_advance_ms(3000);
+        a.nackBlock = SECTOR6_DISINFECTION_END_MANAGER_KEY;                 // 이동의 첫 쓰기에서 거절 → 커밋 전 실패
+        logs_clear(); buzz_clear(); touch(a, 1, 4);
+        const bool werr = lcd_has("Write Error");
+        const Process p0 = get_process(a);
+        a.nackBlock = -1;
+        const uint32_t t0 = millis();
+        sim_advance_ms(1500);
+        logs_clear(); buzz_clear(); touch(a);                               // 규칙대로 재접촉 → 이동 성공
+        const Process p1 = get_process(a);
+        const bool moveOk = p1.MovementNeeded && p1.Rewrite == 0 && buzz_count(50) == 1;
+        const uint32_t want = k ? 8000UL : 3000UL;
+        const uint32_t el = millis() - t0;
+        if (el < want) sim_advance_ms(want - el);
+        logs_clear(); buzz_clear(); touch(a);                               // 되넣기(첫 실패로부터 3초/8초)
+        const Process p2 = get_process(a);
+        tlog("  ⑫g[%u] 되넣기 %lu초: 첫실패 WE=%d(MV=%u RW=%u) → 이동=%d → MV=%u RW=%u DC=%u 횟수=%d 알람=%d 성공음=%u\n", k,
+             (unsigned long)(want / 1000), werr, p0.MovementNeeded, p0.Rewrite, moveOk, p2.MovementNeeded, p2.Rewrite,
+             p2.DisinfectionCount, disinfectionOption.GetCount(), rtc.HasAlarm(2), (unsigned)buzz_count(50));
+        CHECK(werr && !p0.MovementNeeded && p0.Rewrite == 2 && moveOk, "⑫g 전제: 커밋 전 실패(태그 그대로·Write Error) 뒤 재접촉 이동 성공");
+        CHECK(p2.Rewrite == 2 && p2.DisinfectionCount == 2 && p2.MachineNumber == 2 && disinfectionOption.GetCount() == 1 && rtc.HasAlarm(2),
+              "⑫g(17차) 성공한 이동 뒤 10초 안 되넣기는 2차 시작(횟수 1·알람) — 실패 표지는 이동 성공으로 지워진다");
+    }
+    // ── ⑫h (17차) 표지의 빈 값 −1 과 번호 −1(손상) 태그 — 부팅 10초 안이라도 재확인으로 삼키지 않는다 ──
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0); disinfectionOption.SetCount(0);
+        make_tag(a, 0x8D, SCOPE_TYPE_TAG, -1, "SCXX", "SER");               // 번호 −1 · 이미 이동(MV=1 RW=0 · 기기 2 · 옛 섹터6)
+        set_process(a, Process{1, 1, 1, 1, 2, true, 0, 0});
+        set_record(a, SECTOR2_WASHING_START, 1, rel_date(9, 0, 0));
+        set_record(a, SECTOR3_WASHING_END, 1, rel_date(9, 4, 0));
+        set_record(a, SECTOR5_DISINFECTION_START, 2, rel_date(9, 10, 0));
+        set_record(a, SECTOR6_DISINFECTION_END, 2, rel_date(9, 30, 0));
+        g_ms = 2000;                                                        // 부팅 2초 뒤(빈 표지 mFailMs=0 과 10초 안) — rtc_set 이 이 시각에 다시 닻을 내린다
+        rtc_set(rel_date(19, 0, 0));
+        logs_clear(); buzz_clear(); touch(a);
+        const Process ph = get_process(a);
+        tlog("  ⑫h 번호 −1 태그: MV=%u RW=%u DC=%u 성공음=%u\n", ph.MovementNeeded, ph.Rewrite, ph.DisinfectionCount, (unsigned)buzz_count(50));
+        CHECK(ph.Rewrite == 2 && ph.DisinfectionCount == 2,
+              "⑫h(17차) 번호 −1 태그는 빈 표지(−1)와 같아도 재확인이 아니라 2차 시작이다(센티널 관문)");
+    }
+    // ── ⑫i (17차) A8 회복 경로의 찢긴 이동 — 액교환 기기(2)가 **다른 기기(1)에서 시작한** 1차 스코프를 이동하다 확인 실패 → 재접촉은 재확인 ──
+    //  16차는 "같은 기기" 를 태그의 시작 기기(1)와 비교해 재확인이 안 서고 2차 시작이 됐다 · 표지는 이 기기의 RAM 이라 기기 조건이 필요 없다.
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0); disinfectionOption.SetCount(9);
+        started_at2(a, 0x8E, 94);
+        set_process(a, Process{1, 1, 1, 1, 1, false, 0, 2});               // 시작 기기 1
+        rtc_set(rel_date(20, 0, 0)); touch(clr);
+        sim_advance_ms(3000);
+        a.readErrBlock = SECTOR1_PROCESS; a.readErrSkip = 1; a.readErrTimes = 30;
+        logs_clear(); buzz_clear(); touch(a, 1, 4);                         // A8 이동 커밋 뒤 확인 실패
+        const bool werrI = lcd_has("Write Error");
+        const Process pm = get_process(a);
+        a.readErrBlock = -1; a.readErrTimes = 0; a.readErrSkip = 0;
+        sim_advance_ms(1500);
+        logs_clear(); buzz_clear(); touch(a);                               // 재접촉
+        const Process pi = get_process(a);
+        tlog("  ⑫i A8 찢김: WE=%d 커밋 MV=%u RW=%u → 재접촉 MV=%u RW=%u DC=%u 성공음=%u\n", werrI, pm.MovementNeeded, pm.Rewrite,
+             pi.MovementNeeded, pi.Rewrite, pi.DisinfectionCount, (unsigned)buzz_count(50));
+        CHECK(werrI && pm.MovementNeeded && pm.Rewrite == 0, "⑫i 전제: A8 이동 커밋(MV=1 RW=0)은 닿았고 확인 실패로 Write Error");
+        CHECK(pi.MovementNeeded && pi.Rewrite == 0 && pi.DisinfectionCount == 1 && buzz_count(50) == 1,
+              "⑫i(17차) A8 회복 경로의 찢긴 이동도 재접촉은 재확인(태그 불변·성공음) — 표지는 이 기기의 RAM 이라 시작 기기와 무관");
+    }
+    // ── ⑫j (17차 V-H U4·U5) 표지는 **그 스코프**만 · **10초**까지 — 다른 스코프의 되넣기는 삼키지 않고, 11초 뒤 되넣기는 2차 시작 ──
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0); disinfectionOption.SetCount(9);
+        started_at2(a, 0x8F, 95); started_at2(b, 0x90, 96);
+        rtc_set(rel_date(21, 0, 0)); touch(clr);
+        sim_advance_ms(3000); logs_clear(); touch(b);                       // b 이동(성공)
+        sim_advance_ms(3000);
+        a.readErrBlock = SECTOR1_PROCESS; a.readErrSkip = 1; a.readErrTimes = 30;
+        logs_clear(); touch(a, 1, 4);                                       // a 이동 커밋 뒤 확인 실패 → 표지(a)
+        a.readErrBlock = -1; a.readErrTimes = 0; a.readErrSkip = 0;
+        sim_advance_ms(1500);
+        logs_clear(); buzz_clear(); touch(b);                               // b 되넣기 — a 의 표지가 b 를 삼키면 안 된다
+        const Process pb = get_process(b);
+        tlog_p("⑫j b 되넣음", b);
+        CHECK(pb.Rewrite == 2 && pb.DisinfectionCount == 2, "⑫j a 의 실패 표지는 b 의 되넣기(2차 시작)를 삼키지 않는다(스코프 일치)");
+        sim_advance_ms(11000);
+        logs_clear(); buzz_clear(); touch(a);                               // a 재접촉 11초 뒤 — 창 밖 → 2차 시작
+        const Process pa11 = get_process(a);
+        tlog_p("⑫j a 11초 뒤", a);
+        CHECK(pa11.Rewrite == 2 && pa11.DisinfectionCount == 2, "⑫j 찢긴 이동 11초 뒤 재접촉은 표지 창 밖 → 2차 시작(10초 창)");
+    }
+    // ── ⑫k (17차 V-C L1 · V-H U2) 동시소독(slot 2)에서 재확인의 뒷정리(host 슬롯·시간창 비움) — 없으면 되넣기 2차가 자기 guest(그룹2·횟수 0) ──
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(2); disinfectionOption.SetSimultaneousDisinfectionDelay(30);
+        disinfectionOption.SetCount(9);
+        make_tag(a, 0x91, SCOPE_TYPE_TAG, 97, "SC97", "SER");
+        set_process(a, Process{1, 0, 1, 0, 1, false, 0, 1});
+        set_record(a, SECTOR2_WASHING_START, 1, rel_date(9, 0, 0));
+        set_record(a, SECTOR3_WASHING_END, 1, rel_date(9, 4, 0));
+        rtc_set(rel_date(22, 0, 0)); touch(a);                              // 1차 시작 = host · 시간창 30분
+        rtc_set(rel_date(22, 5, 0)); touch(clr);
+        sim_advance_ms(3000);
+        a.readErrBlock = SECTOR1_PROCESS; a.readErrSkip = 1; a.readErrTimes = 30;
+        logs_clear(); touch(a, 1, 4);                                       // 이동 커밋 뒤 확인 실패
+        a.readErrBlock = -1; a.readErrTimes = 0; a.readErrSkip = 0;
+        sim_advance_ms(1500); logs_clear(); touch(a);                       // 재확인(뒷정리: host 슬롯·시간창 비움)
+        sim_advance_ms(3000); logs_clear(); touch(a);                       // 되넣기 = 2차 시작 — 아직 1차 시작의 30분 창 안
+        DisinfectionDetail d2{};
+        memcpy(&d2, a.data[SECTOR14_DISINFECTION_DETAIL2], sizeof(d2));
+        tlog("  ⑫k slot2 되넣기: RW=%u DC=%u 그룹2=%d 횟수=%d\n", get_process(a).Rewrite, get_process(a).DisinfectionCount,
+             d2.GroupNumber, disinfectionOption.GetCount());
+        CHECK(get_process(a).Rewrite == 2 && d2.GroupNumber == 1 && disinfectionOption.GetCount() == 1,
+              "⑫k(17차) 재확인이 host 슬롯·시간창을 비워 되넣기 2차가 그룹1·횟수 1 — 안 비우면 자기 창 안의 guest(그룹2·횟수 0)");
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0);
+    }
+    // ── ⑫l (17차 V-H U3) 재확인의 꼬리는 이동과 같다 — 환자정보 확인 ON 이고 환자 없으면 성공음이 아니라 400×2 경고 ──
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0); disinfectionOption.SetCount(9);
+        recordOption.SetPatientCheck(true);
+        started_at2(a, 0x92, 98);
+        set_process(a, Process{0, 1, 1, 1, 2, false, 0, 2});               // 환자정보 없음(Status 0)
+        rtc_set(rel_date(23, 0, 0)); touch(clr);
+        sim_advance_ms(3000);
+        a.readErrBlock = SECTOR1_PROCESS; a.readErrSkip = 1; a.readErrTimes = 30;
+        logs_clear(); touch(a, 1, 4);
+        a.readErrBlock = -1; a.readErrTimes = 0; a.readErrSkip = 0;
+        sim_advance_ms(1500); logs_clear(); buzz_clear(); touch(a);         // 재확인
+        tlog("  ⑫l 환자확인 ON 재확인: 400=%u 50=%u 글자=%d\n", (unsigned)buzz_count(400), (unsigned)buzz_count(50), lcd_has("No Patient Info"));
+        CHECK(buzz_count(400) == 2 && buzz_count(50) == 0 && lcd_has("No Patient Info"),
+              "⑫l(17차) 재확인도 이동과 같은 꼬리 — 환자정보 없음이면 성공음 대신 400×2 'No Patient Info'");
+        recordOption.SetPatientCheck(false);
+    }
+    // ── ⑫m (17차 V-J P-1) 알람 전 성공한 이동은 출발 소독기의 알람을 지운다(t_disinfect 의 옛 잠금은 알람이 스스로 울린 뒤라 헛것이었다) ──
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0); disinfectionOption.SetCount(9);
+        make_tag(a, 0x93, SCOPE_TYPE_TAG, 99, "SC99", "SER");
+        set_process(a, Process{1, 0, 1, 0, 1, false, 0, 1});
+        set_record(a, SECTOR2_WASHING_START, 1, rel_date(9, 0, 0));
+        set_record(a, SECTOR3_WASHING_END, 1, rel_date(9, 4, 0));
+        rtc_set(rel_date(23, 20, 0)); touch(a);                             // 1차 시작(알람 등록)
+        const bool armed = rtc.HasAlarm(2);
+        rtc_set(rel_date(23, 25, 0)); touch(clr);                           // 알람(18분) 전 액교환
+        sim_advance_ms(3000); logs_clear(); touch(a);                       // 이동(성공)
+        tlog("  ⑫m 알람 전 이동: 등록=%d → 이동 뒤 알람=%d MV=%u\n", armed, rtc.HasAlarm(2), get_process(a).MovementNeeded);
+        CHECK(armed && !rtc.HasAlarm(2) && get_process(a).MovementNeeded,
+              "⑫m(17차) 알람 전 성공한 이동이 출발 소독기 알람을 지운다(이동 갈래의 ClearAlarm — 지우면 액교환 뒤 알람이 그대로 울린다)");
     }
 
     // ── ⑬ (16차) 1차 시작 5초 뒤 **다른 기기**에 대면 재시작이 아니라 Other Machine — 재시작은 같은 기기에서만(A2 의 형제) ──

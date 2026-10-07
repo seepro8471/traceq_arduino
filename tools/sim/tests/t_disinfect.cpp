@@ -149,11 +149,14 @@ int main()
         tlog("  count %d -> %d, RW=%u\n", before, disinfectionOption.GetCount(), get_process(s9).Rewrite);
         CHECK(disinfectionOption.GetCount() == before + 1, "회귀: host 더블터치 → 횟수 +1");
         CHECK(get_process(s9).Rewrite == 2, "회귀: host 더블터치 → 시작 상태");
-        sim_advance_ms(20UL * 60 * 1000);
+        // 알람(18분)이 울리기 **전**에 종료한다 — 20분 점프 뒤엔 접촉 루프 첫머리에서 알람이 스스로 울려 지워져 이 CHECK 가 늘 참이었다
+        //  (17차 V-J: 종료의 ClearAlarm(2) 를 지워도 8종 초록 · 헛초록)
+        sim_advance_ms(5UL * 60 * 1000);
+        const bool alarmBefore = rtc.HasAlarm(2);
         touch(s9);
         const LocalDateTime e = get_ldt(s9, SECTOR6_DISINFECTION_END);
         tlog_ldt("s9 종료", e);
-        CHECK(!rtc.HasAlarm(2), "회귀: 종료 터치 → 알람 해제");
+        CHECK(alarmBefore && !rtc.HasAlarm(2), "회귀: 알람 전 종료 터치 → 알람 해제(종료의 ClearAlarm)");
         CHECK(disinfectionOption.GetCount() == before + 1, "회귀: 종료는 횟수 불변");
     }
     // ── [3차 B] 커밋은 됐는데 확인 읽기가 실패(Write Error) → 곧바로 다시 대면 종료가 아니라 재시작 ──

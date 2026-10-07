@@ -25,6 +25,19 @@ void tlog(const char *fmt, ...)
     }
     va_end(ap);
 }
+// 서식이 플래시(PROGMEM)에 있는 tlog — 하네스 경고 문구가 .data 를 먹어 t_a4 의 RAM 관문(28000B)을 넘겼다(17차).
+static void tlog_P(const char *fmtP, ...)
+{
+    va_list ap;
+    va_start(ap, fmtP);
+    const int room = (int)sizeof(g_log) - (int)s_logLen - 1;
+    if (room > 0)
+    {
+        const int n = vsnprintf_P(g_log + s_logLen, room, fmtP, ap);
+        if (n > 0) s_logLen += (n < room) ? n : room - 1;
+    }
+    va_end(ap);
+}
 // 실패 줄만 모으는 작은 버퍼 — g_log 가 넘쳐도 무엇이 실패했는지는 반드시 남는다.
 char g_failLog[1024];
 static uint16_t s_failLen;
@@ -73,6 +86,7 @@ void digitalWrite(uint8_t pin, uint8_t val)
     {
         s_buzzOn = false;
         if (s_buzzN < 64) s_buzzPulse[s_buzzN++] = (uint16_t)(g_ms - s_buzzOnAt);
+        else { static bool warned; if (!warned) { warned = true; tlog_P(PSTR("!! buzz log full(64) - buzz_count unreliable until buzz_clear\n")); } }
     }
 }
 static char s_btn[256];
@@ -230,6 +244,7 @@ size_t HardwareSerial::write(uint8_t c)
 {
     SIM_SP();
     if (s_outLen < sizeof(g_serialOut) - 1) g_serialOut[s_outLen++] = (char)c;
+    else { static bool warned; if (!warned) { warned = true; tlog_P(PSTR("!! serial log full(2048) - serial_has unreliable until logs_clear\n")); } }
     g_serialOut[s_outLen] = 0;
     return 1;
 }
@@ -257,6 +272,7 @@ static uint16_t s_lcdLen;
 static void lcd_put(char c)
 {
     if (s_lcdLen < sizeof(g_lcdLog) - 1) g_lcdLog[s_lcdLen++] = c;
+    else { static bool warned; if (!warned) { warned = true; tlog_P(PSTR("!! LCD log full(1536) - lcd_has unreliable until logs_clear\n")); } }
     g_lcdLog[s_lcdLen] = 0;
 }
 // ── 표시 격자 20x4 — g_lcdLog 는 '쓴 것' 이고 이쪽은 '지금 화면에 있는 것'(잔상 판정) ──

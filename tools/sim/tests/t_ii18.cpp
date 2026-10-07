@@ -70,6 +70,25 @@ int main()
         CHECK(get_process(sc).Rewrite == 1, "A7 대조: 담당자를 다시 대면 시작된다");
         recordOption.SetManagerDisposability(false);
     }
+    // ── A7e (17차 V-A U1 · V-H U9) 같은 값으로 저장만 하면 표지는 남는다 — "바뀌었을 때만" 을 지우면 ON 에서 메뉴만 열고 저장해도 다음 시작이 거부됐다 ──
+    {
+        as('W');
+        recordOption.SetManagerDisposability(true);
+        touch(mgr);                                            // 일회성 표지 충전
+        g_btnIdleLimit = 1000000UL;
+        buttons_script("RRRS");                                // 값은 그대로 · save 칸에서 저장
+        GUARDED(handle_menu(UserInterface::MenuFunction::ManagerDisposability));
+        const bool stillOn = recordOption.GetManagerDisposability();
+        run_loops(2);
+        fresh_scope(sc, 0x3E, 62);
+        logs_clear(); buzz_clear();
+        rtc_set(rel_date(10, 7, 0));
+        touch(sc);
+        tlog("  A7e 같은 값 저장: ON=%d NoManager=%d RW=%u\n", stillOn, lcd_has("No Manager Info"), get_process(sc).Rewrite);
+        CHECK(stillOn && !lcd_has("No Manager Info") && get_process(sc).Rewrite == 1,
+              "A7e(17차) 같은 값으로 저장만 하면 일회성 표지는 남아 첫 시작이 통과한다(표지는 설정이 바뀔 때만 버린다)");
+        recordOption.SetManagerDisposability(false);
+    }
     // ── A7d: 소독기 판 — 같은 배선의 형제(`disinfectionProcessor.ResetDisposability`) · 16차 IV-H: 이 줄만 지워도 초록이었다 ──
     {
         as('D');
@@ -162,12 +181,21 @@ int main()
         disinfectionOption.SetMaximumCount(5);
         const int v5 = disinfectionOption.GetMaximumCount();
         tlog("  C5 999→%d 1000→%d 5→%d\n", v999, v1000, v5);
-        CHECK(v999 == 999 && v1000 == 0 && v5 == 5, "C5(15차) MaxCount 는 999 까지 · 넘으면 0(제한 없음)");
+        CHECK(v999 == 999 && v1000 == 0 && v5 == 5, "C5(15차) MaxCount 는 999 까지 · 넘으면 0(제한 없음) — 세터+게터를 함께 지난 값(게터 상한이 세터를 가린다 · 17차)");
         // 게터도 같은 범위 — 구판 JSON 이 EEPROM 에 남긴 1234 가 상한으로 계속 쓰이고 제목이 4자리가 됐다(16차 IV-E/F)
         EEPROM.put((int)162, (int)1234);
         const int raw = disinfectionOption.GetMaximumCount();
         tlog("  C5b EEPROM 1234 → 게터=%d\n", raw);
         CHECK(raw == 0, "C5b(16차) 게터는 세터 범위 밖 EEPROM 값(1234)을 0(제한 없음)으로 읽는다");
+        // 경계 1000(= 999+1) — 표본이 1234 뿐이면 경계를 1000 으로 민 변이가 초록(17차 V-E 안 잠김)
+        {
+            EEPROM.put((int)162, (int)1000);
+            const int raw1000 = disinfectionOption.GetMaximumCount();
+            EEPROM.put((int)162, (int)999);
+            const int raw999 = disinfectionOption.GetMaximumCount();
+            tlog("  C5c EEPROM 1000 → 게터=%d · 999 → %d\n", raw1000, raw999);
+            CHECK(raw1000 == 0 && raw999 == 999, "C5c(17차) 게터 경계: 1000 은 0 · 999 는 999");
+        }
         disinfectionOption.SetMaximumCount(0);
     }
 

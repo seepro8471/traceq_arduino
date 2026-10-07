@@ -25,10 +25,16 @@ protected:
     void consume_disposability() { mDisposabilityFlag = false; }
     /// 메뉴에서 일회성 설정이 바뀌면 표지를 버린다(15차 사장님 A7) — 파생 클래스가 `using` 으로 공개한다.
     void ResetDisposability() { mDisposabilityFlag = false; }
-    /// 직전 접촉이 Write Error 로 끝난 스코프(RAM · 10초) — 이동 커밋은 닿았는데 확인이 끊긴 재접촉을 재확인으로 가른다(16차 A2).
+    /// 이 기기에서 이동이 Write Error 로 끝난 스코프(RAM · 10초) — 커밋은 닿았는데 확인이 끊긴 재접촉을 재확인으로 가른다(16차 A2).
+    /// 표지는 **재확인 · 그 스코프의 이동/종료 성공 · 10초** 중 먼저 오는 것으로 사라진다 — 17차: 커밋 전 실패 뒤 재접촉 이동이
+    /// 성공해도 표지가 남아 10초 안 되넣기(A→A 2차 시작)를 재확인으로 삼켰다(7갈래 독립 발견). 한 칸뿐이라 다른 스코프의 표지는
+    /// 안 지운다. 번호 −1(손상 태그)은 빈 표지와 같은 값이라 거른다.
     void note_write_error(int16_t scope) { mFailScope = scope; mFailMs = millis(); }
-    bool failed_just_now(int16_t scope) const { return mFailScope == scope && (millis() - mFailMs) < kFailWindowMs; }
-    void clear_write_error() { mFailScope = -1; }
+    bool failed_just_now(int16_t scope) const
+    {
+        return mFailScope >= 0 && mFailScope == scope && (millis() - mFailMs) < kFailWindowMs;
+    }
+    void clear_write_error(int16_t scope) { if (mFailScope == scope) mFailScope = -1; }
     static constexpr uint32_t kFailWindowMs{10000UL};
     /// 더블터치 재시작 창(초) — 15차 사장님 A3: 2→10. 이동 재확인의 섹터6 시각 창은 따로 2초(튐 방지 — 재확인은 같은 기기만이라
     /// 넓히면 A→A 의 성공한 이동 뒤 빠른 되넣기(2차 시작)를 삼킨다 · 찢긴 이동은 위 RAM 실패 표지 10초가 잡는다 · 16차).

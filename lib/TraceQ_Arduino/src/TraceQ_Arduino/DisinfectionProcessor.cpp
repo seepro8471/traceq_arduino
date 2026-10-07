@@ -20,17 +20,20 @@ void DisinfectionProcessor::DisinfectionProcess(
     bool isEnd  = (mCachedProcess.Rewrite == 2);
     bool isRestart = false;   // 더블터치 가드로 시작이 재실행됐는지
 
-    // ★[15차 A2 · 16차 재설계] 이동 직후 **같은 기기** 재접촉은 이동 재확인 — 아무것도 안 쓰고 이동과 같은 꼬리(뒷정리·소리)만.
+    // ★[15차 사장님 A2 · 재론 금지 · 16차 재설계 · 17차 보정] 이동 직후 재접촉은 이동 재확인 — 아무것도 안 쓰고 이동과 같은 꼬리(뒷정리·소리)만.
     //  이동 커밋(RW=0)은 닿았는데 확인 읽기가 끊겨 실패음이 나면 사람이 다시 대는데, 시작 갈래엔 더블터치 가드가 없어 그 접촉이
-    //  이 기기의 2차 시작이 됐다(A→A 되넣음이 2차 종료 · A→B 도착기 Other Machine). 15차의 "섹터6 시각 2초 안" 은 실패음(0.8초)
-    //  이 초 단위 창을 먼저 먹어 대부분 못 잡았다(16차 여섯 갈래 실측) → 판정은 **"이 스코프의 직전 접촉이 Write Error 로 끝났고
-    //  10초 안"**(RAM 실패 표지)이 정본이고 섹터6 2초는 튐 방지. 성공한 이동 뒤 빠른 되넣기는 그대로 2차 시작(A→A 정상).
-    //  담당자 관문 **앞**에 둔다(일회성 ON 이면 관문이 먼저 거부했다) · 도착기(다른 기기)는 언제나 2차 시작.
+    //  이 기기의 2차 시작이 됐다(A→A 되넣음이 2차 종료 · A→B 도착기 Other Machine). 판정은 **"이 기기에서 이 스코프의 이동이
+    //  Write Error 로 끝났고 10초 안"**(RAM 실패 표지)이 정본 — 이 기기의 RAM 이라 기기 조건이 필요 없고 A8 회복 경로(남의 1차
+    //  스코프를 이동)의 찢김도 잡는다(17차 · 16차는 태그의 시작 기기와 비교해 A8 을 놓쳤다). 섹터6 시각 2초는 튐 방지로 **같은 기기**
+    //  에서만(태그 시각이라 도착기의 2차 시작을 삼키지 않게) — 실패음 0.8초·환자정보 경고 1.6초가 이 창을 먼저 먹으므로 그 뒤 접촉은
+    //  튐이 아니라 의도 접촉(= 2차 시작 · 15차의 2초 단독 판정이 대부분 못 잡은 이유). 표지는 **이동/종료가 성공하면 지운다** —
+    //  커밋 전 실패(이동 18동작 중 절단 10 가운데 9) 뒤 재접촉 이동이 성공해도 표지가 남아 10초 안 되넣기(A→A 2차 시작)를
+    //  삼켰다(17차 · 7갈래 독립 발견). 담당자 관문 **앞**에 둔다(일회성 ON 이면 관문이 먼저 거부했다).
     bool reconfirmed = false;
-    if (isMoved && !isEnd && mCachedProcess.MachineNumber == deviceNumber)
+    if (isMoved && !isEnd)
     {
         bool again = failed_just_now(mCachedTag.Number);
-        if (!again)
+        if (!again && mCachedProcess.MachineNumber == deviceNumber)
         {
             const int8_t justMoved = started_just_now(SECTOR6_DISINFECTION_END, rtc, nullptr, kReconfirmWindowSec);
             if (justMoved < 0)
@@ -42,7 +45,7 @@ void DisinfectionProcessor::DisinfectionProcess(
         }
         if (again)
         {
-            clear_write_error();
+            clear_write_error(mCachedTag.Number);
             // 찢긴 이동이 못 한 뒷정리 — 자기 슬롯 비움 + 알람 해제(이동 갈래와 같은 줄)
             if (is_guest(mCachedTag.Number)) mGuestScopeNumber = kNoScope;
             else if (is_host(mCachedTag.Number)) { mHostScopeNumber = kNoScope; mStartTime = DateTime{}; }
@@ -120,7 +123,8 @@ void DisinfectionProcessor::DisinfectionProcess(
         //  소독기 화면 글자와 거부음으로 안다.
         // [14차 사장님 판정 · 재론 금지] 이미 이동한 스코프(2차 중·2차 뒤)의 다른 기기 접촉도 **같은 `Other Machine`** 이다 —
         //  "이미 이동함" 안내로 바꾸지 않는다(동작·소리·태그 동일 · 흔한 착각에선 "기기2 로 가라" 가 더 맞는 힌트 · 문구를 안 늘린다).
-        //  시작 10초 안의 다른 기기 접촉도 같다 — 재시작은 같은 기기에서만(16차 재시작 기기 조건).
+        //  시작 10초 안의 다른 기기 접촉도 같다 — 재시작은 같은 기기에서만(16차 재시작 기기 조건). 단 그 기기가 액교환 상태(mMovable)면
+        //  아래 A8 로 이동이다(17차 정정).
         // ★이미 이동한 스코프(isMoved)는 다시 이동하지 않는다 — 자기 기기면 2차 종료, 아니면 Other Machine.
         //  A→A 2차에서 이 기기의 이동 표시가 살아 있어 2차 종료가 '이동'(RW=0)으로 적혔고, 그 뒤 한 번만 더 대면
         //  시작 경로(더블터치 가드 없음)가 2차 시작을 지금 시각으로 다시 쓰고 종료는 미리채움·횟수 +1 이었다(14차 GG2 ⑧⑨).
@@ -148,9 +152,11 @@ void DisinfectionProcessor::DisinfectionProcess(
         if (!ok)
         {
             printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
-            if (mMovable && !isMoved) note_write_error(mCachedTag.Number);   // 이동 커밋이 닿았을 수 있다 — 재접촉을 재확인으로(A2)
+            // 이동 실패는 커밋 전이든 뒤든 표지를 세운다 — 커밋 뒤면 재접촉이 재확인(A2) · 커밋 전이면 재접촉이 이동이고 그 성공이 아래에서 표지를 지운다
+            if (mMovable && !isMoved) note_write_error(mCachedTag.Number);
             return;
         }
+        clear_write_error(mCachedTag.Number);   // ★17차: 성공한 이동/종료 뒤엔 표지가 없어야 10초 안 되넣기가 2차 시작이 된다
         // ★자기 슬롯만 비운다 — 슬롯이 없는 스코프(다른 스코프에 host 를 넘겨준 뒤 끝나는 것)의 종료가
         //  현재 host 의 슬롯·시간창을 지우면, 그 창 안에 온 다음 스코프가 guest 가 아닌 host 로 기록됐다(5차 C P1-1).
         if (isGuest) mGuestScopeNumber = kNoScope;
@@ -183,7 +189,9 @@ void DisinfectionProcessor::DisinfectionProcess(
         consume_disposability();   // 일회성 담당자는 커밋된 시작에만 쓰인다
         // ★[16차] 재시작인데 RAM 이 이 스코프를 몰랐다 = 앞 시도의 커밋은 닿았는데 확인 읽기가 끊겨 커밋 뒤 부수효과(횟수·슬롯·
         //  알람)를 건너뛴 것 → 그 소독의 횟수를 여기서 올린다(guest 제외). 8·10차 판정은 "재접촉 = 종료" 전제라 횟수 −1(과소)을
-        //  감수했는데, A3 뒤로 재접촉이 재시작이 되어 리더가 알 수 있다. 대가: 시작 10초 안 재부팅 뒤 더블터치는 2회 셈(과다 = 안전 · 드묾).
+        //  감수했는데, A3 뒤로 재접촉이 재시작이 되어 리더가 알 수 있다. 대가(과다 = 안전 · 드묾): 시작 10초 안 재부팅 뒤 더블터치 2회 셈 ·
+        //  host 가 다른 스코프로 넘어간 뒤 커밋된 시작을 10초 안 다시 대도 +1(동시소독 끔에서 X·Y·X — 스코프 둘에 횟수 3 · 17차 실측).
+        //  [17차 판정 · 재론 금지] "시작 커밋 확인 실패 표지" 로 정확히 세는 안은 재부팅 뒤 과소(위험 방향)라 쓰지 않는다.
         if (isRestart && !ramKnew && !isGuest) disinfectionOption.IncrementCount();
         if (isGuest) set_guest(mCachedTag.Number);
         else         set_host(mCachedTag.Number, rtc.GetCurrentDateTime());
@@ -208,7 +216,8 @@ void DisinfectionProcessor::DisinfectionProcess(
 
 // [5차 판정 · 재론 금지] 1.0 과 같은 설계라 둔다: ③ 태그의 소독 칸은 둘뿐 — 이동해 온 스코프는 다시 이동하지 않는다
 //  (14차 정정 · 사장님 09-28 A→A 사실: 자기 기기면 2차 종료 · 다른 기기면 Other Machine — 종전 '2차 기록이 덮인다' 는 없어짐)
-//  ⑥ 알람 슬롯은 기기당 하나(뒤 스코프가 앞 알람을 덮음) ⑦ 이동+RTC 방전 복구가 1차 종료보다 앞설 수 있음
+//  ⑥ 알람 슬롯은 기기당 하나(뒤 스코프가 앞 알람을 덮고, 앞 스코프의 종료·이동·재확인이 남은 스코프의 알람도 지움 · 1.0 동일 · 17차 실측)
+//  ⑦ 이동+RTC 방전 복구가 1차 종료보다 앞설 수 있음
 //  ⑧ 복구 추정의 세척 시간은 소독기 자신의 슬롯1(PC JSON 으로만 설정 — 이 추정 자체는 1.0 에 없고 09-23 결정)
 //  ⑫ 일회성 ON 에서 담당자 미등록 종료는 담당자 0.
 bool DisinfectionProcessor::disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc,

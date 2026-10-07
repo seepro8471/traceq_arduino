@@ -25,14 +25,20 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     //    섹터15(검사항목)를 지운다. 그 판정은 블록5 가 남아 있어야 돌므로 블록5 는 **섹터15 뒤에** 지운다(맨 마지막은
     //    환자 블록 8·9 — clear_patient).
     //    세척기의 '환자정보 없음' 경고는 사람에게만 알리고 PC 는 Status 를 안 보고 저장한다(9차 정정).
-    const bool ok = commit_dump_done()
-                 && clear_gateway_and_subject()
-                 && clear_patient();
-    if (!ok)
+    //  "커밋이 실패해 재접촉하면 2차 덤프가 1차와 같다" 는 `Ok!` 뒤 이탈 18자리 중 커밋 절단 2 에만 맞고, 나머지 16 은 커밋 뒤
+    //  소거 절단이다(17차 실측 · 접촉 1초 미만이면 흔히 닿는 자리).
+    if (!commit_dump_done())
     {
+        // 커밋 전 — 재접촉이 같은 덤프를 다시 낸다(PC 가 중복으로 거른다). 커밋 쓰기 직후 확인 읽기에서 끊긴 **한 자리**는 커밋이 닿았어도
+        //  리더가 알 수 없어(재읽기도 실패) 여기로 온다 — 재접촉은 Not W and D(PC 는 저장됨) · 소독 시작의 확인 절단 1자리와 같은 부류 · [17차 판정].
         printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
         return;
     }
+    // ★[17차 판정 · 사장님이 뒤집을 수 있음] 커밋 뒤 소거 실패는 **완료음** — PC 는 저장했고(`Ok!` + "완료" 음성) 태그는 완료(W·D 표시 0)라
+    //  다시 댈 이유가 없는데, 종전엔 Write Error 가 나서 규칙대로 다시 대면 `Not W and D` 거부음 + 세척관리 "세척·소독 정보 없음" 이
+    //  몇 번을 대도 반복됐다(10-05 사장님 사실 "다시 대면 정상" 과 어긋남). 남은 칸은 위 안전망이 지운다. 소거 순서 불변식(섹터15 → 블록5
+    //  → 8·9)은 `&&` 사슬로 그대로 — 앞이 실패하면 뒤를 지우지 않아야 다음 세척 시작의 잔재 판정이 돈다.
+    (void)(clear_gateway_and_subject() && clear_patient());
 
     complete_delay();
     util_buzzer(150);   // 덤프 완료음 — 형제 성공음(50×1)과 펄스가 다르다(1.0 승계 · 13차 HH2 P3-3 · 잠금 t_hh2lock L5)
@@ -84,7 +90,7 @@ SerialProcessor::ProcessKind SerialProcessor::GetProcessKind(
     const auto err = deserializeJson(mDocument, buffer + start, (end - start) + 1);
     if (err)
     {
-        // [15차 사장님 C3] 파싱 실패는 **실패음 100×4**(Invalid DateTime·Write Error 와 같은 소리) — 종전(1.0 승계)엔 설정 저장
+        // [15차 사장님 C3 · 재론 금지] 파싱 실패는 **실패음 100×4**(Invalid DateTime·Write Error 와 같은 소리) — 종전(1.0 승계)엔 설정 저장
         //  성공과 같은 1000×1 이라 사람이 글자로만 알았다. 성공·실패 모두 시리얼 응답이 없어 PC 는 못 가른다(잠금 L13).
         //  글자는 고정 문구(ArduinoJson 오류 이름은 사람에게 뜻이 없고, C 문자열 갈래를 새로 링크하면 정적 RAM +20B).
         (void)err;
@@ -573,7 +579,7 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
 //  'Z' 를 보내는 주기를 견디려는 값이다(여유 217ms) — 350ms 밑으로 줄이면 델파이 현장의 서버 덤프가 전부 죽는다.
 bool SerialProcessor::legacy_is_connected()
 {
-    // PC 는 PSOk 에 'Z' 한 바이트로 답한다(델파이·세척관리·SeePro 셋 다 줄바꿈 없음).
+    // PC 는 PSOk 에 'Z' 한 바이트로 답한다(델파이·세척관리·SeePro 셋 다 줄바꿈 없음 · 설정기는 `Z\n` — 인증은 버퍼 안의 'Z' 만 본다).
     // ★읽지 않고 들여다본다(peek) — 종전엔 10ms 마다 1바이트씩 **소비**해서, 줄 서 있던 PC 명령
     //  (설정 JSON·발급 명령)을 먹어 버리고, 55바이트를 넘으면 정상 연결인데 'Not Connected' 가 됐다.
     //  'Z' 가 아닌 바이트가 앞에 있으면 그 뒤의 'Z' 에 닿을 수 없으니 곧장 실패로 — 다음 loop 의

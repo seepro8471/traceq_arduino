@@ -4,6 +4,8 @@
 # gdb 시뮬레이터는 .data 초기값을 RAM 에 넣지 못한다 → main 진입 때 ELF 의 .data 를 직접 복원.
 ELF="$1"; LIMIT="${2:-600}"
 [ -f "$ELF" ] || { echo "!! elf 없음: $ELF"; exit 1; }
+# 경로에 공백이 있으면 gdb 명령 문자열(`file …`)이 갈라져 빈 프로그램이 멈춘다 — 전량이 TIMEOUT 으로 보였다(17차 · 출력 폴더는 공백 없는 경로로).
+case "$ELF" in *" "*) echo "!! elf 경로에 공백 — gdb 가 못 연다(출력 폴더를 공백 없는 경로로): $ELF"; exit 1 ;; esac
 TC="/c/Users/alu5/.platformio/packages/toolchain-atmelavr/bin"
 VMA=$("$TC/avr-objdump" -h "$ELF" | awk '$2==".data"{print $4}')
 VMA=$(printf '0x%x' $((16#$VMA)))

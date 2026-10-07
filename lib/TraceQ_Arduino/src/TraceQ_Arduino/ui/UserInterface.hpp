@@ -149,6 +149,8 @@ protected:
     // 메뉴 무조작 시한(사장님 09-25): 60초 동안 아무 버튼도 안 누르면 저장 없이 홈으로 나간다.
     // 메뉴에 머무는 동안은 태그를 전혀 읽지 않으므로, 열어 두고 자리를 비우거나 버튼이 붙어 고장나도
     // 기기가 영영 멈추지 않게. 활동 시각은 버튼이 **눌리는 에지**에서만 갱신한다(누른 채로는 안 늘어난다).
+    // 17차 사실: LEFT/RIGHT 가 붙으면 이 문장대로다. SELECT 가 붙으면 60초 뒤 홈 → 바로 재진입이 반복돼 태그 폴링이 약 66초에
+    //  한 번뿐이다(리셋 0 · EEPROM 0 · 설정 불변 실측) — 버튼은 부품 판정(09-25)이라 진입을 에지로 바꾸지 않는다.
     static constexpr unsigned long kMenuIdleMs{60000UL};
     unsigned long mMenuActiveAt{0};
     inline void menu_touch() { mMenuActiveAt = millis(); }

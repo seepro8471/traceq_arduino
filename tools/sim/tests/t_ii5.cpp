@@ -1,6 +1,6 @@
 // 14회차 II-C P2-3 잠금 — 동시소독 guest 의 커밋은 됐는데 확인 읽기가 끊겨 Write Error 가 난 뒤 사람이 다시 댄다.
 //  옛 결함: 재시작이 RAM 슬롯(이 스코프를 모른다)만 보고 커밋된 그룹2 를 1 로 덮어 host·창이 A 에서 B 로 옮겨갔다.
-//  S3  2초 안 재접촉(재시작) — 태그 DETAIL 의 그룹2 를 지키고, 그 뒤 C 는 대조와 같이 새 host.
+//  S3  10초 안 재접촉(재시작) — 태그 DETAIL 의 그룹2 를 지키고(횟수 불변), 그 뒤 C 는 대조와 같이 새 host.
 //  S3b 10초 밖 재접촉 — 종료로 기록된다(대조 · 8차 판정 · 창은 15차 A3 로 10초) · S3c 3초 재접촉 = 재시작.
 //  S4  S3 을 이동해 온 스코프(2차 · DETAIL2)로 — 재시작이 DETAIL2 를 읽어야 한다(15차 III-H d1).
 #include "common.h"
@@ -84,7 +84,7 @@ int main()
         CHECK(ctlGrpB == 2 && ctlGrpC == 1 && ctlCountC == 1, "대조: B 는 guest(그룹2) · C 는 새 host(그룹1) · 횟수 +1");
     }
 
-    // ---- S3: B commit lands, confirm fails -> Write Error -> re-touch within 2 s ----
+    // ---- S3: B commit lands, confirm fails -> Write Error -> re-touch within 10 s ----
     {
         as_disinfector();
         rtc_set(rel_date(10, 0, 0));
@@ -101,11 +101,15 @@ int main()
         CHECK(lcd_has("Write Error") && get_process(b).Rewrite == 2 && grpFirst == 2,
               "S3 전제: B 는 그룹2 로 커밋됐는데 기기는 Write Error 를 냈다");
         const uint32_t g0 = g_ms;
+        const int cTorn = disinfectionOption.GetCount();    // guest 커밋(확인 실패)까지의 횟수 — 재시작이 이것을 올리면 안 된다
         logs_clear(); touch(b, 1, 4);                       // re-touch right after the failure sound
-        tlog("  S3 re-touch after %lu ms: ok50=%u\n", (unsigned long)(g_ms - g0), buzz_count(50));
+        tlog("  S3 re-touch after %lu ms: ok50=%u count %d->%d\n", (unsigned long)(g_ms - g0), buzz_count(50), cTorn,
+             disinfectionOption.GetCount());
         secs("S3 B restart", b);
         const int grpAfter = group_of(b);
-        CHECK(grpAfter == 2, "S3 2초 안 재접촉이 커밋된 그룹2 를 지킨다(RAM 이 모르면 태그의 DETAIL 을 믿는다)");
+        CHECK(grpAfter == 2, "S3 10초 안 재접촉이 커밋된 그룹2 를 지킨다(RAM 이 모르면 태그의 DETAIL 을 믿는다)");
+        CHECK(disinfectionOption.GetCount() == cTorn,
+              "S3(17차) guest 의 찢긴 커밋 뒤 재시작은 횟수를 올리지 않는다(16차 횟수 보정의 `!isGuest` 항 · 배치 1회)");
         const int c0 = disinfectionOption.GetCount();
         rtc_set(rel_date(10, 4, 0));
         washed(c, 0x33, 33); touch(c);                       // outside A's window, inside B's new one
@@ -115,7 +119,7 @@ int main()
               "S3 그 뒤 C 는 대조와 같이 새 host(그룹1)·횟수 +1 — host·창이 B 로 옮겨지지 않는다");
     }
 
-    // ---- S3b: same, but the re-touch is > 2 s (end path) - for comparison ----
+    // ---- S3b: same, but the re-touch is > 10 s (end path) - for comparison ----
     {
         as_disinfector();
         rtc_set(rel_date(12, 0, 0));

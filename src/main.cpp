@@ -158,6 +158,9 @@ static bool __attribute__((noinline)) ask_erase_settings()
     return false;                // 무응답 = 유지
 }
 
+// 리더 모듈(MFRC522) 살아있음 — 부팅 때 setup 이 재고, loop 는 바뀔 때만 PC 에 알린다(사장님 수락 10-07 · t_ii20).
+static bool sReaderAlive = true;
+
 void setup()
 {
     pinMode(PIN_BUZZER, OUTPUT);
@@ -174,6 +177,10 @@ void setup()
 
     rtc.RtcInitialize();
     rfid.Initialize();
+    // 부팅 1회: 리더 모듈 상태를 PC 에 알린다 — 죽어 있으면 `Firmware Version: 0x0 = (unknown)` + WARNING 줄로 올눈·SeePro 가
+    //  "리더기 연결 콘넥터 확인" 음성을 낸다(1.0 의 PCD_DumpVersionToSerial 자리 · SeePro 세션 요청 · 사장님 수락 10-07).
+    sReaderAlive = rfid.IsAlive();
+    rfid.ReportVersionToSerial();
 
     // 177번지(액교환일 미룸)의 **알 수 없는 값**(3~255)은 **도장 블록보다 먼저** 정리한다 — 뒤에 두면 판 바꿈 유지
     //  갈래의 `!HasPendingClear()` 가 손상값(!=0)을 '미룸 있음' 으로 읽어 교환일이 빈 채 굳고 스스로 낫지 않았다
@@ -286,7 +293,10 @@ void loop()
     // [사장님 판정 09-27 · 재론 금지] 리더 표시가 꺼졌다 켜지는 일(= 이 갈래가 도는 일)은 **전원 불안정 외에는
     //  없다**. 그래서 빈도를 세는 표시도 넣지 않는다(사장님 확정). 재초기화 뒤 태그가 다시 잡히는 경우도
     //  현장에선 안 생긴다 — 태그를 올려 두지 않고 접촉하고 바로 뗀다(RfidController::Reinitialize 주석).
-    if (rfid.IsAlive())
+    //  10-07 사장님 수락: 빈도 표시는 여전히 안 넣고, **상태가 바뀔 때 한 번** 시리얼로만 알린다(죽음 → 0x0/0xFF + WARNING 줄 ·
+    //  복구 → 정상 버전 줄). loop 머리라 PSOk·블록 전송 중간에 끼지 않는다. 매 루프 찍으면 PC 로그가 넘친다 — 에지만(t_ii20).
+    const bool readerAlive = rfid.IsAlive();
+    if (readerAlive)
     {
         ui.InfoReader(true);
     }
@@ -294,6 +304,11 @@ void loop()
     {
         ui.InfoReader(false);
         rfid.Reinitialize();
+    }
+    if (readerAlive != sReaderAlive)
+    {
+        sReaderAlive = readerAlive;
+        rfid.ReportVersionToSerial();
     }
 
 #ifdef READER_MODE
@@ -390,8 +405,8 @@ void loop()
         }
         else
         {
-            // 번호를 안 읽는 알림은 3행의 앞 건 스코프 번호를 지운다 — print_tag_number 의 형제(15차 III-F · 알림 자리 전부 =
-            //  main 6 + 발급 5(SerialProcessor · 16차))
+            // 번호를 안 읽는 **태그 접촉** 알림은 3행의 앞 건 스코프 번호를 지운다 — print_tag_number 의 형제(15차 III-F · main 7 +
+            //  발급 5(SerialProcessor · 16차)). PC 명령 알림(`updated`·`Invalid JSON` 등 11자리)은 접촉이 아니라 번호를 두는 것이 맞다(17차 정정).
             ui.Info_cstr(0, 3, "     ");
             ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 처리할 수 없는 태그 = 거부음
         }
@@ -503,7 +518,7 @@ __attribute__((unused)) void serialEvent()
     //  조각마다 따로 처리돼 환자정보가 **통째로 유실**됐다(BB2 P2-1). ★온전한 전문은 한 번도 더 기다리지 않는다.
     //  ★대기를 짧게(300ms) 낮추자는 안은 **쓰지 않는다**(CC1 P3-0): 막아야 할 이음매가 정의상 1초를 넘는
     //   것이므로(1초 안이면 첫 읽기가 이미 잡았다) 짧추면 이 봉합이 존재하는 이유가 사라진다 — 실제로
-    //   1.8초 이음매 잠금이 빨강이 됐다. 폴링 정지(최악 6.2초)는 전문이 덜 왔을 때만이라 감수한다.
+    //   1.8초 이음매 잠금이 빨강이 됐다. 폴링 정지(최악 약 8초 — 17차 실측 7.98초 · 수신음 1초 포함)는 전문이 덜 왔을 때만이라 감수한다.
     if (gatewayFrame && GatewayProcessor::NeedsMoreBytes(cmd))
     {
         for (uint8_t more = 0; more < 3 && len < BUFFER_SIZE - 1 &&
@@ -533,7 +548,7 @@ __attribute__((unused)) void serialEvent()
             {
                 const char saved = buffer[before];
                 buffer[before] = 0;
-                newHead = GatewayProcessor::HasMarker(buffer, "G2");
+                newHead = GatewayProcessor::HasMarker(cmd, "G2");   // 'Z' 건너뛴 머리(16차 두 형제의 셋째 — 17차: 'Z'+G2 미완 레코드 뒤 새 레코드가 섞였다)
                 buffer[before] = saved;
             }
             if (newHead)
@@ -638,7 +653,8 @@ void handle_menu(UserInterface::MenuFunction function)
             {
                 const bool before = recordOption.GetManagerDisposability();
                 function = ui.SetRecordManagerDisposability(recordOption);
-                // ★[15차 사장님 A7] 설정이 바뀌면 앞서 세운 일회성 표지를 버린다 — ON→OFF→ON(재부팅 없이) 뒤 담당자 없이 첫 시작이 통과했다.
+                // ★[15차 사장님 A7 · 재론 금지] 설정이 바뀌면 앞서 세운 일회성 표지를 버린다 — ON→OFF→ON(재부팅 없이) 뒤 담당자 없이 첫 시작이 통과했다.
+                //  "바뀌었을 때만" 이 핵심 — 같은 값으로 저장만 해도 버리면 ON 상태에서 메뉴만 열고 닫아도 다음 시작이 거부된다(17차 잠금 t_ii18 A7e).
                 if (before != recordOption.GetManagerDisposability())
                 {
                     washingProcessor.ResetDisposability();

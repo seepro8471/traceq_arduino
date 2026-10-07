@@ -53,7 +53,8 @@ int  DisinfectionOption::GetMaximumCount() const
 }
 void DisinfectionOption::SetMaximumCount(int maximumCount)
 {
-    // [15차 사장님 C5] 999 를 넘으면 0(제한 없음) — 메뉴 제목 `Max Count (999)` 안에 들고, 메뉴·설정기 JSON 둘 다 이 세터를 지난다.
+    // [15차 사장님 C5 · 재론 금지] 999 를 넘으면 0(제한 없음) — 메뉴 제목 `Max Count (999)` 안에 들고, 메뉴·설정기 JSON 둘 다 이 세터를 지난다.
+    //  게터(위)가 같은 범위를 읽어 저장된 옛 값(구 설정기 0~9999)도 0 이 된다 — 그런 기기는 설정기에서 다시 넣는다(16차 · 17차 안내).
     if (maximumCount < 0 || maximumCount > 999) maximumCount = 0;
     EEPROM.put(mMaximumCountAddr, maximumCount);
     EEPROM.get(mMaximumCountAddr, mMaximumCount);
@@ -96,7 +97,11 @@ void DisinfectionOption::SetClearCount(int clearCount)
     EEPROM.put(mClearCountAddr, clearCount);
     EEPROM.get(mClearCountAddr, mClearCount);
 }
-void DisinfectionOption::IncrementClearCount() { SetClearCount(GetClearCount() + 1); }
+void DisinfectionOption::IncrementClearCount()
+{
+    const int count = GetClearCount();   // IncrementCount 와 같은 포화(32767 에서 +1 은 0 으로 돌았다 · 17차 형제)
+    if (count < INT16_MAX) SetClearCount(count + 1);
+}
 
 bool DisinfectionOption::IsClearDateTimeEmpty() const
 {

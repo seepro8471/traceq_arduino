@@ -154,11 +154,19 @@ int main()
             static const char s[] = "{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-27 11\"}";
             serial_inject(s, sizeof(s) - 1); GUARDED(serialEvent());
             shortBad = buzz_count(100); shortKept = rtc.GetCurrentDateTime().minute() == 30;
+            // 17차 V-H U8: 온전한 시각 뒤에 **날짜만(10자)** — 길이 검사를 지우면 앞 전문의 잔재가 뒤를 메워 통과해 시계가 00:00 이 됐다
+            static const char full[] = "{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-27 10:30:00\"}";
+            serial_inject(full, sizeof(full) - 1); GUARDED(serialEvent());
+            logs_clear(); buzz_clear();
+            static const char dateOnly[] = "{\"cmd\":\"cfg_set_date_time\",\"device_date_time\":\"2026-09-28\"}";
+            serial_inject(dateOnly, sizeof(dateOnly) - 1); GUARDED(serialEvent());
+            shortBad = (shortBad == 4 && buzz_count(100) == 4) ? 4 : 0;
+            shortKept = shortKept && rtc.GetCurrentDateTime().minute() == 30 && rtc.GetCurrentDateTime().day() == 27;
         }
         tlog("  3b 빈 문자열: 100x%u 유지=%u · 잘린 문자열: 100x%u 유지=%u · 년=%u\n", (unsigned)emptyBad, (unsigned)emptyKept,
              (unsigned)shortBad, (unsigned)shortKept, rtc.GetCurrentDateTime().year());
         CHECK(emptyBad == 4 && emptyKept && shortBad == 4 && shortKept,
-              "3b 빈/잘린 시각 문자열은 실패음이고 시계가 2000년으로 바뀌지 않는다(FromString 길이·숫자 자리 검사)");
+              "3b 빈/잘린/날짜만 온 시각 문자열은 실패음이고 시계가 2000년·00:00 으로 바뀌지 않는다(FromString 길이·숫자 자리 검사)");
         // 3c 길이는 맞는데 숫자 칸에 다른 글자 — 길이 검사만으로는 통과해 '3/' 가 29초로 읽혔다(16차 IV-H: 숫자 칸 검사가 한 번도 안 돌았다)
         {
             logs_clear(); buzz_clear();

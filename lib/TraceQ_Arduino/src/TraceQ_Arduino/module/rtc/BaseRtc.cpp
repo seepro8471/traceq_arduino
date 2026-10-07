@@ -130,7 +130,7 @@ void BaseRtc::ClearAlarm(const uint8_t slot)
 bool BaseRtc::HasAlarm(const uint8_t slot)
 {
     // [14차 판정 · 재론 금지] HasAlarm/ClearAlarm 은 슬롯을 검사하지 않는다(1 이 아니면 전부 슬롯2). 제품 호출은
-    //  상수 1·2 뿐이라(grep) 무해하고, 검사를 넣으면 반환값을 새로 정해야 한다 — E4 봉합 범위 밖(II-C P3-6).
+    //  호출자가 넘기는 slot 값이 1·2 뿐이라(grep · 변수지만 값은 둘) 무해하고, 검사를 넣으면 반환값을 새로 정해야 한다 — E4 봉합 범위 밖(II-C P3-6).
     return slot == 1 ? mAlarmSlot1Flag : mAlarmSlot2Flag;
 }
 

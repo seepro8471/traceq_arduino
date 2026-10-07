@@ -38,13 +38,14 @@ int main()
     CHECK(rtc.HasAlarm(1), "세척 알람 등록");
     tlog("  buzz50=%u buzz100=%u lcd=[%s]\n", buzz_count(50), buzz_count(100), g_lcdLog);
 
-    sim_advance_ms(10UL * 60 * 1000);
+    sim_advance_ms(2UL * 60 * 1000);   // 알람(4분) 전에 종료 — 10분 점프면 알람이 스스로 울려 아래 해제 CHECK 가 늘 참이었다(17차 V-J)
     logs_clear();
+    const bool alarmBefore = rtc.HasAlarm(1);
     touch(scope);
     en = get_ldt(scope, SECTOR3_WASHING_END);
     tlog_ldt("end", en);
-    CHECK(en.Time.Minute >= 10, "세척 종료 = 종료 터치 시각");
-    CHECK(!rtc.HasAlarm(1), "세척 알람 해제");
+    CHECK(en.Time.Minute >= 2, "세척 종료 = 종료 터치 시각");
+    CHECK(alarmBefore && !rtc.HasAlarm(1), "세척 알람 해제(알람 전 종료의 ClearAlarm)");
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}
