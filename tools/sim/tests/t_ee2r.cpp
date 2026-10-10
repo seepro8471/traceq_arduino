@@ -83,7 +83,7 @@ int main()
         rtc_set(when);
         start_committed(a, 0x25, 25, when);     // 커밋됨 + 리더는 host 를 모른다(방금 하드 리셋)
         const uint8_t cBefore = disinfectionOption.GetCount();
-        sim_advance_ms(1200);                   // 사람이 실패음을 듣고 1.2초 뒤 다시 댄다(창 10초 안 · 15차 A3)
+        sim_advance_ms(1200);                   // 손으로 만든 상태(실패음 없음)라 1.2초도 창(2초 · 10-09) 안 — 재시작
         logs_clear();
         touch(a);                               // → 종료가 아니라 **시작 재실행**
         // 16차: 재시작인데 RAM 이 이 스코프를 몰랐다 = 앞 시도의 커밋 뒤 부수효과(횟수)가 건너뛰어진 것 → 여기서 올린다(종전 −1 영구)
@@ -119,7 +119,9 @@ int main()
         a.readErrBlock = -1; a.readErrTimes = 0; a.readErrSkip = 0;
         const bool torn = lcd_has("Write Error") && get_process(a).Rewrite == 2;
         const uint8_t cTorn = disinfectionOption.GetCount();
-        sim_advance_ms(1200);
+        // 재시작 창은 2초(사장님 10-09) — 실패음 0.8초 뒤 1.2초면 태그 시작 시각 기준 2초를 넘겨 종료가 된다. 창 안(0.3초)으로 재시작을 만든다
+        //  (현장에선 실패음 뒤 재접촉이 대부분 창 밖 = 종료 · 그 경우 횟수 −1 은 사장님이 감수).
+        sim_advance_ms(300);
         logs_clear(); touch(a);                                                     // 재시작(RAM 은 a 를 모른다)
         tlog("  ②r 실제 찢김: torn=%d 횟수 %u -> %u -> %u\n", torn, (unsigned)cBefore, (unsigned)cTorn, (unsigned)disinfectionOption.GetCount());
         CHECK(torn && cTorn == cBefore, "②r 전제: 커밋은 닿았고 확인 실패로 Write Error — 그 접촉은 횟수를 안 올렸다(횟수는 커밋 뒤)");

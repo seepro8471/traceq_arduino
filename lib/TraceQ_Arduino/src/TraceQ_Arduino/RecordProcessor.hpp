@@ -38,7 +38,7 @@ protected:
     static constexpr uint32_t kFailWindowMs{10000UL};
     /// 더블터치 재시작 창(초) — 15차 사장님 A3: 2→10. 이동 재확인의 섹터6 시각 창은 따로 2초(튐 방지 — 재확인은 같은 기기만이라
     /// 넓히면 A→A 의 성공한 이동 뒤 빠른 되넣기(2차 시작)를 삼킨다 · 찢긴 이동은 위 RAM 실패 표지 10초가 잡는다 · 16차).
-    static constexpr uint8_t kRestartWindowSec{10};
+    static constexpr uint8_t kRestartWindowSec{2};
     static constexpr uint8_t kReconfirmWindowSec{2};
     bool hasnt_patient_info(const RecordOption &recordOption);
 

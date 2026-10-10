@@ -129,15 +129,16 @@ int main()
         b.readErrBlock = SECTOR1_PROCESS; b.readErrSkip = 1; b.readErrTimes = 30;
         touch(b, 1, 4);
         b.readErrBlock = -1; b.readErrTimes = 0; b.readErrSkip = 0;
-        // 15차 사장님 A3: 재시작 창 2초 → 10초(실패음 0.8초가 창을 먼저 먹어 사람 반응이 창 밖으로 밀렸다). 3초 재접촉 = 재시작.
+        // 사장님 10-09: 재시작 창 2초(15차 A3 의 10초를 되돌림). 실패음(0.8초) 뒤 3초 재접촉은 창 밖 = **종료**(종료 시각이 재접촉 시각 12:02 로
+        //  덮여 짧은 소독이 완료로 남는다 — 알려진 대가 · 사장님 감수). 창 안(0.3초)이면 재시작.
         sim_advance_ms(3000);
         logs_clear(); touch(b);
         const LocalDateTime s3 = get_ldt(b, SECTOR5_DISINFECTION_START);
         const LocalDateTime e3 = get_ldt(b, SECTOR6_DISINFECTION_END);
         tlog("  S3c (3s): grpB=%d RW=%u start=%02u:%02u:%02u end=%02u:%02u:%02u\n", group_of(b), get_process(b).Rewrite,
              s3.Time.Hour, s3.Time.Minute, s3.Time.Second, e3.Time.Hour, e3.Time.Minute, e3.Time.Second);
-        CHECK(group_of(b) == 2 && get_process(b).Rewrite == 2 && !(e3.Time.Hour == 12 && e3.Time.Minute == 2),
-              "S3c(15차 A3) 실패음 뒤 3초 재접촉은 재시작이다 — 종료 시각은 미리채움 그대로(2초짜리 소독이 되지 않는다)");
+        CHECK(group_of(b) == 2 && get_process(b).Rewrite == 2 && e3.Time.Hour == 12 && e3.Time.Minute == 2,
+              "S3c(10-09 창 2초) 실패음 뒤 3초 재접촉은 창 밖 → 종료(종료 시각 = 재접촉 시각 · 창이 10초면 재시작이 되어 빨강)");
         // 10초 밖 재접촉 = 종료 — 종료로 기록됐다는 증거는 블록 종료 시각이 미리채움이 아니라 재접촉 시각(12:02)
         sim_advance_ms(12000);
         logs_clear(); touch(b);

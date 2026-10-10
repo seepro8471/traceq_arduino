@@ -130,11 +130,11 @@ int main()
         CHECK(get_process(f).Rewrite == 1 && dur >= 4L * 60 && dur < 5L * 60, "세척기 더블터치 → 0분 종료 아님(시작 유지)");
         CHECK(rtc.HasAlarm(1), "세척기 더블터치 → 알람 유지");
         sim_advance_ms(12UL * 1000);
-        touch(f);                                      // 12초 뒤 → 정상 종료 (15차 A3: 재시작 창 2→10초)
+        touch(f);                                      // 12초 뒤 → 정상 종료 (창 밖)
         const int32_t dur2 = (DefaultRtc::ToDateTime(get_ldt(f, SECTOR3_WASHING_END)) -
                               DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
-        CHECK(dur2 >= 10 && dur2 < 20 && !rtc.HasAlarm(1), "회귀: 10초 지나 대면 종료(15차 A3 · 창 10초)");
-        // 16차: 세척기 쪽 창 배선도 문는다 — 시작 5초 뒤 재접촉은 재시작(자동 종료 4분·알람 유지 · 창 2초면 5초짜리 종료가 된다)
+        CHECK(dur2 >= 10 && dur2 < 20 && !rtc.HasAlarm(1), "회귀: 창 밖(12초)에 대면 종료");
+        // 세척기 쪽 창 배선 — 사장님 10-09: 재시작 창 2초. 시작 5초 뒤 재접촉은 **종료**(5초짜리 세척 · 알람 해제 — 15차엔 10초 창이라 재시작이었다)
         fresh(f, 0x27, 27);
         touch(f, 1, 4);
         sim_advance_ms(5000);
@@ -142,8 +142,17 @@ int main()
         const int32_t dur3 = (DefaultRtc::ToDateTime(get_ldt(f, SECTOR3_WASHING_END)) -
                               DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
         tlog("  세척기 5초 재접촉: RW=%u 세척시간 %ld초 alarm=%d\n", get_process(f).Rewrite, (long)dur3, rtc.HasAlarm(1));
-        CHECK(get_process(f).Rewrite == 1 && dur3 >= 4L * 60 && dur3 < 5L * 60 && rtc.HasAlarm(1),
-              "회귀(16차): 세척 시작 5초 뒤 재접촉은 재시작(창 10초 · 세척기 배선)");
+        CHECK(get_process(f).Rewrite == 1 && dur3 >= 4 && dur3 < 10 && !rtc.HasAlarm(1),
+              "세척 시작 5초 뒤 재접촉은 종료(사장님 10-09 창 2초 · 세척기 배선 — 창이 10초면 재시작이 되어 세척시간 4분·알람 유지로 빨강)");
+        // 창 안(0.3초) 재접촉은 재시작 — 자동 종료 4분·알람 유지(창 0초 변이를 잡는다)
+        fresh(f, 0x28, 28);
+        touch(f, 1, 4);
+        sim_advance_ms(300);
+        touch(f);
+        const int32_t dur4 = (DefaultRtc::ToDateTime(get_ldt(f, SECTOR3_WASHING_END)) -
+                              DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
+        tlog("  세척기 0.3초 재접촉: 세척시간 %ld초 alarm=%d\n", (long)dur4, rtc.HasAlarm(1));
+        CHECK(dur4 >= 4L * 60 && dur4 < 5L * 60 && rtc.HasAlarm(1), "세척 시작 2초 안 재접촉은 재시작(자동 종료 4분·알람 유지)");
     }
     // ── [3차 B] 세척기: 커밋은 됐는데 확인 읽기 실패(Write Error) → 곧바로 다시 대면 재시작 ──
     {

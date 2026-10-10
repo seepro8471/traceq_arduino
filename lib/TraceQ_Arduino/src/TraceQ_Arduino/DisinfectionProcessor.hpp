@@ -25,7 +25,7 @@ public:
 
 protected:
     bool disinfector_move(int deviceNumber, bool isMoved, DefaultRtc &rtc, const DateTime &startDt);
-    /// \param isRestart 더블터치(10초 창)로 "시작"이 재실행된 경우 — 여기서는 소독 횟수를 올리지 않는다
+    /// \param isRestart 더블터치(재시작 창 2초)로 "시작"이 재실행된 경우 — 여기서는 소독 횟수를 올리지 않는다
     ///                  (앞 시도가 커밋 뒤 못 올렸으면 호출자가 올린다 · 16차).
     /// \return 커밋(Process 기록)까지 성공했는가 — false 면 커밋이 확인되지 않았다(새 시작 블록 일부는
     ///         이미 됐을 수 있고, 확인 읽기만 실패했으면 커밋도 태그에 있다).

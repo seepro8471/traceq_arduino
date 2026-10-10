@@ -10,8 +10,8 @@ void WashingProcessor::WashingProcess(int deviceNumber, const AlarmOption &alarm
     if (!try_load_manager_data(managerOption, isEnd, recordOption.GetManagerDisposability(), printer))
         return;
 
-    // 더블터치 = 태그에 적힌 시작이 10초 안(15차 A3) — 종료가 아니라 시작 다시 하기(소독기와 같은 창). 소독기는 16차부터 **같은 기기**
-    //  에서만 재시작인데 세척기엔 기기 조건이 없다 — 10초 안 다른 세척기 접촉이 그 세척기로 재시작되고 앞 세척기 알람은 남는다
+    // 더블터치 = 태그에 적힌 시작이 2초 안(사장님 10-09 · kRestartWindowSec) — 종료가 아니라 시작 다시 하기(소독기와 같은 창). 소독기는 16차부터
+    //  **같은 기기**에서만 재시작인데 세척기엔 기기 조건이 없다 — 창 안 다른 세척기 접촉이 그 세척기로 재시작되고 앞 세척기 알람은 남는다
     //  (17차 사실 · 세척기엔 Other Machine 관문이 없어 그대로 둔다).
     DateTime startDt{};
     bool isRestart = false;   // 더블터치 가드로 시작이 재실행됐는지(소독기와 같은 이름)

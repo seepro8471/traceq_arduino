@@ -70,7 +70,7 @@ bool RecordProcessor::try_load_manager_data(const ManagerOption &managerOption,
         }
         // ★여기서 소모하지 않는다 — 시작 커밋이 성공한 뒤 consume_disposability() 로. 종전엔 실패한 시작·
         //  종료 터치에도 소모돼 Write Error 뒤 재접촉이 "No Manager Info" 가 됐다(5차 C).
-        // [16차 판정] 시작 커밋 뒤 확인만 끊기고 10초 넘겨 다시 대면 종료로 처리돼 표지가 남는다(다음 스코프가 담당자 없이
+        // [16차 판정] 시작 커밋 뒤 확인만 끊기고 재시작 창(2초 · 10-09)을 넘겨 다시 대면 종료로 처리돼 표지가 남는다(다음 스코프가 담당자 없이
         //  시작) — 8차 확인 읽기 창과 A7 "종료 미소모" 가 겹친 드문 경우라 둔다(16차 IV-B).
     }
     load_manager_data(managerOption);
@@ -90,10 +90,10 @@ int8_t RecordProcessor::started_just_now(uint8_t startBlock, DefaultRtc &rtc, Da
     if (startOut != nullptr) *startOut = started;   // 종료 보정이 이 읽기를 그대로 쓴다
     if (!started.isValid()) return 0;
     const int32_t gap = (rtc.GetCurrentDateTime() - started).totalseconds();
-    // ★[15차 사장님 A3 · 재론 금지] 재시작 창은 **10초**(5차의 2초에서). 태그의 시작 시각은 초 단위이고 실패음(100×4 ≈ 0.8초)이
-    //  창을 먼저 먹어, 사람이 규칙대로 다시 대도 대부분 '종료' 가 되어 3초짜리 세척·소독이 성공음과 함께 완료로 남았다
-    //  (15차 III-I F1). 시작 10초 안에 진짜 종료가 오는 흐름은 없다(세척·소독 모두 분 단위). 이동 재확인(A2)은 RAM 실패 표지
-    //  10초 또는 섹터6 시각 2초(16차 재설계).
+    // ★[사장님 10-09 · 재론 금지] 재시작 창은 **2초**(kRestartWindowSec). 15차 A3 가 10초로 넓혔던 것을 사장님이 2초로 되돌리셨다
+    //  ("10초 안 다시 댐을 2초 안으로"). 알려진 대가(15차 III-I F1 · 그대로 감수): 태그의 시작 시각은 초 단위이고 실패음(100×4 ≈ 0.8초)이
+    //  창을 먼저 먹어, 실패음 뒤 사람이 다시 대면 대부분 '종료' 가 되어 짧은 세척·소독이 성공음과 함께 완료로 남는다(종료 시각은
+    //  시작 때 미리 채운 자동 종료가 아니라 그 접촉 시각으로 덮인다). 이동 재확인(A2)은 별개 — RAM 실패 표지 10초 또는 섹터6 시각 2초.
     // ★창은 뒤쪽으로만 본다 — 시계를 뒤로 돌리면 태그의 시작이 '미래' 가 되는데, 대칭 창이면
     //  종료 터치가 '시작 재실행' 이 되어 실제 종료 시각이 사라졌다(BB2 P3-1).
     return gap >= 0 && gap < windowSec;
