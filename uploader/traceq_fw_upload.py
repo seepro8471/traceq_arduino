@@ -4,17 +4,25 @@
 동작:
   1. USB 에 연결된 아두이노(정품 Mega 2560 / CH340·CH341 클론) 자동 감지
   2. avrdude(내장)로 firmware.hex 업로드
-  3. 완료 안내 (새 빌드 첫 부팅 시 EEPROM 완전 초기화 — 타입/번호 재설정 필요)
+  3. 완료 안내 (새 빌드 첫 부팅 시 리더기가 설정 유지/초기화를 묻는다)
+  4. 리더기 시계(RTC)를 이 PC 의 현재 시각으로 맞춤 (사장님 10-11 — sync_clock)
 
 firmware.hex 교체: exe 와 같은 폴더에 firmware.hex 를 두면 내장본 대신
 그 파일을 올린다 (새 펌웨어 배포 시 exe 재빌드 불필요).
 
 빌드(개발 PC): uploader\\build_uploader.bat 참조.
 """
+import json
 import os
 import subprocess
 import sys
 import time
+from datetime import datetime
+
+STX, ETX = 0x02, 0x03
+# 펌웨어의 출시 기준일(version.hpp TRACEQ_RELEASE_*) — 리더기는 시계가 이보다 앞서면 '미동기' 로 본다.
+# PC 날짜가 이보다 앞이면 PC 시계가 틀린 것이므로 리더기에 보내지 않는다(test_clock_sync 가 version.hpp 와 대조).
+CLOCK_FLOOR = (2026, 9, 26)
 
 
 def resource_dir() -> str:
@@ -98,6 +106,118 @@ def pre_reset(port: str) -> None:
         pass              # 리셋 실패해도 avrdude 자체 리셋에 맡기고 진행
 
 
+def _frame(obj) -> bytes:
+    """설정기(ArduinoConfigurator)와 같은 꼴 — STX{json}ETX."""
+    return bytes([STX]) + json.dumps(obj, separators=(',', ':')).encode('ascii') + bytes([ETX])
+
+
+def _parse_frame(buf):
+    """버퍼에서 STX{json}ETX 한 건을 dict 로. 아직 없으면 None.
+
+    담당자 키·이름은 태그의 날 바이트라 본문에 0x03(ETX)이 들 수 있다 — ETX 후보를 차례로 시험한다(설정기와 같은 방식).
+    부팅 때 나오는 줄(`Firmware Version: ...` · `PSOk`)은 STX 가 없어 건너뛴다.
+    """
+    start = buf.find(bytes([STX]))
+    if start < 0:
+        return None
+    pos = start
+    while True:
+        pos = buf.find(bytes([ETX]), pos + 1)
+        if pos < 0:
+            return None
+        try:
+            obj = json.loads(bytes(buf[start + 1:pos]).decode('latin-1'), strict=False)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+
+
+def _wait_config(ser, wait_s, clock=time.monotonic):
+    """설정 읽기 응답을 wait_s 초까지 기다린다. 받으면 dict · 못 받으면 None."""
+    buf = bytearray()
+    deadline = clock() + wait_s
+    while clock() < deadline:
+        chunk = ser.read(256)
+        if chunk:
+            buf += chunk
+            got = _parse_frame(buf)
+            if got is not None:
+                return got
+    return None
+
+
+def _open_port(port):
+    import serial
+    s = serial.Serial()
+    s.port = port
+    s.baudrate = 115200
+    s.timeout = 0.2
+    s.write_timeout = 2
+    s.dtr = False          # DTR 을 세우면 보드가 다시 리셋된다 — 내린 채로 연다
+    s.rts = False
+    s.open()
+    return s
+
+
+def sync_clock(port, opener=_open_port, now=datetime.now, sleep=time.sleep, clock=time.monotonic) -> str:
+    """리더기 시계(RTC)를 이 PC 의 현재 시각으로 맞춘다 — 업로드 직후 한 번(사장님 10-11).
+
+    리더기는 새 판 첫 부팅 때 'Keep settings?' 를 최대 10초 띄우고 그동안 명령을 읽지 않는다(바이트는 리더기 수신
+    버퍼에 쌓인다). 그래서 먼저 설정 읽기(cfg_get_config)를 보내 **응답이 올 때**(= 부팅이 끝났을 때) 그 순간의 PC
+    시각을 보낸다 — 미리 보내면 기다린 만큼 늦은 시각이 들어간다. 시각 명령에는 시리얼 응답이 없어(리더기는 긴 삐
+    1회 + 화면 `updated`) 되읽어 확인할 수는 없다 — 뒤이은 설정 읽기에 답하는지만 본다.
+    리더기는 한 번에 읽힌 버퍼의 둘째 JSON 을 버리므로 명령 사이를 수신 대기(게이트웨이 1초)보다 길게 띄운다.
+
+    돌려주는 값: 'ok' · 'pc_clock'(PC 날짜가 틀려 안 보냄) · 'port' · 'no_reply' · 'unconfirmed'.
+    """
+    t = now()
+    if (t.year, t.month, t.day) < CLOCK_FLOOR:
+        print(f'[주의] 이 PC 의 날짜({t:%Y-%m-%d})가 틀려 보여 리더기 시계는 맞추지 않았습니다.')
+        print('       PC 날짜를 바로잡은 뒤 설정기나 세척관리로 맞추십시오.')
+        return 'pc_clock'
+    try:
+        ser = opener(port)
+    except Exception as e:  # noqa: BLE001 — 업로드는 이미 끝났다. 시계만 못 맞춘 것
+        print(f'[주의] 리더기 시계를 맞추지 못했습니다(포트를 열 수 없음: {e}).')
+        return 'port'
+    try:
+        # 포트를 열 때 보드가 다시 리셋돼도 부트로더가 끝난 뒤에 보낸다(부트로더가 받은 바이트는 사라진다).
+        sleep(2.0)
+        ser.reset_input_buffer()
+        info = None
+        for wait_s in (25.0, 15.0):   # 첫 판: Keep settings 10초 + 화면 초기화 · 둘째 판: 첫 바이트가 사라졌을 때
+            ser.write(_frame({'cmd': 'cfg_get_config'}))
+            info = _wait_config(ser, wait_s, clock)
+            if info is not None:
+                break
+        if info is None:
+            print('[주의] 리더기가 응답하지 않아 시계는 맞추지 못했습니다.')
+            print('       리더기가 켜진 뒤 설정기나 세척관리로 맞추십시오.')
+            return 'no_reply'
+        print(f"리더기 응답: 타입 {info.get('device_type', '?')} · 번호 {info.get('device_number', '?')}")
+        text = now().strftime('%Y-%m-%d %H:%M:%S')
+        ser.write(_frame({'cmd': 'cfg_set_date_time', 'device_date_time': text}))
+        sleep(2.5)                    # 리더기가 이 명령을 따로 읽게 한다(수신 대기 최대 1초)
+        ser.reset_input_buffer()
+        ser.write(_frame({'cmd': 'cfg_get_config'}))
+        if _wait_config(ser, 8.0, clock) is None:
+            print(f'[주의] 시각({text})을 보냈지만 리더기의 다음 응답을 받지 못했습니다.')
+            print('       리더기 화면의 시각을 확인하십시오.')
+            return 'unconfirmed'
+        print(f'리더기 시계를 이 PC 시각({text})으로 맞췄습니다.')
+        print('  (리더기에서 긴 삐 소리 1회와 화면 `updated` 가 나면 맞춰진 것입니다 · 화면의 시각을 확인하십시오)')
+        return 'ok'
+    except Exception as e:  # noqa: BLE001
+        print(f'[주의] 리더기 시계를 맞추는 중 통신이 끊겼습니다({e}) — 설정기나 세척관리로 맞추십시오.')
+        return 'port'
+    finally:
+        try:
+            ser.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def main() -> int:
     ver = fw_version()
     print('=' * 58)
@@ -171,6 +291,9 @@ def main() -> int:
     print()
     print('   [2.2.10] 설정 메뉴를 열어 두고 60초 동안 아무 버튼도 안 누르면 저장 없이 홈으로 나옵니다')
     print('            (메뉴에 머무는 동안은 태그를 읽지 않으므로).')
+    print()
+    print('리더기 시계를 이 PC 시각으로 맞춥니다 — 리더기 화면의 선택이 끝날 때까지 기다립니다(최대 45초)...')
+    sync_clock(port)      # 실패해도 업로드는 성공이다 — 안내만 하고 0 을 돌려준다
     return 0
 
 
