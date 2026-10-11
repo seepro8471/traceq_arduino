@@ -210,6 +210,33 @@ int main()
         tlog("  재부팅 사이 더블터치: 소독시간 %ld초\n", (long)dur);
         CHECK(dur >= 18L * 60 && dur < 19L * 60, "3차: 재부팅 사이 더블터치도 재시작(태그가 기억)");
     }
+    // ── [18차 잠금] 동시소독(slot 2) host 의 더블터치 → 재시작해도 host(그룹1) 그대로 ──
+    //  재시작 갈래의 `simultaneously = false` 가 없으면 재시작이 자기 시간창 안이라 guest(그룹2)로 다시 쓰인다 — 횟수는 그대로라 조용하다.
+    {
+        disinfectionOption.SetSimultaneousDisinfectionSlot(2);
+        disinfectionOption.SetSimultaneousDisinfectionDelay(30);
+        sim_advance_ms(40UL * 60 * 1000);              // 앞 블록의 알람·시간창 밖으로
+        const DateTime ws(2026, 9, 22, 19, 0, 0), we(2026, 9, 22, 19, 4, 0);
+        washed(c1, 0x1D, 30, ws, &we);
+        washed(c2, 0x1E, 31, ws, &we);
+        const int before = disinfectionOption.GetCount();
+        touch(c1, 1, 4);                               // host 시작
+        touch(c1, 1, 4);                               // 2초 안 재접촉 = 재시작
+        DisinfectionDetail dh{};
+        memcpy(&dh, c1.data[SECTOR14_DISINFECTION_DETAIL], sizeof(dh));
+        const int afterHost = disinfectionOption.GetCount();
+        sim_advance_ms(20UL * 1000);
+        touch(c2);                                     // host 창 안의 다음 스코프 = guest
+        DisinfectionDetail dg{};
+        memcpy(&dg, c2.data[SECTOR14_DISINFECTION_DETAIL], sizeof(dg));
+        tlog("  slot2 host 더블터치: host 그룹=%d 횟수 %d→%d · 뒤 스코프 그룹=%d 횟수=%d\n", dh.GroupNumber, before, afterHost, dg.GroupNumber,
+             disinfectionOption.GetCount());
+        CHECK(get_process(c1).Rewrite == 2 && dh.GroupNumber == 1 && afterHost == before + 1,
+              "18차: 동시소독 host 더블터치 → 재시작해도 그룹1(host)·횟수 +1 한 번");
+        CHECK(get_process(c2).Rewrite == 2 && dg.GroupNumber == 2 && disinfectionOption.GetCount() == before + 1,
+              "18차: 그 뒤 창 안에 온 스코프는 guest(그룹2·횟수 그대로) — host 슬롯·시간창이 재시작 뒤에도 그 host 의 것");
+        disinfectionOption.SetSimultaneousDisinfectionSlot(1);
+    }
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

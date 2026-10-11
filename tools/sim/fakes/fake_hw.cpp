@@ -13,29 +13,27 @@
 char g_log[4096];
 uint16_t g_pass, g_fail;
 static uint16_t s_logLen;
+// 로그가 차면 run.sh 의 gdb 가 log_flush 에서 멈춰 지금까지를 찍고, 버퍼는 처음부터 다시 쓴다(18차). 종전엔 4096B 를 넘는 시험
+// (t_gg2m·t_notify·t_a9)의 뒤쪽 실측 줄이 통째로 안 보였다. 한 줄이 kLogLine 을 넘어 잘리면 g_satLog 로 센다.
+// ★중단점 함수 둘(log_flush · sim_done_stop)은 몸이 달라야 한다 — 같으면 LTO 가 한 주소로 접어(-fipa-icf) gdb 가 한쪽 명령만 돌린다
+//  (요약이 안 찍히고 전량 TIMEOUT 이 났다 · 18차). 서로 다른 값을 쓰게 해 둔다.
+volatile uint8_t g_stopMark;
+extern "C" __attribute__((noinline)) void log_flush() { g_stopMark = 1; asm volatile(""); }
+// 포화(17차 경고의 구멍 메움 · 18차): 가득 찬 LCD·시리얼 로그에 "없다" 가 나온 질문과 가득 찬 부저 로그의 횟수 질문은 믿을 수 없다
+// → g_satAsk 로 세어 done() 이 빨강으로 만든다(경고 줄은 실행당 한 번뿐이었고 runall 에 안 보였고 g_log 가 차면 사라졌다).
+// 표지는 logs_clear/buzz_clear 가 내린다(구간마다 다시 판정). 문구는 .data 를 먹으므로 짧게 — t_a4 가 RAM 관문 36B 앞이다.
+uint8_t g_satAsk, g_satLog;
+static bool s_fullLcd, s_fullSerial, s_fullBuzz;
+static const int kLogLine = 640;
 void tlog(const char *fmt, ...)
 {
+    if ((int)sizeof(g_log) - (int)s_logLen - 1 < kLogLine) { log_flush(); s_logLen = 0; g_log[0] = 0; }
     va_list ap;
     va_start(ap, fmt);
     const int room = (int)sizeof(g_log) - (int)s_logLen - 1;
-    if (room > 0)
-    {
-        const int n = vsnprintf(g_log + s_logLen, room, fmt, ap);
-        if (n > 0) s_logLen += (n < room) ? n : room - 1;
-    }
-    va_end(ap);
-}
-// 서식이 플래시(PROGMEM)에 있는 tlog — 하네스 경고 문구가 .data 를 먹어 t_a4 의 RAM 관문(28000B)을 넘겼다(17차).
-static void tlog_P(const char *fmtP, ...)
-{
-    va_list ap;
-    va_start(ap, fmtP);
-    const int room = (int)sizeof(g_log) - (int)s_logLen - 1;
-    if (room > 0)
-    {
-        const int n = vsnprintf_P(g_log + s_logLen, room, fmtP, ap);
-        if (n > 0) s_logLen += (n < room) ? n : room - 1;
-    }
+    const int n = vsnprintf(g_log + s_logLen, room, fmt, ap);
+    if (n >= room) { s_logLen += room - 1; if (g_satLog < 255) ++g_satLog; }
+    else if (n > 0) s_logLen += n;
     va_end(ap);
 }
 // 실패 줄만 모으는 작은 버퍼 — g_log 가 넘쳐도 무엇이 실패했는지는 반드시 남는다.
@@ -49,11 +47,16 @@ void flog(const char *name)
     if (n > 0) s_failLen += (n < room) ? n : room - 1;
 }
 
+// run.sh·runsp.sh 의 중단점 — done() 의 검사가 **끝난 뒤** 멈춘다. 종전엔 `break done` 이 함수 첫머리라 아래 두 관문이
+// 요약(g_fail)에 한 번도 닿지 않았다(18차 · 음성대조로 발견).
+extern "C" __attribute__((noinline)) void sim_done_stop() { g_stopMark = 2; asm volatile(""); }
 extern "C" void done()
 {
     // 차단이 켜진 채면 카드가 아예 안 읽혀 "거부/무동작" 만 보는 CHECK 가 조용히 초록이 된다(Z1 권고).
-    if (g_powerCut) { ++g_fail; tlog("FAIL 전원 차단이 켜진 채 시험이 끝났다(power_restore 누락)\n"); flog("power cut left on"); }
-    asm volatile("");
+    // 문구는 짧게(.data 를 먹는다) — 실패 목록(g_failLog)에 `FAIL …` 로 찍힌다.
+    if (g_powerCut) { ++g_fail; flog("power cut left on"); }   // 전원 차단이 켜진 채 끝났다(power_restore 누락)
+    if (g_satAsk) { ++g_fail; flog("saturated log asked"); }   // 가득 찬 로그에 물은 판정은 헛초록일 수 있다
+    sim_done_stop();
 }
 
 // ── 시간 ──
@@ -69,9 +72,10 @@ static uint16_t s_buzzPulse[64];
 static uint8_t  s_buzzN;
 static uint32_t s_buzzOnAt;
 static bool     s_buzzOn;
-void buzz_clear() { s_buzzN = 0; }
+void buzz_clear() { s_buzzN = 0; s_fullBuzz = false; }
 uint8_t buzz_count(uint16_t pulseMs)
 {
+    if (s_fullBuzz && g_satAsk < 255) ++g_satAsk;   // 넘친 뒤의 횟수는 실제보다 적을 수 있다
     uint8_t n = 0;
     for (uint8_t i = 0; i < s_buzzN; ++i) if (s_buzzPulse[i] == pulseMs) ++n;
     return n;
@@ -86,7 +90,7 @@ void digitalWrite(uint8_t pin, uint8_t val)
     {
         s_buzzOn = false;
         if (s_buzzN < 64) s_buzzPulse[s_buzzN++] = (uint16_t)(g_ms - s_buzzOnAt);
-        else { static bool warned; if (!warned) { warned = true; tlog_P(PSTR("!! buzz log full(64) - buzz_count unreliable until buzz_clear\n")); } }
+        else s_fullBuzz = true;
     }
 }
 static char s_btn[256];
@@ -244,7 +248,7 @@ size_t HardwareSerial::write(uint8_t c)
 {
     SIM_SP();
     if (s_outLen < sizeof(g_serialOut) - 1) g_serialOut[s_outLen++] = (char)c;
-    else { static bool warned; if (!warned) { warned = true; tlog_P(PSTR("!! serial log full(2048) - serial_has unreliable until logs_clear\n")); } }
+    else s_fullSerial = true;
     g_serialOut[s_outLen] = 0;
     return 1;
 }
@@ -272,7 +276,7 @@ static uint16_t s_lcdLen;
 static void lcd_put(char c)
 {
     if (s_lcdLen < sizeof(g_lcdLog) - 1) g_lcdLog[s_lcdLen++] = c;
-    else { static bool warned; if (!warned) { warned = true; tlog_P(PSTR("!! LCD log full(1536) - lcd_has unreliable until logs_clear\n")); } }
+    else s_fullLcd = true;
     g_lcdLog[s_lcdLen] = 0;
 }
 // ── 표시 격자 20x4 — g_lcdLog 는 '쓴 것' 이고 이쪽은 '지금 화면에 있는 것'(잔상 판정) ──
@@ -348,12 +352,23 @@ size_t LiquidCrystal_I2C::write(uint8_t c)
 
 void logs_clear()
 {
-    s_lcdLen = 0; g_lcdLog[0] = 0;
-    s_outLen = 0; g_serialOut[0] = 0;
+    s_lcdLen = 0; g_lcdLog[0] = 0; s_fullLcd = false;
+    s_outLen = 0; g_serialOut[0] = 0; s_fullSerial = false;
     buzz_clear();
 }
-bool lcd_has(const char *s) { return strstr(g_lcdLog, s) != nullptr; }
-bool serial_has(const char *s) { return strstr(g_serialOut, s) != nullptr; }
+// 가득 찬 로그에서 "없다" 는 잘린 뒤쪽에 있었을 수 있다 — 그 질문을 센다("있다" 는 포화와 무관하게 참)
+bool lcd_has(const char *s)
+{
+    const bool has = strstr(g_lcdLog, s) != nullptr;
+    if (!has && s_fullLcd && g_satAsk < 255) ++g_satAsk;
+    return has;
+}
+bool serial_has(const char *s)
+{
+    const bool has = strstr(g_serialOut, s) != nullptr;
+    if (!has && s_fullSerial && g_satAsk < 255) ++g_satAsk;
+    return has;
+}
 
 // ── RTC (DS3231) ──
 static DateTime s_rtcBase(2026, 9, 22, 10, 0, 0);

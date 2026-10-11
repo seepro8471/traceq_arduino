@@ -52,6 +52,51 @@ def find_arduino_port() -> Optional[str]:
     return None
 
 
+def decode_reply(raw: bytes) -> Optional[dict]:
+    """STX…ETX 사이 바이트 → dict. JSON 객체가 아니면 None(그 ETX 는 본문 안의 바이트다).
+
+    담당자 키·이름은 태그의 날 바이트라 제어 문자(0x03 포함)가 들 수 있다 — strict=False 여야 올바른 ETX 에서 풀린다
+    (종전 strict 는 그런 응답을 끝내 못 읽어 화면이 안 채워졌다 · 18차). latin-1 은 0x00~0xFF 를 전부 푼다.
+    """
+    try:
+        obj = json.loads(raw.decode('latin-1'), strict=False)
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def reader_text(s: str) -> str:
+    """응답 문자열(latin-1 로 푼 날 바이트)을 화면 글자로 — 한글 담당자 이름은 cp949 다(종전엔 `È«±æµ¿` 로 깨져 보였다 · 18차)."""
+    s = s.rstrip('\x00')
+    try:
+        raw = s.encode('latin-1')
+    except UnicodeEncodeError:
+        return s.strip()
+    if any(b >= 0x80 for b in raw):
+        try:
+            return raw.decode('cp949').rstrip('\x00').strip()
+        except UnicodeDecodeError:
+            pass
+    return s.strip()
+
+
+def clock_to_send(manual: bool, edited: str, now: datetime) -> str:
+    """리더기에 보낼 시각 — 사람이 칸을 고쳤으면 그 값, 아니면 **누르는 순간의** PC 시각.
+
+    종전엔 늘 칸의 값을 보냈는데 칸은 30초마다만 갱신돼, [설정 저장]·[날짜/시간 전송] 때마다 리더기 시계가 0~30초 늦게 맞았다(18차).
+    """
+    return edited if manual else now.strftime('%Y-%m-%d %H:%M:%S')
+
+
+def clock_gap_text(reader_clock: str, now: datetime) -> str:
+    """되읽은 리더기 시계(펌웨어 2.2.36 부터 응답에 실린다)와 PC 시각의 차이 글자. 꼴이 다르면 빈 글자."""
+    try:
+        gap = (datetime.strptime(reader_clock, '%Y-%m-%d %H:%M:%S') - now).total_seconds()
+    except ValueError:
+        return ''
+    return f'  (PC 와 {abs(gap):.0f}초 차이)'
+
+
 DEVICE_TYPES = [
     ('S', '서버 (Server)'),
     ('G', '게이트웨이 (Gateway)'),
@@ -206,26 +251,13 @@ class SerialWorker(QObject):
                 pos = 1
                 while pos < len(self._buf):
                     if self._buf[pos] == ETX:
-                        raw = bytes(self._buf[1:pos])
-                        try:
-                            # latin-1: 0x00~0xFF → 모두 디코딩 가능, UnicodeDecodeError 없음
-                            text = raw.decode('latin-1')
-                            obj  = json.loads(text)
+                        obj = decode_reply(bytes(self._buf[1:pos]))
+                        if obj is not None:
                             del self._buf[:pos + 1]
                             self.json_received.emit(obj)
                             parsed = True
                             break
-                        except json.JSONDecodeError:
-                            # 이 ETX 는 JSON 본문 안에 있음 → 다음 ETX 탐색
-                            pos += 1
-                            continue
-                        except Exception as e:
-                            # 예상치 못한 오류 → 이 프레임 버리고 계속
-                            self.line_received.emit(
-                                f'[프레임 오류] {e}  raw={raw[:60]!r}')
-                            del self._buf[:pos + 1]
-                            parsed = True   # "consumed" 처리
-                            break
+                        # 아니면 이 ETX 는 JSON 본문 안에 있다 → 다음 ETX 탐색
                     pos += 1
                 if not parsed:
                     break  # ETX 아직 도착 안 함 — 더 읽기 대기
@@ -261,14 +293,38 @@ class ArduinoConfigurator(QMainWindow):
         self._worker.connected.connect(self._on_connected)
         self._worker.disconnected.connect(self._on_disconnected)
 
+        self._dt_manual = False     # 사람이 시각 칸을 고쳤나 — 고쳤으면 그 값을 보내고 자동 갱신을 멈춘다([PC 시간으로] 가 되돌린다)
+        self._dt_auto = False       # 지금의 칸 변경은 프로그램이 한 것(사람이 고친 것으로 치지 않는다)
+        self._have_config = False   # 이 연결에서 설정을 한 번이라도 읽었나 — 읽기 전엔 [설정 저장] 을 막는다
+        self._auto_done = False     # 창이 처음 뜰 때의 자동 연결은 한 번만
+
         self._build_ui()
         self._refresh_ports()
 
-        # 현재 시간 1초마다 자동 갱신
+        # 현재 시간 1초마다 자동 갱신 — 보내는 값은 칸이 아니라 누르는 순간의 PC 시각이다(clock_to_send)
         self._clock_timer = QTimer(self)
-        self._clock_timer.timeout.connect(
-            lambda: self.dt_edit.setDateTime(QDateTime.currentDateTime()))
-        self._clock_timer.start(30000)
+        self._clock_timer.timeout.connect(self._tick_clock)
+        self._clock_timer.start(1000)
+
+    def _tick_clock(self):
+        if not self._dt_manual and not self.dt_edit.hasFocus():
+            self._set_dt_now()
+
+    def _set_dt_now(self):
+        """시각 칸을 PC 의 지금 시각으로 — 자동 갱신 상태로 되돌린다."""
+        self._dt_auto = True
+        try:
+            self.dt_edit.setDateTime(QDateTime.currentDateTime())
+        finally:
+            self._dt_auto = False
+        self._dt_manual = False
+
+    def _on_dt_edited(self, _dt):
+        if not self._dt_auto:
+            self._dt_manual = True
+
+    def _clock_text(self) -> str:
+        return clock_to_send(self._dt_manual, self.dt_edit.dateTime().toString('yyyy-MM-dd HH:mm:ss'), datetime.now())
 
     # ── UI 구성 ───────────────────────────────────────────
     def _build_ui(self):
@@ -320,8 +376,8 @@ class ArduinoConfigurator(QMainWindow):
         cfg_grid.addWidget(QLabel('기기 타입:'), 0, 0)
         cfg_grid.addWidget(self.type_combo, 0, 1)
 
-        # 기기 번호 — [14차 사장님 판정(09-28) · 재론 금지] 99 그대로(리더 상한 999 는 상한일 뿐 · 병원 본체번호는 99 이하)
-        self.num_spin = QSpinBox(); self.num_spin.setRange(0, 99)
+        # 기기 번호 — [사장님 10-11] 세척기·소독기 번호는 3자리(0~999 · 리더 상한 kNumberMax 와 같다). 14차의 "99 그대로" 는 이 지시가 덮었다.
+        self.num_spin = QSpinBox(); self.num_spin.setRange(0, 999)
         cfg_grid.addWidget(QLabel('기기 번호:'), 0, 2)
         cfg_grid.addWidget(self.num_spin, 0, 3)
 
@@ -413,8 +469,8 @@ class ArduinoConfigurator(QMainWindow):
         dt_lay.addStretch()
         root.addWidget(dt_grp)
 
-        self.btn_pc_time.clicked.connect(
-            lambda: self.dt_edit.setDateTime(QDateTime.currentDateTime()))
+        self.dt_edit.dateTimeChanged.connect(self._on_dt_edited)
+        self.btn_pc_time.clicked.connect(self._set_dt_now)
         self.btn_send_dt.clicked.connect(self._do_send_datetime)
 
         # ── 설정 읽기/저장 버튼 ───────────────────────────
@@ -521,6 +577,7 @@ class ArduinoConfigurator(QMainWindow):
         QTimer.singleShot(500, self._do_read_config)
 
     def _on_disconnected(self):
+        self._have_config = False
         self.conn_status.setText('● 연결 안 됨')
         self.conn_status.setStyleSheet('color:#ff6666; font-weight:bold;')
         self.btn_connect.setEnabled(True)
@@ -529,9 +586,11 @@ class ArduinoConfigurator(QMainWindow):
         self._log('연결 해제됨')
 
     def _set_controls_enabled(self, en: bool):
-        for w in (self.btn_read, self.btn_write, self.btn_send_dt,
+        for w in (self.btn_read, self.btn_send_dt,
                   self.btn_tag_factory, self.btn_tag_reset, self.btn_tag_to_factory):
             w.setEnabled(en)
+        # [설정 저장] 은 설정을 읽은 뒤에만 — 읽기가 실패한 채 저장하면 폼의 처음 값(서버·0번·환자확인 꺼짐 …)이 리더기를 덮었다(18차)
+        self.btn_write.setEnabled(en and self._have_config)
 
     # ── 수신 처리 ─────────────────────────────────────────
     def _on_json(self, obj: dict):
@@ -539,6 +598,12 @@ class ArduinoConfigurator(QMainWindow):
         self._log(f'◀ JSON 수신 ({len(keys)}개 키): {keys}')
         self._fill_form(obj)
         self._log('   → 폼 업데이트 완료')
+        if 'device_type' in obj:
+            self._have_config = True
+            self.btn_write.setEnabled(self._worker.is_open)
+        reader_clock = str(obj.get('device_date_time', '') or '')
+        if reader_clock:
+            self._log(f'   리더기 시계: {reader_clock}{clock_gap_text(reader_clock, datetime.now())}')
 
     def _on_line(self, line: str):
         if line.strip():
@@ -561,7 +626,7 @@ class ArduinoConfigurator(QMainWindow):
             except Exception:
                 return ''
         if isinstance(v, str):
-            return v.rstrip('\x00').strip()
+            return reader_text(v)
         return str(v) if v is not None else ''
 
     @staticmethod
@@ -622,7 +687,7 @@ class ArduinoConfigurator(QMainWindow):
     # ── 설정 저장 ─────────────────────────────────────────
     def _do_write_config(self):
         dtype_code = self.type_combo.currentData() or 'S'
-        now_str = self.dt_edit.dateTime().toString('yyyy-MM-dd HH:mm:ss')
+        now_str = self._clock_text()
         payload = {
             'cmd':               'cfg_set_config',
             'device_type':       dtype_code,
@@ -639,7 +704,7 @@ class ArduinoConfigurator(QMainWindow):
         }
         ok = self._worker.send_json(payload)
         if ok:
-            self._log(f'▶ cfg_set_config 전송  (타입={dtype_code}, 세척={self.washing_spin.value()}분, 소독={self.df_spin.value()}분)')
+            self._log(f'▶ cfg_set_config 전송  (타입={dtype_code}, 세척={self.washing_spin.value()}분, 소독={self.df_spin.value()}분, 시각={now_str})')
         else:
             self._log('[경고] 전송 실패')
 
@@ -679,12 +744,14 @@ class ArduinoConfigurator(QMainWindow):
         self.mgr_key_edit.clear()
         self.mgr_name_edit.clear()
 
+        self._have_config = True    # 초기값을 일부러 채웠다 — 읽지 않았어도 저장할 수 있다
+        self.btn_write.setEnabled(self._worker.is_open)
         self._log('↺ 폼을 펌웨어 초기값으로 리셋했습니다.'
                   '  (저장하려면 [설정 저장] 클릭)')
 
     # ── 날짜/시간 전송 ────────────────────────────────────
     def _do_send_datetime(self):
-        dt_str = self.dt_edit.dateTime().toString('yyyy-MM-dd HH:mm:ss')
+        dt_str = self._clock_text()
         ok = self._worker.send_json({'cmd': 'cfg_set_date_time', 'device_date_time': dt_str})
         if ok:
             self._log(f'▶ cfg_set_date_time 전송: {dt_str}')
@@ -720,8 +787,11 @@ class ArduinoConfigurator(QMainWindow):
     # ── 표시 시 자동 연결 ─────────────────────────────────
     def showEvent(self, event):
         super().showEvent(event)
-        # 창이 뜨고 300ms 후 자동 연결 시도 (1회만)
-        QTimer.singleShot(300, self._auto_connect_once)
+        # 창이 처음 뜰 때 300ms 후 자동 연결 시도 — 한 번만. 종전엔 창을 내렸다 올릴 때마다 돌아, [해제] 로 놓아 둔 포트를
+        #  다시 잡고 리더기를 리셋했다(18차).
+        if not self._auto_done:
+            self._auto_done = True
+            QTimer.singleShot(300, self._auto_connect_once)
 
     def _auto_connect_once(self):
         if self._worker.is_open:

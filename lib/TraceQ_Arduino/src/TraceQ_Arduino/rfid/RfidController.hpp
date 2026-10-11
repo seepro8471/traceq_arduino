@@ -59,10 +59,17 @@ public:
     /// 한 번만 호출. (1.0은 loop마다 호출했지만 불필요.)
     void Initialize();
 
-    /// 통신 상태 검사. 0x00/0xFF면 끊긴 것으로 간주.
-    bool IsAlive();
+    /// VersionReg 를 **한 번** 읽는다 — 살아있음 판정·화면·PC 알림이 이 한 값을 같이 쓴다. 따로 읽으면 콘넥터가 떨릴 때 보낸 줄과
+    /// 기록한 상태가 어긋난 채 굳었다(18차 · 다섯 갈래 독립 발견).
+    uint8_t ReadVersion() { return mMfrc522.PCD_ReadRegister(MFRC522::VersionReg); }
+    /// 0x00·0xFF = SPI 가 죽었다(모듈 빠짐·전원 없음).
+    static bool IsAliveVersion(uint8_t version) { return version != 0x00 && version != 0xFF; }
+    /// 칩 설정이 살아 있나(안테나 구동 비트). 모듈 전원이 나갔다 오면 VersionReg 는 읽히는데 설정은 리셋값(안테나 OFF)이라
+    /// 태그를 못 읽는다 — 살아 있는데 이것이 거짓이면 다시 초기화한다(18차).
+    bool IsConfigured() { return (mMfrc522.PCD_ReadRegister(MFRC522::TxControlReg) & 0x03) == 0x03; }
 
-    /// 통신 끊김이 감지된 이후 복구. 외부 루프에서 IsAlive() 결과로 호출.
+    /// 칩을 다시 초기화한다. 호출자(main loop): 죽은 동안 매 loop · 살아난 첫 loop · 설정이 날아간 때.
+    /// 죽은 칩은 쓰기를 못 들으므로 죽은 동안의 호출만으로는 복구되지 않는다(2.0~2.2.35 는 그것만 했다).
     void Reinitialize();
 
     /// 새 태그 감지 (1.0의 IsNewTagPresent + IsTagPresent 통합).
@@ -135,10 +142,11 @@ public:
 
     /// 진단용 레지스터 읽기 (examples/RegisterProbe·IntegrityTest 전용 — 운영 경로 미사용).
     uint8_t ReadReg(MFRC522::PCD_Register reg) { return mMfrc522.PCD_ReadRegister(reg); }
-    /// 리더 모듈 상태를 PC 에 알린다 — 라이브러리 줄 그대로(`Firmware Version: 0x.. = ..` · 0x00/0xFF 면 `WARNING: Communication failure…`).
-    /// 올눈(델파이)·SeePro 가 이 줄로 "리더기 연결 콘넥터 확인" 음성을 낸다(사장님 수락 10-07). 호출자가 부팅 1회 + 살아있음↔죽음 에지에서만 부른다.
-    /// 라이브러리 함수를 부르지 않고 같은 글자를 여기서 낸다 — 시뮬 가짜 MFRC522 에 그 함수가 없고, 와이어 글자는 이제 제품의 계약이다(t_ii20).
-    void ReportVersionToSerial();
+    /// 리더 모듈 상태를 PC 에 알린다 — **판정에 쓴 그 값**을 받는다(여기서 다시 읽지 않는다). 살아 있으면 `Firmware Version: 0x92 = v2.0`
+    /// 꼴, 죽었으면(0x00·0xFF) 값과 무관하게 `Firmware Version: 0x0 = (unknown)` + `WARNING: Communication failure…`.
+    /// 올눈·델파이 TraceQ 는 ` 0x0 = (unknown)` 과 정확히 같을 때만 "리더기 연결 콘넥터 확인" 음성을 낸다(0xFF 로는 못 냈다 · 18차).
+    /// 와이어 글자는 제품의 계약이다(세척관리 `module_state_of` · SeePro · 올눈 · t_ii20).
+    void ReportVersionToSerial(uint8_t version);
 
 private:
     bool ensureAuthenticated(uint8_t block);   // 섹터 캐시 활용 인증

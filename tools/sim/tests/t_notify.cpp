@@ -198,7 +198,7 @@ int main()
         CHECK(warned("Read Error", 150), "서버 스코프 읽기 실패 → Read Error + 실패음");
         CHECK(!serial_has("Ok!"), "서버 읽기 실패 → 덤프를 보내지 않는다");
     }
-    for (uint8_t off = 3; off <= 9; ++off)   // 덤프 뒤 쓰기 7개: 3=완료커밋 · 4=게이트웨이 · 5~7=섹터15 · 8~9=환자
+    for (uint8_t off = 3; off <= 9; ++off)   // 덤프 뒤 쓰기 7개: 3=완료커밋 · 4~6=섹터15 · 7=블록5(게이트웨이) · 8~9=환자
     {
         fresh_scope(b, static_cast<uint8_t>(0x28 + off), 28 + off);
         set_process(b, Process{1, 1, 1, 1, 1, false, 0, 2});
@@ -274,8 +274,10 @@ int main()
         const Process p = get_process(b);
         tlog("  서버 소거만 실패: lcd=[%.40s] 경고음=%u 완료음=%u WS=%u\n",
              g_lcdLog, buzz_count(100), buzz_count(150), p.WashingStatus);
-        CHECK(!lcd_has("Write Error") && buzz_count(150) == 1 && buzz_count(100) == 0,
-              "서버 소거만 실패 → 완료음(17차 판정 · 커밋은 이미 끝나 다시 댈 이유가 없다)");
+        // 18차: 이 표본은 **카드가 살아 있는데** 그 블록만 안 지워지는 것(상한 블록 모형) — 접촉이 끊긴 것과 다르다. 완료음으로 넘기면
+        //  어느 접촉도 그 칸을 못 지워 지난 검사가 매 주기 실린다 → Write Error 로 알린다(접촉이 끊긴 소거 실패는 위 off=4~9 처럼 완료음).
+        CHECK(warned("Write Error", 150),
+              "서버 소거만 실패(카드는 살아 있다 = 상한 블록) → Write Error + 경고음, 완료음 없음(18차 — 17차는 이것까지 완료음이었다)");
         // 새 순서에서는 완료 커밋이 이미 끝나 있다 — 완료 처리는 살아 있고 2차 덤프는 나가지 않는다.
         CHECK(p.WashingStatus == 0 && p.Status == 0, "서버 소거 실패 → 완료 처리는 유지된다");
         b.readErrBlock = -1; b.readErrTimes = 0;

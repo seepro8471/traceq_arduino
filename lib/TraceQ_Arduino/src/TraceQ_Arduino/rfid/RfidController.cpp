@@ -63,25 +63,25 @@ void RfidController::Reinitialize()
     //  ★[사장님 확인 09-27] 이 경우는 **현장에서 생기지 않는다** — 태그를 올려 두지 않고 접촉하고 바로 떼므로,
     //   Disconnected 된 뒤에는 태그가 이미 리더 위에 없다. 재초기화가 다시 잡을 대상이 없다.
     // ★present/prev/missCount 를 지우면 안 된다 — 칩 리셋은 안테나를 끄므로 올려 둔 카드가 전원을 잃고
-    //  정지가 풀린다. 거기에 표시까지 지우면 같은 태그가 '새 태그' 가 되어, 시작 10초가 지난 태그면 세척·소독이
+    //  정지가 풀린다. 거기에 표시까지 지우면 같은 태그가 '새 태그' 가 되어, 재시작 창(2초)이 지난 태그면 세척·소독이
     //  곧바로 종료로 기록된다(더블터치 창 밖). EndSession 주석이 말하는 그 실기 확인 사례 그대로다.
     Initialize();
 }
 
-bool RfidController::IsAlive()
+void RfidController::ReportVersionToSerial(uint8_t version)
 {
-    const auto v = mMfrc522.PCD_ReadRegister(MFRC522::VersionReg);
-    return (v != 0x00) && (v != 0xFF);
-}
-
-void RfidController::ReportVersionToSerial()
-{
-    // MFRC522::PCD_DumpVersionToSerial() 과 글자가 같다 — 올눈은 ':' 로 갈라 앞 `Firmware Version` · 뒤 ` 0x0 = (unknown)` 을 보고,
-    //  SeePro 는 0x0/0xFF 줄과 WARNING 줄을 본다(둘 다 '\n' 종단). 0x00/0xFF = SPI 끊김(IsAlive 와 같은 판정).
-    const uint8_t v = mMfrc522.PCD_ReadRegister(MFRC522::VersionReg);
+    // 글자는 MFRC522::PCD_DumpVersionToSerial() 의 것 — 올눈·델파이는 ':' 로 갈라 앞 `Firmware Version` · 뒤 ` 0x0 = (unknown)` 을 보고,
+    //  SeePro·세척관리는 0x0/0xFF 줄과 WARNING 줄을 본다(전부 '\n' 종단).
+    if (!IsAliveVersion(version))
+    {
+        // 죽음은 값과 무관하게 `0x0` — 0xFF 로 내면 올눈·델파이가 음성을 못 낸다(정확 일치만 본다 · 18차).
+        Serial.println(F("Firmware Version: 0x0 = (unknown)"));
+        Serial.println(F("WARNING: Communication failure, is the MFRC522 properly connected?"));
+        return;
+    }
     Serial.print(F("Firmware Version: 0x"));
-    Serial.print(v, HEX);
-    switch (v)
+    Serial.print(version, HEX);
+    switch (version)
     {
     case 0x88: Serial.println(F(" = (clone)")); break;
     case 0x90: Serial.println(F(" = v0.0")); break;
@@ -89,8 +89,6 @@ void RfidController::ReportVersionToSerial()
     case 0x92: Serial.println(F(" = v2.0")); break;
     default:   Serial.println(F(" = (unknown)")); break;
     }
-    if (v == 0x00 || v == 0xFF)
-        Serial.println(F("WARNING: Communication failure, is the MFRC522 properly connected?"));
 }
 
 void RfidController::pcdSoftReset()
@@ -520,6 +518,7 @@ RfidResult RfidController::RestoreFactoryKeys()
     mMfrc522.MIFARE_SetAccessBits(&trailerBuffer[6], 0, 0, 0, 1);
 
     // 1.0(InitAccessMethod)과 동일 — 중간 StopCrypto1 금지 (위 Install 주석 참조).
+    // 전 섹터가 TraceQ 키(KEY_B)라는 전제 — 도중에 끊긴 태그는 type 0 뒤 type 2 로 회복한다(SerialProcessor::NewTag 의 18차 판정).
     dropAuthCache();
 
     for (uint8_t sector = 0; sector < MIFARE_1K_SECTOR_COUNT; ++sector)

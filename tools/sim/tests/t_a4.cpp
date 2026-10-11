@@ -41,7 +41,7 @@ int main()
         card_place(&a);
         run_loops(1);                                    // 세척 시작(태그를 계속 올려 둔 상태)
         CHECK(get_process(a).Rewrite == 1 && rtc.HasAlarm(1), "①전제: 세척 시작 + 알람");
-        sim_advance_ms(12000);                           // 12초 — 더블터치 창(10초 · 15차 A3) 밖(3초면 이제 재시작이라 이 잠금이 눈멀었다 · 16차)
+        sim_advance_ms(12000);                           // 12초 — 더블터치 창(2초 · 10-09) 밖에 넉넉히
         g_versionReg = 0x00;                             // 리더 죽음 → 다음 루프 Reinitialize
         run_loops(1);
         g_versionReg = 0x92;

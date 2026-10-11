@@ -1,6 +1,7 @@
 #!/bin/bash
 # 사용: run.sh <elf> [제한초]  — gdb 내장 AVR 시뮬레이터로 돌려 g_log 와 합계를 출력.
 # 종료코드 0 은 "done() 에 닿았고 요약이 있고 pass>0 · fail=0 · FAIL 줄 없음" 일 때뿐(TIMEOUT·요약 없음·CHECK 0개는 1).
+# 요약은 done() 의 끝(sim_done_stop)에서 찍는다 — done() 안의 관문(전원 차단이 켜진 채 끝남 · 포화된 로그에 물음)이 반영된 값이다.
 # gdb 시뮬레이터는 .data 초기값을 RAM 에 넣지 못한다 → main 진입 때 ELF 의 .data 를 직접 복원.
 ELF="$1"; LIMIT="${2:-600}"
 [ -f "$ELF" ] || { echo "!! elf 없음: $ELF"; exit 1; }
@@ -10,20 +11,46 @@ TC="/c/Users/alu5/.platformio/packages/toolchain-atmelavr/bin"
 VMA=$("$TC/avr-objdump" -h "$ELF" | awk '$2==".data"{print $4}')
 VMA=$(printf '0x%x' $((16#$VMA)))
 "$TC/avr-objcopy" -O binary -j .data "$ELF" "$ELF.data.bin"
-# gdb 명령 문자열 안의 경로는 Git Bash 가 바꿔 주지 않는다 — /c/... 면 파일을 못 열고 빈 프로그램이 멈춘다.
+# gdb 명령 안의 경로는 Git Bash 가 바꿔 주지 않는다 — /c/... 면 파일을 못 열고 빈 프로그램이 멈춘다.
 EW=$(cygpath -m "$ELF")
-out=$(timeout "$LIMIT" "$TC/avr-gdb.exe" -batch -ex "file $EW" -ex "target sim" -ex "load" \
-      -ex "break main" -ex "run" -ex "restore $EW.data.bin binary $VMA" -ex "delete" \
-      -ex "break done" -ex "continue" \
-      -ex 'printf "%s", g_log' \
-      -ex 'printf "\n--- 실패 목록(g_log 가 잘려도 남는다) ---\n%s", g_failLog' \
-      -ex 'printf "==> pass=%d fail=%d\n", g_pass, g_fail' 2>&1)
+# 명령은 스크립트 파일로 준다(18차): 시험이 g_log 를 다 채우면 log_flush 에서 멈춰 지금까지를 찍고 계속 간다 —
+# 종전엔 4096B 를 넘는 시험의 뒤쪽 실측 줄이 안 보였다. 표식 줄(@@SIMLOG@@) 뒤가 시험의 출력이다.
+GS="$ELF.gdb"
+cat > "$GS" <<EOF
+file $EW
+target sim
+load
+break main
+run
+restore $EW.data.bin binary $VMA
+delete
+break log_flush
+commands
+silent
+printf "%s", g_log
+continue
+end
+break sim_done_stop
+commands
+silent
+printf "%s", g_log
+printf "\n--- FAIL list (kept even when the log is long) ---\n%s", g_failLog
+if g_satLog > 0
+printf "!! tlog line cut x%d (line longer than the log room)\n", g_satLog
+end
+printf "==> pass=%d fail=%d\n", g_pass, g_fail
+end
+echo @@SIMLOG@@\n
+continue
+EOF
+out=$(timeout "$LIMIT" "$TC/avr-gdb.exe" -batch -x "$(cygpath -m "$GS")" 2>&1)
 rc=$?
 [ $rc -eq 124 ] && echo "!! TIMEOUT ${LIMIT}s"
-echo "$out" | sed -n '/^Breakpoint 2, done/,$p' | tail -n +3
+body=$(echo "$out" | sed -n '/^@@SIMLOG@@/,$p' | tail -n +2)
+echo "$body"
 # 요약은 done() 에 닿은 뒤의 출력에서만 읽는다(runall 이 보는 것과 같게) · g_failLog 가 차면 `==>` 가 줄 머리에 안 온다.
 [ $rc -eq 124 ] && exit 1
-sum=$(echo "$out" | sed -n '/^Breakpoint 2, done/,$p' | grep -o '==> pass=[0-9]* fail=[0-9]*' | tail -n 1)
+sum=$(echo "$body" | grep -o '==> pass=[0-9]* fail=[0-9]*' | tail -n 1)
 [ -z "$sum" ] && exit 1
 np=${sum#*pass=}; np=${np%% *}; nf=${sum##*fail=}
-[ "$nf" -eq 0 ] && [ "$np" -gt 0 ] && ! echo "$out" | grep -q "^FAIL"
+[ "$nf" -eq 0 ] && [ "$np" -gt 0 ] && ! echo "$body" | grep -q "^FAIL"

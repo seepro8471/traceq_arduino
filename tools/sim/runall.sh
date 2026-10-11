@@ -8,7 +8,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10 t_sp t_ops t_gwmix t_dd t_dd3s t_dd3g t_dd1 t_dd1b t_dd1c t_dd1d t_ee1a t_ee1b t_ee1c t_ee1d t_ee1e t_ee2r t_ff1a t_ff1b t_ff1c t_ff2a t_ff2m t_gg2g t_gg2s t_gg2w t_gg2m t_gg1a t_gg1b t_subj t_hh1a t_hh1b t_gnum t_ii1 t_ii2 t_ii3 t_ii4 t_ii5 t_ii6 t_ii7 t_ii8 t_ii9 t_ii10 t_ii11 t_ii12 t_ii13 t_ii14 t_ii15 t_ii16 t_ii17 t_ii18 t_ii19 t_ii20 t_ii21)
 # 소리·글자 계측 시험 — `-DHH2_DWELL` 이 필요해서 **따로** 빌드한다(그 계측을 전부에 넣으면 t_a4 가 정적 RAM 관문 28000B 를 넘는다).
 T2=(t_hh2w t_hh2g t_hh2s t_hh2lock t_hh2lock2 t_hh2fix)
-rm -rf "$OUTD"
+# 지울 폴더가 출력 폴더인지 본다(18차) — 이미 있고 비어 있지 않으면 우리가 남긴 표식(.simout)이 있어야 지운다.
+# 종전엔 빈 값·공백만 걸러, 저장소나 엉뚱한 폴더를 주면 그대로 지웠다.
+if [ -e "$OUTD" ] && [ ! -f "$OUTD/.simout" ] && [ -n "$(ls -A "$OUTD" 2>/dev/null)" ]; then
+    echo "!! 출력 폴더가 비어 있지 않고 표식(.simout)이 없다 — 지우지 않는다(새 폴더 이름을 줄 것): $OUTD"; exit 2
+fi
+rm -rf "$OUTD"; mkdir -p "$OUTD" && : > "$OUTD/.simout"
 TOTAL_FAIL=0
 
 # 한 무리를 빌드하고 하나씩 돌린다. $1 = 출력 폴더 · $2 = 추가 define · 나머지 = 시험 이름
@@ -39,11 +44,27 @@ run_group() {
         TOTAL_FAIL=$((TOTAL_FAIL+nf))
         echo "$t: $sum $nf FAIL"
         echo "$res" | grep '^FAIL' | sed 's/^/    /'
+        echo "$res" | grep '^!! ' | grep -v TIMEOUT | sed 's/^/    /'   # 하네스 경고(tlog 줄 잘림 등)도 보인다(18차)
     done
 }
 
 run_group "$OUTD" "" "${T[@]}"
 run_group "$OUTD/dwell" "-DHH2_DWELL" "${T2[@]}"
+
+# ★하네스 자기 점검 — done() 안의 관문 둘이 요약에 닿는가. selfcheck/t_guard.cpp 는 **빨강이어야** 한다(종 수에는 안 든다).
+#  18차: 중단점이 done() 첫머리라 "전원 차단이 켜진 채 끝남" 관문이 여러 회차 동안 결과에 닿지 않았다 — 다시 그렇게 되면 여기서 빨강.
+selfcheck() {
+    local so="$OUTD/self" res
+    bash "$HERE/build.sh" "$ROOT" "$so" "$HERE/selfcheck/t_guard.cpp" > /dev/null 2>&1
+    [ -f "$so/t_guard.elf" ] || { echo "!! 하네스 자기 점검: 빌드 실패"; TOTAL_FAIL=$((TOTAL_FAIL+1)); return; }
+    res=$(bash "$HERE/run.sh" "$so/t_guard.elf" 180)
+    if echo "$res" | grep -q "^FAIL power cut left on" && echo "$res" | grep -q "^FAIL saturated log asked"; then
+        echo "하네스 자기 점검: 관문 둘(전원 차단 · 포화된 로그)이 요약에 닿는다"
+    else
+        echo "!! 하네스 자기 점검 실패 — done() 안의 관문이 요약에 닿지 않는다(run.sh 의 중단점 자리를 볼 것)"; TOTAL_FAIL=$((TOTAL_FAIL+1))
+    fi
+}
+selfcheck
 
 # ★등록 수 검사 — tests/t_*.cpp 가 T·T2 에 없으면 한 번도 안 돈다(목록에서 빠져도 초록 줄만 줄어 모른다).
 reg=" ${T[*]} ${T2[*]} "; nfile=0; unreg=(); nofile=()

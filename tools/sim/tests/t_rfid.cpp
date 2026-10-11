@@ -153,6 +153,29 @@ int main()
                               DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
         tlog("  세척기 0.3초 재접촉: 세척시간 %ld초 alarm=%d\n", (long)dur4, rtc.HasAlarm(1));
         CHECK(dur4 >= 4L * 60 && dur4 < 5L * 60 && rtc.HasAlarm(1), "세척 시작 2초 안 재접촉은 재시작(자동 종료 4분·알람 유지)");
+        // 창의 **경계**(18차 잠금) — 초 차이 1 = 재시작 · 2 = 종료. 위 표본(0.3초·5초·12초)만으로는 창을 3초로 바꿔도 초록이었다.
+        //  시각은 박지 않고 태그에 적힌 시작에서 +1·+2초로 시계를 다시 맞춘다.
+        sim_advance_ms(10UL * 60 * 1000);
+        fresh(f, 0x29, 29);
+        touch(f, 1, 4);
+        const DateTime s5 = DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START));
+        const bool started5 = get_process(f).Rewrite == 1 && rtc.HasAlarm(1);
+        rtc_set(DateTime(s5.unixtime() + 1));
+        touch(f);
+        const int32_t dur5 = (DefaultRtc::ToDateTime(get_ldt(f, SECTOR3_WASHING_END)) -
+                              DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
+        const bool alarm5 = rtc.HasAlarm(1);
+        sim_advance_ms(10UL * 60 * 1000);
+        fresh(f, 0x2A, 30);
+        touch(f, 1, 4);
+        const DateTime s6 = DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START));
+        rtc_set(DateTime(s6.unixtime() + 2));
+        touch(f);
+        const int32_t dur6 = (DefaultRtc::ToDateTime(get_ldt(f, SECTOR3_WASHING_END)) -
+                              DefaultRtc::ToDateTime(get_ldt(f, SECTOR2_WASHING_START))).totalseconds();
+        tlog("  창 경계: +1초 세척시간 %ld초 alarm=%d · +2초 세척시간 %ld초 alarm=%d\n", (long)dur5, alarm5, (long)dur6, rtc.HasAlarm(1));
+        CHECK(started5 && dur5 >= 4L * 60 && dur5 < 5L * 60 && alarm5, "창 경계: 태그 시작 + 1초 재접촉은 재시작(자동 종료 4분·알람 유지)");
+        CHECK(dur6 >= 2 && dur6 < 5 && !rtc.HasAlarm(1), "창 경계: 태그 시작 + 2초 재접촉은 종료(창은 2초 '안' — 차이 2 는 밖 · 알람 해제)");
     }
     // ── [3차 B] 세척기: 커밋은 됐는데 확인 읽기 실패(Write Error) → 곧바로 다시 대면 재시작 ──
     {
@@ -166,7 +189,7 @@ int main()
         logs_clear();
         touch(v, 1, 4);
         CHECK(get_process(v).Rewrite == 1 && !lcd_has("Write Error") && rtc.HasAlarm(1),
-              "5차C(W): 카드에 커밋됐으면 확인 읽기가 실패해도 성공(Write Error 아님·알람 있음)");
+              "5차C(W): 공정 쓰기가 카드에 닿았으면 확인 읽기가 3회 실패해도 성공(재읽기 폴백 · 표본은 시작의 첫 공정 쓰기 — Write Error 아님·알람 있음)");
         touch(v, 1, 4);
         const int32_t dur = (DefaultRtc::ToDateTime(get_ldt(v, SECTOR3_WASHING_END)) -
                              DefaultRtc::ToDateTime(get_ldt(v, SECTOR2_WASHING_START))).totalseconds();

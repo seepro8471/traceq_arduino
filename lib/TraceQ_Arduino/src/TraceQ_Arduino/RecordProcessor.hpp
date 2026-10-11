@@ -25,26 +25,31 @@ protected:
     void consume_disposability() { mDisposabilityFlag = false; }
     /// 메뉴에서 일회성 설정이 바뀌면 표지를 버린다(15차 사장님 A7) — 파생 클래스가 `using` 으로 공개한다.
     void ResetDisposability() { mDisposabilityFlag = false; }
-    /// 이 기기에서 이동이 Write Error 로 끝난 스코프(RAM · 10초) — 커밋은 닿았는데 확인이 끊긴 재접촉을 재확인으로 가른다(16차 A2).
-    /// 표지는 **재확인 · 그 스코프의 이동/종료 성공 · 10초** 중 먼저 오는 것으로 사라진다 — 17차: 커밋 전 실패 뒤 재접촉 이동이
-    /// 성공해도 표지가 남아 10초 안 되넣기(A→A 2차 시작)를 재확인으로 삼켰다(7갈래 독립 발견). 한 칸뿐이라 다른 스코프의 표지는
-    /// 안 지운다. 번호 −1(손상 태그)은 빈 표지와 같은 값이라 거른다.
+    /// 이 기기에서 이동이 Write Error 로 끝난 스코프(RAM · 한 칸) — 커밋은 닿았는데 확인이 끊긴 재접촉을 재확인으로 가른다(16차 A2).
+    /// 표지가 사라지는 길(18차에 넷으로): ① 그 스코프의 이동/종료 **성공**(17차 — 커밋 전 실패 뒤 재접촉 이동이 성공해도 표지가 남아
+    /// 10초 안 되넣기(A→A 2차 시작)를 삼켰다) ② **재확인**하면 2초만 더 산다(shorten — 재확인 직후의 튐도 재확인이 되게 · 성공한 이동의
+    /// 섹터6 2초와 같은 규칙) ③ 10초 만료 — 소독기 접촉마다 expire 가 실제로 지운다(시각만 비교하면 millis 한 바퀴 49.7일 뒤 같은
+    /// 10초 띠에서 되살아났다) ④ 재부팅. 다른 스코프의 표지는 안 지운다. 번호 −1(손상 태그)은 빈 표지와 같은 값이라 거른다.
     void note_write_error(int16_t scope) { mFailScope = scope; mFailMs = millis(); }
     bool failed_just_now(int16_t scope) const
     {
         return mFailScope >= 0 && mFailScope == scope && (millis() - mFailMs) < kFailWindowMs;
     }
     void clear_write_error(int16_t scope) { if (mFailScope == scope) mFailScope = -1; }
+    void expire_write_error() { if (mFailScope >= 0 && (millis() - mFailMs) >= kFailWindowMs) mFailScope = -1; }
+    void shorten_write_error(int16_t scope)
+    {
+        if (mFailScope == scope) mFailMs = millis() - (kFailWindowMs - kReconfirmWindowSec * 1000UL);
+    }
     static constexpr uint32_t kFailWindowMs{10000UL};
-    /// 더블터치 재시작 창(초) — 15차 사장님 A3: 2→10. 이동 재확인의 섹터6 시각 창은 따로 2초(튐 방지 — 재확인은 같은 기기만이라
-    /// 넓히면 A→A 의 성공한 이동 뒤 빠른 되넣기(2차 시작)를 삼킨다 · 찢긴 이동은 위 RAM 실패 표지 10초가 잡는다 · 16차).
+    /// 더블터치 재시작 창(초) — **2초**(사장님 10-09 · 15차 A3 의 10초를 되돌림). 이동 재확인의 섹터6 시각 창도 2초(튐 방지 · 따로 둔 상수).
     static constexpr uint8_t kRestartWindowSec{2};
     static constexpr uint8_t kReconfirmWindowSec{2};
     bool hasnt_patient_info(const RecordOption &recordOption);
 
-    /// 더블터치 판정 — 태그에 적힌 시작 시각이 지난 windowSec 초 안(0 ≤ 경과 < windowSec · 기본 10)이면 "방금 시작한 그 태그" 다.
-    /// 태그가 말해 주므로 RAM 에 마지막 시작을 기억할 필요가 없다(재부팅·기록 실패 뒤에도 옳다).
-    /// 더블터치 판정. 1 = 시작이 지난 windowSec 초 안(재시작) · 0 = 아니다(종료) · -1 = 시작 블록을 못 읽음(판정 불가 — 호출자가
+    /// 더블터치 판정 — 태그의 그 블록에 적힌 시각이 지난 windowSec 초 안(0 ≤ 경과 < windowSec · 기본 kRestartWindowSec)인가.
+    /// 태그가 말해 주므로 RAM 에 마지막 시작을 기억할 필요가 없다(재부팅·기록 실패 뒤에도 옳다). 시작 블록(재시작 판정)과
+    /// 섹터6 종료 블록(이동 직후 튐 판정) 둘에 쓴다. 1 = 창 안 · 0 = 아니다 · -1 = 그 블록을 못 읽음(판정 불가 — 호출자가
     /// Read Error 로 알리고 아무것도 바꾸지 않는다). 종전엔 못 읽으면 조용히 0 이 되어 1초짜리 종료가 기록됐다(5차 V4).
     /// startOut: 이 판정이 읽은 시작 시각을 그대로 넘겨준다(종료 보정이 다시 읽지 않도록 · 카드 동작 1회 절약).
     int8_t started_just_now(uint8_t startBlock, DefaultRtc &rtc, DateTime *startOut = nullptr,

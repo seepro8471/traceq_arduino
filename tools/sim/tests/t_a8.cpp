@@ -38,7 +38,7 @@ int main()
         deviceOption.SetNumber(5);
         ui.InvalidateHome(); logs_clear(); run_loops(1);
         tlog("  V1 번호 120→5 뒤 3행: [%.24s]\n", g_lcdLog);
-        CHECK(lcd_has(" W:05") && !lcd_has("WW:05"), "V1 기기번호 5칸 고정 — 자릿수가 줄어도 잔상(WW:05) 없음");
+        CHECK(lcd_has("W:005") && !lcd_has(" W:05"), "V1 기기번호는 늘 3자리 5칸(W:005 · 사장님 10-11) — 옛 두 자리 꼴( W:05)이 아니다");
         deviceOption.SetNumber(5000);
         CHECK(deviceOption.GetNumber() == 999, "V1 기기번호 상한 999(5칸)");
         deviceOption.SetNumber(1);

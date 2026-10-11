@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include "TraceQ_Arduino/data/LocalDateTime.hpp"
 
 constexpr unsigned long TRACEQ_COMPANY_CODE{4088153715UL};
@@ -18,3 +20,5 @@ struct Company
 
     Company() = default;
 };
+static_assert(sizeof(Company) == 10 && offsetof(Company, CompanyCode) == 0 && offsetof(Company, RegisteredDate) == 4 && offsetof(Company, TagType) == 8,
+              "Company must be the 10 tag bytes (code@0 date@4 type@8)");

@@ -1,9 +1,10 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 struct Process
-{   // 태그 블록 6 의 9바이트와 같은 레이아웃 — 아래 static_assert 는 **크기**만 지킨다(순서·패딩은 AVR ABI: int 2바이트, 패딩 없음)
+{   // 태그 블록 6 의 9바이트와 같은 레이아웃 — 아래 static_assert 가 크기와 **칸마다의 위치**를 지킨다(18차 · 순서를 바꾸면 빌드 실패)
     uint8_t Status{0};
     uint8_t DisinfectionCount{0};
     uint8_t WashingStatus{0};
@@ -22,4 +23,7 @@ struct Process
     explicit Process(uint8_t s) : Process(s, 0, 0, 0, 0, false, 0, 0) {}
 };
 static_assert(sizeof(Process) == 9, "Process must be exactly the 9 tag bytes (BaseProcessor reads/writes 9)");
+static_assert(offsetof(Process, Status) == 0 && offsetof(Process, DisinfectionCount) == 1 && offsetof(Process, WashingStatus) == 2 &&
+              offsetof(Process, DisinfectionStatus) == 3 && offsetof(Process, MachineNumber) == 4 && offsetof(Process, MovementNeeded) == 6 &&
+              offsetof(Process, LegacyRewrite) == 7 && offsetof(Process, Rewrite) == 8, "Process layout must match the tag block byte for byte");
 

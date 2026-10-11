@@ -122,8 +122,8 @@ int main()
             deviceOption.SetNumber(nums[i]);
             run_loops(1);
             const char *row = lcd_row(3);
-            if (nums[i] >= 100) snprintf(want, sizeof(want), "      %sR-OW:%d", TRACEQ_VERSION_STRING, nums[i]);
-            else                snprintf(want, sizeof(want), "      %sR-O W:%02d", TRACEQ_VERSION_STRING, nums[i]);
+            // 기기정보는 늘 3자리 5칸(`W:005` · 사장님 10-11) — 종전엔 100 미만이 ` W:05` 였다
+            snprintf(want, sizeof(want), "      %sR-OW:%03d", TRACEQ_VERSION_STRING, nums[i]);
             tlog("  B2 번호 %d: [%s] 기대 [%s]\n", nums[i], row, want);
             CHECK(strcmp(row, want) == 0, "B2 3행 배치 20칸 그대로(자릿수 변화 잔상 없음)");
         }

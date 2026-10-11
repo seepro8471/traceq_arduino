@@ -17,7 +17,12 @@ copy /y "..\.pio\build\megaatmega2560\firmware.hex" firmware.hex
 if errorlevel 1 goto :fail
 
 rem version.hpp 에서 버전 문자열 자동 추출 -> fw_version.txt (표기 갱신 누락 방지)
+rem  firmware.hex 안에 그 버전 문자열이 없으면(옛 빌드) 여기서 멈춘다
 py gen_version.py
+if errorlevel 1 goto :fail
+
+rem 업로더 시험(리더기 시계 맞춤 - 포트는 열지 않는다). 빨강이면 exe 를 만들지 않는다
+py -B test_clock_sync.py
 if errorlevel 1 goto :fail
 
 rem 추출한 버전을 파일명에 사용

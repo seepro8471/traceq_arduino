@@ -1,7 +1,7 @@
 // TraceQ Arduino 2.x — 메인.
 //
 // 1.0(=1.4.1) main.cpp의 동작 흐름을 유지하되, 다음 변경 사항을 반영:
-//   * 매 루프 Rc522Initialize() 재호출 제거 → IsAlive() 실패 시에만 Reinitialize().
+//   * 매 루프 Rc522Initialize() 재호출 제거 → 죽은 동안·살아난 첫 loop·설정이 날아간 때만 Reinitialize()(18차).
 //   * serialEvent는 1.0과 동일하게 raw 수신(readBytes)을 유지한다 — 현장 PC
 //     (SeePro/TraceQ_Python/구 TraceQ Desktop)는 'Z'/'G1..G5'/C·M·S를 STX 없이
 //     raw cp949로 보내기 때문. 단 511바이트 상한으로 NUL 종료를 보장해
@@ -158,8 +158,14 @@ static bool __attribute__((noinline)) ask_erase_settings()
     return false;                // 무응답 = 유지
 }
 
-// 리더 모듈(MFRC522) 살아있음 — 부팅 때 setup 이 재고, loop 는 바뀔 때만 PC 에 알린다(사장님 수락 10-07 · t_ii20).
+// 리더 모듈(MFRC522) 상태(사장님 수락 10-07 · 18차 재설계 · t_ii20).
+//  sReaderAlive    = 직전 loop 의 판정 — 살아난 첫 loop 를 알아 그때 칩을 다시 초기화한다.
+//  sReaderReported = PC 에 마지막으로 **보낸** 상태 — 지금 상태와 다르면 알린다(보낸 줄이 늘 지금 상태로 수렴한다).
+//  죽음 줄은 kReaderDeadReportGapMs 에 한 번까지 — 콘넥터가 떨려도 올눈이 줄마다 음성·알림창을 쌓지 않게. 복구 줄은 바로.
 static bool sReaderAlive = true;
+static bool sReaderReported = true;
+static unsigned long sReaderDeadReportMs = 0;
+static constexpr unsigned long kReaderDeadReportGapMs = 5000UL;
 
 void setup()
 {
@@ -177,10 +183,15 @@ void setup()
 
     rtc.RtcInitialize();
     rfid.Initialize();
-    // 부팅 1회: 리더 모듈 상태를 PC 에 알린다 — 죽어 있으면 `Firmware Version: 0x0 = (unknown)` + WARNING 줄로 올눈·SeePro 가
-    //  "리더기 연결 콘넥터 확인" 음성을 낸다(1.0 의 PCD_DumpVersionToSerial 자리 · SeePro 세션 요청 · 사장님 수락 10-07).
-    sReaderAlive = rfid.IsAlive();
-    rfid.ReportVersionToSerial();
+    // 부팅 1회: 리더 모듈 상태를 PC 에 알린다 — 죽어 있으면 `Firmware Version: 0x0 = (unknown)` + WARNING 줄로 올눈·SeePro·세척관리가
+    //  "리더기 연결 콘넥터 확인" 을 안내한다(SeePro 세션 요청 · 사장님 수락 10-07). 판정한 값을 그대로 보낸다(다시 읽지 않는다).
+    {
+        const uint8_t bootVersion = rfid.ReadVersion();
+        sReaderAlive = sReaderReported = RfidController::IsAliveVersion(bootVersion);
+        // 살아서 부팅했으면 첫 죽음 줄은 기다리지 않고 나가게(간격은 죽음 줄 **사이**에만 둔다)
+        sReaderDeadReportMs = sReaderAlive ? millis() - kReaderDeadReportGapMs : millis();
+        rfid.ReportVersionToSerial(bootVersion);
+    }
 
     // 177번지(액교환일 미룸)의 **알 수 없는 값**(3~255)은 **도장 블록보다 먼저** 정리한다 — 뒤에 두면 판 바꿈 유지
     //  갈래의 `!HasPendingClear()` 가 손상값(!=0)을 '미룸 있음' 으로 읽어 교환일이 빈 채 굳고 스스로 낫지 않았다
@@ -286,29 +297,32 @@ void loop()
     ui.DisplayHome(rtc, homeNumber);
 
     // [8차 판정 · 재론 금지] 한 loop 이 태그를 못 보는 시간이 있다 — 알림음(한 접촉 최대 2.6초 = 소독기 MaxCount Over
-    //  1초 + 환자 없음 1.6초)·**알람 발화(실측 2430ms = 300ms 펄스 4회 · 13차 HH2 P3-1 정정)**·거부음·메뉴(나올 때까지 ·
+    //  1초 + 환자 없음 1.6초)·**알람 발화(2400ms = 300ms 펄스 4회 · 13차 HH2 P3-1 정정)**·거부음·메뉴(나올 때까지 ·
     //  화면마다 60초 무조작이면 나간다)·PC 수신 대기. 그 사이 댔다 뗀 태그는 **통째로 없던 일이 된다**(기록은
     //  틀리지 않고 무음이라 사람이 다시 댄다 · CC2 P3-1). 없애려면 폴링을 인터럽트로 옮겨야 해서 두지 않는다.
-    // 1.0과 달리 매번 Rc522Initialize() 호출하지 않음. 죽었을 때만 재초기화.
+    //  18차 사실: 막힘이 끝나기 전에 **같은 태그**를 다시 대고 그대로 들고 있으면 뗄 때까지 무반응이다 — 막힌 동안 Poll 이 안 돌아
+    //  리더가 '떠난 것' 을 못 봤기 때문(prev && 같은 UID = KeepAlive · 창 ≈ 실패음 시작 뒤 1초). 뗐다 다시 대면 처리된다 · 그대로 둔다.
     // [사장님 판정 09-27 · 재론 금지] 리더 표시가 꺼졌다 켜지는 일(= 이 갈래가 도는 일)은 **전원 불안정 외에는
     //  없다**. 그래서 빈도를 세는 표시도 넣지 않는다(사장님 확정). 재초기화 뒤 태그가 다시 잡히는 경우도
     //  현장에선 안 생긴다 — 태그를 올려 두지 않고 접촉하고 바로 뗀다(RfidController::Reinitialize 주석).
-    //  10-07 사장님 수락: 빈도 표시는 여전히 안 넣고, **상태가 바뀔 때 한 번** 시리얼로만 알린다(죽음 → 0x0/0xFF + WARNING 줄 ·
-    //  복구 → 정상 버전 줄). loop 머리라 PSOk·블록 전송 중간에 끼지 않는다. 매 루프 찍으면 PC 로그가 넘친다 — 에지만(t_ii20).
-    const bool readerAlive = rfid.IsAlive();
-    if (readerAlive)
+    // 리더 살아있음: VersionReg 를 **한 번** 읽어 화면·재초기화·PC 알림에 같이 쓴다(18차 — 종전엔 판정과 보고가 따로 읽어, 콘넥터가
+    //  떨리면 "살아났는데 PC 는 죽음 줄만 받은 채" 로 굳었다).
+    const uint8_t readerVersion = rfid.ReadVersion();
+    const bool readerAlive = RfidController::IsAliveVersion(readerVersion);
+    ui.InfoReader(readerAlive);
+    // 재초기화 — ① 죽은 동안 매 loop(칩이 못 들어도, 살아나는 순간에 걸치면 그 한 번이 닿는다) ② **살아난 첫 loop**(전원을 잃었다 온
+    //  칩은 설정이 리셋값 = 안테나 OFF 다. 1.x 는 여기서 다시 초기화했는데 2.0~2.2.35 는 죽은 동안만 해서 `R-O` 인데 재부팅 전까지
+    //  태그를 못 읽었다 — PC 가 "콘넥터를 확인하십시요" 라고 안내하니 사람이 켠 채로 다시 꽂는 것이 바로 이 길이다 · 18차)
+    //  ③ 죽음을 못 본 순단(메뉴·알림음·수신 대기 사이에 칩만 리셋됨 — 설정 비트로 안다 · PC 알림 없음).
+    if (!readerAlive || !sReaderAlive || !rfid.IsConfigured()) rfid.Reinitialize();
+    sReaderAlive = readerAlive;
+    // PC 알림(사장님 수락 10-07): 마지막으로 **보낸** 상태와 다를 때만, 판정에 쓴 그 값으로. loop 머리라 PSOk·블록 전송 중간에 끼지 않는다.
+    if (readerAlive != sReaderReported &&
+        (readerAlive || millis() - sReaderDeadReportMs >= kReaderDeadReportGapMs))
     {
-        ui.InfoReader(true);
-    }
-    else
-    {
-        ui.InfoReader(false);
-        rfid.Reinitialize();
-    }
-    if (readerAlive != sReaderAlive)
-    {
-        sReaderAlive = readerAlive;
-        rfid.ReportVersionToSerial();
+        sReaderReported = readerAlive;
+        if (!readerAlive) sReaderDeadReportMs = millis();
+        rfid.ReportVersionToSerial(readerVersion);
     }
 
 #ifdef READER_MODE
@@ -519,6 +533,9 @@ __attribute__((unused)) void serialEvent()
     //  ★대기를 짧게(300ms) 낮추자는 안은 **쓰지 않는다**(CC1 P3-0): 막아야 할 이음매가 정의상 1초를 넘는
     //   것이므로(1초 안이면 첫 읽기가 이미 잡았다) 짧추면 이 봉합이 존재하는 이유가 사라진다 — 실제로
     //   1.8초 이음매 잠금이 빨강이 됐다. 폴링 정지(최악 약 8초 — 17차 실측 7.98초 · 수신음 1초 포함)는 전문이 덜 왔을 때만이라 감수한다.
+    // [18차 판정 · 둔다] 세 PC 에 방아쇠가 없고 결과가 환자 빈칸(남의 환자 아님)인 셋: ① 등록번호가 `G2…` 인 전문이 `G3` 바로 뒤에서
+    //  1초 넘게 갈림(G2 새 머리 판정엔 G1 쪽 같은 가드가 없다) ② 대기 사이에 `Z` 한 바이트만 옴(`…;ZG4`) ③ `G3~G5` 만 든 늦은 꼬리가
+    //  저장된 환자를 비움. 고치면 두 환자 섞임(CC1 P1-1)이 다시 열릴 수 있다 — 조각 경계가 필드 중간인 발신자가 생기면 다시 본다.
     if (gatewayFrame && GatewayProcessor::NeedsMoreBytes(cmd))
     {
         for (uint8_t more = 0; more < 3 && len < BUFFER_SIZE - 1 &&

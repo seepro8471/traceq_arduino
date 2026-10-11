@@ -57,9 +57,17 @@ int main()
         serial_inject(GET, sizeof(GET) - 1);
         GUARDED(serialEvent());
         CHECK(out_has_frame(t), "③ 시각을 맞춘 뒤의 설정 읽기에도 답한다(업로더의 확인 단계)");
+        // ③b (18차) 그 응답에 리더기의 **지금 시계**가 실린다 — 업로더·설정기가 되읽어 "맞췄다" 를 사실로 확인한다(시각 명령에는 응답이 없다)
+        char want[48];
+        snprintf(want, sizeof(want), "\"device_date_time\":\"%04u-%02u-%02u 14:03:2", (unsigned)TRACEQ_RELEASE_YEAR,
+                 (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY);
+        tlog("  [%c] 되읽기: %d\n", t, strstr(g_serialOut, want) != nullptr);
+        CHECK(strstr(g_serialOut, want) != nullptr, "③b 설정 읽기 응답에 방금 맞춘 시계(device_date_time · YYYY-MM-DD hh:mm:ss)가 실린다(네 타입)");
     }
 
-    // ④ 부팅 중(Keep settings · 화면 초기화)에 도착한 설정 읽기는 수신 버퍼에 남아 부팅 뒤에 답한다 — 업로더는 그 응답으로 "준비됨" 을 안다
+    // ④ setup 이 끝나기 전에 도착한 설정 읽기는 수신 버퍼에 남아 부팅 뒤에 답한다 — 업로더는 그 응답으로 "준비됨" 을 안다
+    //  (한계: 이 시험은 도장이 같은 부팅이라 `Keep settings?` 갈래를 안 돌고, 가짜 Serial.begin 은 버퍼를 안 건드려 begin 전 바이트 유실은 못 본다
+    //   — 업로더는 응답이 올 때까지 다시 묻는다)
     {
         power_restore(); deviceOption.SetType('D');
         logs_clear();

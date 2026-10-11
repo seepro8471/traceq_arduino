@@ -34,6 +34,10 @@ extern SimCard *g_card;            // 필드 위 카드(없으면 nullptr)
 extern SimCardState g_cardState;
 extern bool g_readerCrypto;
 extern uint8_t  g_versionReg;      // 0x00·0xFF = 죽은 리더(제품이 Reinitialize 를 탄다)
+extern uint16_t g_versionReads;    // VersionReg 를 읽은 횟수(판정과 보고가 같은 읽기인지 잰다)
+void sim_version_seq(uint8_t first, uint8_t second);   // 다음 두 번의 VersionReg 읽기 값(그 뒤는 g_versionReg) — 콘넥터 떨림
+void sim_reader_power_cycle();     // 모듈 전원이 나갔다 들어옴 — 칩 설정이 리셋값(안테나 OFF · 다시 초기화해야 카드가 응답)
+void sim_reader_half_init();       // 재초기화가 반만 닿은 칩 — 안테나 비트만 켜짐(다시 초기화해야 카드가 응답)
 extern uint16_t g_fieldDrop;       // 리더 소프트 리셋으로 카드가 전원을 잃은 횟수
 void sim_field_drop();
 
@@ -61,6 +65,8 @@ void power_restore();               // 차단 해제(시험이 hard_reset 앞에
 extern char g_lcdLog[1536];
 extern char g_serialOut[2048];
 void logs_clear();
+extern uint8_t g_satAsk;   // 가득 찬 로그에 물은 횟수 — 0 이 아니면 done() 이 빨강(18차)
+extern uint8_t g_satLog;   // tlog 한 줄이 잘린 횟수(run.sh 가 알린다)
 bool lcd_has(const char *s);
 const char *lcd_row(uint8_t row);   // 20자 + NUL — 실제 화면 한 행(잔상 판정)
 bool serial_has(const char *s);

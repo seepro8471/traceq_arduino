@@ -44,7 +44,7 @@ int main()
     touch(scope);
     en = get_ldt(scope, SECTOR3_WASHING_END);
     tlog_ldt("end", en);
-    CHECK(en.Time.Minute >= 2, "세척 종료 = 종료 터치 시각");
+    CHECK(en.Time.Hour == 10 && en.Time.Minute == 2, "세척 종료 = 종료 터치 시각(10:02 — 미리 채운 자동 종료 10:04 가 아니다)");
     CHECK(alarmBefore && !rtc.HasAlarm(1), "세척 알람 해제(알람 전 종료의 ClearAlarm)");
     tlog("  resets=%u\n", g_resetCount);
     done();

@@ -1,7 +1,7 @@
 // 14회차 II-C P2-3 잠금 — 동시소독 guest 의 커밋은 됐는데 확인 읽기가 끊겨 Write Error 가 난 뒤 사람이 다시 댄다.
 //  옛 결함: 재시작이 RAM 슬롯(이 스코프를 모른다)만 보고 커밋된 그룹2 를 1 로 덮어 host·창이 A 에서 B 로 옮겨갔다.
-//  S3  10초 안 재접촉(재시작) — 태그 DETAIL 의 그룹2 를 지키고(횟수 불변), 그 뒤 C 는 대조와 같이 새 host.
-//  S3b 10초 밖 재접촉 — 종료로 기록된다(대조 · 8차 판정 · 창은 15차 A3 로 10초) · S3c 3초 재접촉 = 재시작.
+//  S3  재시작 창(2초 · 10-09) 안 재접촉(재시작) — 태그 DETAIL 의 그룹2 를 지키고(횟수 불변), 그 뒤 C 는 대조와 같이 새 host.
+//  S3b 창 밖(12초) 재접촉 — 종료로 기록된다(대조 · 8차 판정) · S3c 실패음 뒤 3초 재접촉도 창 밖 = 종료(창이 10초이던 15차엔 재시작).
 //  S4  S3 을 이동해 온 스코프(2차 · DETAIL2)로 — 재시작이 DETAIL2 를 읽어야 한다(15차 III-H d1).
 #include "common.h"
 
@@ -84,7 +84,7 @@ int main()
         CHECK(ctlGrpB == 2 && ctlGrpC == 1 && ctlCountC == 1, "대조: B 는 guest(그룹2) · C 는 새 host(그룹1) · 횟수 +1");
     }
 
-    // ---- S3: B commit lands, confirm fails -> Write Error -> re-touch within 10 s ----
+    // ---- S3: B commit lands, confirm fails -> Write Error -> re-touch inside the 2 s restart window ----
     {
         as_disinfector();
         rtc_set(rel_date(10, 0, 0));
@@ -107,7 +107,7 @@ int main()
              disinfectionOption.GetCount());
         secs("S3 B restart", b);
         const int grpAfter = group_of(b);
-        CHECK(grpAfter == 2, "S3 10초 안 재접촉이 커밋된 그룹2 를 지킨다(RAM 이 모르면 태그의 DETAIL 을 믿는다)");
+        CHECK(grpAfter == 2, "S3 창(2초) 안 재접촉이 커밋된 그룹2 를 지킨다(RAM 이 모르면 태그의 DETAIL 을 믿는다)");
         CHECK(disinfectionOption.GetCount() == cTorn,
               "S3(17차) guest 의 찢긴 커밋 뒤 재시작은 횟수를 올리지 않는다(16차 횟수 보정의 `!isGuest` 항 · 배치 1회)");
         const int c0 = disinfectionOption.GetCount();
@@ -119,7 +119,7 @@ int main()
               "S3 그 뒤 C 는 대조와 같이 새 host(그룹1)·횟수 +1 — host·창이 B 로 옮겨지지 않는다");
     }
 
-    // ---- S3b: same, but the re-touch is > 10 s (end path) - for comparison ----
+    // ---- S3b: same, but the re-touch is outside the window (end path) - for comparison ----
     {
         as_disinfector();
         rtc_set(rel_date(12, 0, 0));
@@ -139,7 +139,7 @@ int main()
              s3.Time.Hour, s3.Time.Minute, s3.Time.Second, e3.Time.Hour, e3.Time.Minute, e3.Time.Second);
         CHECK(group_of(b) == 2 && get_process(b).Rewrite == 2 && e3.Time.Hour == 12 && e3.Time.Minute == 2,
               "S3c(10-09 창 2초) 실패음 뒤 3초 재접촉은 창 밖 → 종료(종료 시각 = 재접촉 시각 · 창이 10초면 재시작이 되어 빨강)");
-        // 10초 밖 재접촉 = 종료 — 종료로 기록됐다는 증거는 블록 종료 시각이 미리채움이 아니라 재접촉 시각(12:02)
+        // 창 밖 재접촉 = 종료 — 종료로 기록됐다는 증거는 블록 종료 시각이 미리채움이 아니라 재접촉 시각(12:02)
         sim_advance_ms(12000);
         logs_clear(); touch(b);
         const LocalDateTime s = get_ldt(b, SECTOR5_DISINFECTION_START);
@@ -147,7 +147,7 @@ int main()
         tlog("  S3b (>10s): grpB=%d start=%02u:%02u:%02u end=%02u:%02u:%02u\n", group_of(b),
              s.Time.Hour, s.Time.Minute, s.Time.Second, e.Time.Hour, e.Time.Minute, e.Time.Second);
         CHECK(group_of(b) == 2 && e.Time.Hour == 12 && e.Time.Minute == 2 && e.Time.Second >= 40,
-              "S3b 사실: 10초 밖 재접촉은 종료로 기록된다(종료 시각 = 재접촉 시각 · 그룹2 그대로 · 8차 판정)");
+              "S3b 사실: 창 밖 재접촉은 종료로 기록된다(종료 시각 = 재접촉 시각 · 그룹2 그대로 · 8차 판정)");
     }
 
     // ---- S4: 같은 것을 **이동해 온 스코프(2차)** 로 — 재시작이 DETAIL2 를 읽어야 한다 ----

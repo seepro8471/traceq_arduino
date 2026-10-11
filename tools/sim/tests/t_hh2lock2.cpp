@@ -66,7 +66,7 @@ int main()
     tlog("  N4 cfg_new_tag 만료: 100=%u 500=%u lcd=%d\n",
          buzz_count(100), buzz_count(500), lcd_has("timeout or error"));
     CHECK(lcd_has("timeout or error") && buzz_count(100) == 4 && buzz_count(500) == 0,
-          "N4 설정기 발급 대기 만료 = 실패음(SerialProcessor.cpp:148)");
+          "N4 설정기 발급 대기 만료 = 실패음(SerialProcessor::NewTag 의 꼬리)");
 
     tlog("  resets=%u\n", g_resetCount);
     done();

@@ -70,6 +70,26 @@ int main()
               "④버튼을 누르면 시한이 그때부터 다시 60초(약 100초에 나옴)");
     }
 
+    // ── ⑤⑥ (18차 잠금) 선택 화면 둘도 60초 무조작이면 저장 없이 나온다 — 시한의 형제 넷 중 이 둘은 시험이 없었다 ──
+    {
+        const bool flag0 = alarmOption.GetFlag();
+        decltype(ui.SetRecordAlarmFlag(alarmOption)) mf{};
+        unsigned long t0 = millis();
+        int r = GUARDED(mf = ui.SetRecordAlarmFlag(alarmOption));     // 2항 선택(Yes/No) — 버튼 없이
+        unsigned long dt = millis() - t0;
+        tlog("  ⑤2항 선택 방치: r=%d 경과=%lums 값유지=%d resets=%u\n", r, dt, alarmOption.GetFlag() == flag0, g_resetCount);
+        CHECK(r == 0 && dt >= 60000UL && dt < 62000UL && alarmOption.GetFlag() == flag0 && g_resetCount == 0,
+              "⑤2항 선택 화면(Alarm Sound) 60초 무조작 → 저장 없이 나온다(무한 대기·리셋 없음)");
+        const char type0 = deviceOption.GetType();
+        t0 = millis();
+        r = GUARDED(mf = ui.SetDeviceType(deviceOption));             // 4항 선택(Type)
+        dt = millis() - t0;
+        tlog("  ⑥4항 선택 방치: r=%d 경과=%lums 타입=%c resets=%u\n", r, dt, deviceOption.GetType(), g_resetCount);
+        CHECK(r == 0 && dt >= 60000UL && dt < 62000UL && deviceOption.GetType() == type0 && g_resetCount == 0,
+              "⑥4항 선택 화면(Type) 60초 무조작 → 타입 그대로 · 재시작 없이 나온다");
+        (void)mf;
+    }
+
     tlog("  resets=%u\n", g_resetCount);
     done();
     for (;;) {}

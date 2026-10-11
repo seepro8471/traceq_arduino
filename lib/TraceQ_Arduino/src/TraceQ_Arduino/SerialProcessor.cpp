@@ -34,11 +34,18 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
         printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
         return;
     }
-    // ★[17차 판정 · 사장님이 뒤집을 수 있음] 커밋 뒤 소거 실패는 **완료음** — PC 는 저장했고(`Ok!` + "완료" 음성) 태그는 완료(W·D 표시 0)라
-    //  다시 댈 이유가 없는데, 종전엔 Write Error 가 나서 규칙대로 다시 대면 `Not W and D` 거부음 + 세척관리 "세척·소독 정보 없음" 이
-    //  몇 번을 대도 반복됐다(10-05 사장님 사실 "다시 대면 정상" 과 어긋남). 남은 칸은 위 안전망이 지운다. 소거 순서 불변식(섹터15 → 블록5
-    //  → 8·9)은 `&&` 사슬로 그대로 — 앞이 실패하면 뒤를 지우지 않아야 다음 세척 시작의 잔재 판정이 돈다.
-    (void)(clear_gateway_and_subject() && clear_patient());
+    // ★[17차 판정 · 사장님이 뒤집을 수 있음] 커밋 뒤 소거가 **접촉이 끊겨** 실패한 것은 **완료음** — PC 는 저장했고(`Ok!` + "완료" 음성)
+    //  태그는 완료(W·D 표시 0)라 다시 댈 이유가 없는데, 종전엔 Write Error 가 나서 규칙대로 다시 대면 `Not W and D` 거부음 + 세척관리
+    //  "세척·소독 정보 없음" 이 몇 번을 대도 반복됐다. 남은 칸은 다음 접촉이 지운다(게이트웨이가 먼저면 새 검사로 덮고, 세척기가 먼저면
+    //  잔재 판정·선행 소거가 지운다 — 절단 조합 700여 주기에서 옛 환자·검사가 실린 행 0 · 18차 실측).
+    //  ★[18차] 단 **카드는 살아 있는데 쓰기만 거부**되는 것은 Write Error 다 — 블록이 상한 태그는 어느 접촉도 그 칸을 못 지워 지난
+    //  검사일시·본체번호가 환자 없는 행으로 매 주기 실린다. 17차는 그것까지 완료음으로 만들어 아무도 알리지 않게 됐다.
+    //  접촉이 끊긴 것과는 "공정 블록이 다시 읽히나" 로 가른다(가정 ③ 이 IDLE 쪽이면 실물은 못 가르고 완료음 — 17차와 같다).
+    if (!(clear_gateway_and_subject() && clear_patient()) && read_process())
+    {
+        printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
+        return;
+    }
 
     complete_delay();
     util_buzzer(150);   // 덤프 완료음 — 형제 성공음(50×1)과 펄스가 다르다(1.0 승계 · 13차 HH2 P3-3 · 잠금 t_hh2lock L5)
@@ -115,9 +122,12 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
     bool isHandled = false;
 
     const int typeId = mDocument["type_id"].as<int>();
+    // 발급 종류는 0·1·2 뿐 — 칸이 없거나 모르는 값이면 어떤 태그도 건드리지 않고 실패로 알린다(종전엔 누락 = 0(키 설치) ·
+    //  모르는 값 = 1(소거)로 돌았다 · 설정기는 늘 0~2 를 보낸다 · 18차).
+    const bool knownType = mDocument.containsKey("type_id") && typeId >= 0 && typeId <= 2;
 
     mScanner.ForgetTag();   // 설정 프로그램 안내대로 먼저 올려 둔 태그도 잡는다
-    while (millis() - timeout < 4000)
+    while (knownType && millis() - timeout < 4000)
     {
         if (mScanner.Poll(true) == RfidController::TagStatus::Connected)   // 정지된 태그도 깨운다(발급 대기)
         {
@@ -128,6 +138,9 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
             //   [0] SetAccessMethod → ClearTag → Company 기록
             //   [1] ClearTag → Company 기록
             //   [2] ClearTag → InitAccessMethod
+            // [18차 판정 · 사장님이 뒤집을 수 있음] 공장 복원(type 2)이 도중에 끊긴 태그(앞 섹터는 공장 키 · 뒤는 TraceQ 키)는 type 2 나
+            //  type 1 을 다시 해도 첫 섹터 인증에서 막힌다 — **type 0(신규 태그) 뒤 type 2** 로 회복한다(키 설치가 멱등 · t_issue).
+            //  type 2 가 키 설치를 먼저 지나게 하면 한 번에 되지만, 온전한 태그의 복원이 "KEY_A 인증 뒤 트레일러 읽기"(실물 미확인)에 기대게 돼 두지 않는다.
             if (typeId == 0 && mScanner.InstallTraceQKeys() != RfidResult::Ok) break;
 
             if (mScanner.ClearTag() != RfidResult::Ok) break;
@@ -194,6 +207,11 @@ void SerialProcessor::WriteOptionData(
     doc["df_clear_date_time"] = rtc.ToString(disinfectionOption.GetClearDateTime(), clearDateTime);
 
     doc["patient_check"] = recordOption.GetPatientCheck();
+
+    // 리더기의 지금 시계(18차) — 시각 명령에는 응답이 없어 PC 가 맞았는지 알 길이 없었다. 업로더·설정기가 이 칸을 되읽어 확인한다.
+    //  문서 여유: 사용 ≤168/512 에 슬롯 8 + 문자열 20(VI-D 실측). 모르는 키는 세척관리·설정기가 무시한다.
+    char nowText[]{"YYYY-MM-DD hh:mm:ss"};
+    doc["device_date_time"] = rtc.ToString(nowText);
 
     Serial.print(STX);
     serializeJson(doc, Serial);

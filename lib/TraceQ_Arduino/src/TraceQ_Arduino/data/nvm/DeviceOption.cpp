@@ -67,7 +67,7 @@ int DeviceOption::GetNumber() const
 void DeviceOption::SetNumber(int number)
 {
     if (number < 0) number = 0;
-    if (number > kNumberMax) number = kNumberMax;   // 상한은 DeviceOption::kNumberMax 정본 — PC 설정기는 0~99 만 보낸다
+    if (number > kNumberMax) number = kNumberMax;   // 상한은 DeviceOption::kNumberMax 정본 — 번호는 3자리(설정기·메뉴 둘 다 0~999 · 사장님 10-11)
     EEPROM.put(mNumberAddr, number);
     EEPROM.get(mNumberAddr, mNumber);
 }

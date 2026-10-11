@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include "TraceQ_Arduino/data/LocalDateTime.hpp"
 
 struct DisinfectionRecord
@@ -23,3 +25,5 @@ struct DisinfectionDetail
 };
 static_assert(sizeof(DisinfectionRecord) == 10, "DisinfectionRecord must be the 10 tag bytes (number 2 + datetime 8)");
 static_assert(sizeof(DisinfectionDetail) == 10, "DisinfectionDetail must be the 10 tag bytes (datetime 8 + group 2)");
+static_assert(offsetof(DisinfectionRecord, MachineNumber) == 0 && offsetof(DisinfectionRecord, DateTime) == 2, "DisinfectionRecord layout: number@0 datetime@2");
+static_assert(offsetof(DisinfectionDetail, DateTime) == 0 && offsetof(DisinfectionDetail, GroupNumber) == 8, "DisinfectionDetail layout: datetime@0 group@8");

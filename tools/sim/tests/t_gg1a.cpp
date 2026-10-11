@@ -257,7 +257,7 @@ int main()
         rtc_set(rel_date(18, 0, 0)); touch(a);             // 시작 @D#2
         deviceOption.SetNumber(44);                        // 낮은 바이트만 써진 모양
         rtc_set(rel_date(18, 25, 0)); logs_clear(); run_loops(2);
-        const bool shown = lcd_has("D:44");
+        const bool shown = lcd_has("D:044");               // 홈은 3자리(사장님 10-11)
         touch(a);
         const bool blocked = lcd_has("Other Machine");
         deviceOption.SetNumber(2);                         // 사람이 번호를 되돌린다

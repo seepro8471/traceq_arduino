@@ -128,11 +128,11 @@ UserInterface::MenuFunction UserInterface::SetDeviceType(DeviceOption &option)
 
 UserInterface::MenuFunction UserInterface::SetDeviceNumber(DeviceOption &option)
 {
-    // "%02d" 가 3자리 이상을 출력할 수 있어 여유 확보 (1.0 승계 결함).
+    // 기기 번호는 **3자리**(000~999 · 사장님 10-11) — 편집기는 보여 준 자릿수만 고칠 수 있어, 종전 "%02d" 로는 메뉴에서 100 이상을 넣을 수 없었다.
     char numberBuffer[8]{};
     const auto current{option.GetNumber()};
-    snprintf(numberBuffer, sizeof(numberBuffer), "%02d", current);
-    // title — "Number (NN)" = 11자+NUL (1.0은 [10]이라 2바이트 스택 오버런).
+    snprintf(numberBuffer, sizeof(numberBuffer), "%03d", current);
+    // title — "Number (NNN)" = 12자+NUL (1.0은 [10]이라 2바이트 스택 오버런).
     char title[16]{};   // "Number (32767)" 14자 + NUL
     snprintf(title, sizeof(title), "Number (%s)", numberBuffer);
     // line

@@ -74,7 +74,7 @@ int main()
         CHECK(ctlCount, "① 양성대조: guest 는 소독 횟수를 올리지 않는다(배치 1회)");
     }
 
-    // ── ② 사장님 판정의 근거: 실패음 뒤 **10초 안에 다시 대면**(15차 A3) host 를 되찾는다 ──
+    // ── ② 사장님 판정의 근거: 찢긴 시작 커밋 뒤 **재시작 창(2초 · 10-09) 안에 다시 대면** host 를 되찾는다 ──
     bool reGuest = false, reStart = false;
     {
         as_disinfector();
@@ -102,7 +102,7 @@ int main()
         tlog("  ② 재접촉(1.2초): 시작=%02u:%02u:%02u 종료시=%02u · b그룹=%d 횟수 %u->%u\n",
              s2.Time.Hour, s2.Time.Minute, s2.Time.Second, e2.Time.Hour, group_of(b),
              (unsigned)c0, (unsigned)disinfectionOption.GetCount());
-        CHECK(reStart, "② 실패음 뒤 10초 안 재접촉은 '종료' 가 아니라 시작 재실행이다");
+        CHECK(reStart, "② 찢긴 커밋 뒤 창(2초) 안 재접촉은 '종료' 가 아니라 시작 재실행이다(표본 1.2초 · 실패음 없는 상태)");
         CHECK(reGuest, "★② 그 재접촉이 host 를 되찾아 둘째 스코프가 guest(그룹2)로 기록된다 — 사장님 판정의 근거");
     }
 

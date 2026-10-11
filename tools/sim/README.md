@@ -8,7 +8,8 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
 - `fakes/fake_hw.cpp` — DS3231(시계 조작), LCD(출력 기록), EEPROM(RAM), Serial(입출력 기록), 부저(펄스 길이), 버튼 스크립트,
   `util_soft_reset` 가로채기(시험으로 복귀).
 - 사용 (Git Bash): `bash tools/sim/runall.sh "D:/traceq_arduino 2.0" <출력 폴더>`
-  — 등록 시험(`runall.sh` 의 `T`·`T2` — 09-28 기준 74종) 요약 · 끝에 `tests/t_*.cpp` 중 미등록을 `!! 미등록:` 으로 찍는다.
+  — 등록 시험(`runall.sh` 의 `T`·`T2` — 10-12 기준 77종) 요약 · 끝에 `tests/t_*.cpp` 중 미등록을 `!! 미등록:` 으로 찍는다.
+  출력 폴더는 **공백 없는 새 경로**로 — 이미 있고 비어 있지 않으면 우리가 남긴 표식(`.simout`)이 있어야 지우고 다시 쓴다(18차 · 엉뚱한 폴더를 지우지 않게).
   한 개만: `build.sh <루트> <출력> tests/t_x.cpp` 후 `run.sh <출력>/t_x.elf`.
   `build.sh` 는 요청된 시험의 옛 elf 를 먼저 지운다(빌드 실패면 elf 없음) · `run.sh` 종료코드 0 은 done() 도달·요약 있음·pass>0·fail=0 일 때뿐.
 - 필요: PlatformIO 로 한 번 빌드해 둔 `.pio\libdeps\megaatmega2560`(ArduinoJson·RTClib·BusIO·LCD 헤더).
@@ -50,5 +51,16 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
   - `run_loops` 는 Arduino 코어의 `serialEventRun`(loop 마다 serialEvent) 을 흉내 내지 않는다 — 코어처럼 바꿔 32종을 돌려도 결과 동일(17차).
   - `hard_reset` 이 못 지우는 것: 제품의 유일한 함수 static `sTailOfTruncated` · `g_ms`(millis 는 계속 간다 — 부팅 직후 조건은 `g_ms` 를 직접 놓는다) ·
     수신 버퍼 `s_in`. 16차 RAM 실패 표지(`mFailScope/mFailMs`)는 지워진다(실측).
-  - 로그 버퍼(LCD 1536 · 시리얼 2048 · 부저 64)가 차면 `!! … log full` 을 한 번 찍는다 — 그 뒤의 "없음" 판정은 못 믿는다(17차 · 문구는
-    PROGMEM — 하네스 문자열은 .data 라 t_a4 의 RAM 관문 3B 여유를 먹는다).
+  - 로그 버퍼(LCD 1536 · 시리얼 2048 · 부저 64)가 찬 채로 `lcd_has`/`serial_has` 가 "없다" 를 답하거나 `buzz_count` 를 부르면 그 시험은 **빨강**이다
+    (`FAIL saturated log asked` · 18차 — 17차의 경고 줄은 실행당 한 번·runall 에 안 보임·g_log 가 차면 유실이었다). `logs_clear`/`buzz_clear` 가 표지를 내린다.
+    `g_serialOut`·`g_lcdLog` 를 직접 읽는 판정은 이 관문 밖이다.
+  - 시험 로그(`g_log` 4096B)가 차면 gdb 가 `log_flush` 중단점에서 지금까지를 찍고 버퍼를 다시 쓴다(18차) — 긴 시험도 실측 줄이 전부 보인다. 한 줄이 640B 를
+    넘어 잘리면 `!! tlog line cut` 이 요약 앞에 찍힌다. 하네스 문자열은 .data 라 `t_a4` 의 RAM 관문(28000B) 여유를 먹는다 — 짧게.
+  - 가짜 리더 칩(18차): `sim_version_seq(a, b)` = 다음 두 번의 VersionReg 읽기 값(콘넥터 떨림) · `sim_reader_power_cycle()` = 모듈 전원 재인가(설정이 리셋값 —
+    안테나 OFF 라 다시 초기화하기 전엔 카드가 응답하지 않는다) · `sim_reader_half_init()` = 재초기화가 반만 닿은 칩(안테나 비트만 켜짐) ·
+    `g_versionReads` = VersionReg 읽기 횟수. 죽은 버스(0x00·0xFF)는 쓰기를 무시한다. 카드는 안테나 + 초기화 설정(TxASK)이 둘 다 있어야 응답한다.
+  - `hard_reset` 은 `main.cpp` 의 리더 상태 static 셋(`sReaderAlive`·`sReaderReported`·`sReaderDeadReportMs`)을 되살리지 않지만 `setup()` 이 셋 다 다시 놓는다.
+  - 요약을 찍는 중단점은 `done()` 의 **끝**(`sim_done_stop`)이다 — `done()` 안의 관문 둘(전원 차단이 켜진 채 끝남 · 포화된 로그에 물음)이 결과에 닿는다.
+    종전 `break done` 은 함수 첫머리라 그 관문이 한 번도 닿지 않았다(18차 · 음성대조 탐침으로 발견). 중단점 함수끼리(`log_flush`·`sim_done_stop`)는
+    몸이 달라야 한다 — 같으면 LTO 가 한 주소로 접어 gdb 가 한쪽 명령만 돌린다(요약이 안 찍히고 전량 TIMEOUT).
+    `runall.sh` 가 끝에 `selfcheck/t_guard.cpp`(일부러 두 관문에 걸리는 시험 — **빨강이어야** 한다)를 돌려 이것을 지킨다.

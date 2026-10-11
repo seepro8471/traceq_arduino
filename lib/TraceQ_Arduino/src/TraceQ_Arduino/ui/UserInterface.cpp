@@ -117,10 +117,9 @@ void UserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
     if (mHomeShownNumber != deviceNumber)
     {
         mHomeShownNumber = deviceNumber;
-        // 항상 15열부터 5칸 — 두 자리는 앞에 공백. 자릿수가 바뀌어도 잔상이 없다(1행 20자 채움과 같은 규칙).
+        // 항상 15열부터 5칸 `W:007` — 기기 번호는 **3자리**(0 채움 · 사장님 10-11). 자릿수가 고정이라 잔상이 없다.
         if (deviceNumber >= 1000)    snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%5d", deviceNumber);   // 도달 불가(번호 상한 DeviceOption::kNumberMax=999 — G1·세터·게터가 자른다) · 방어로 둔다
-        else if (deviceNumber >= 100) snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%d", mType, deviceNumber);
-        else                          snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), " %c:%02d", mType, deviceNumber);
+        else                         snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%03d", mType, deviceNumber);
         mLcd.setCursor(15, 3);
         mLcd.print(mDeviceInfoBuffer);
     }

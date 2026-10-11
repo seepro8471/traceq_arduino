@@ -193,7 +193,7 @@ int main()
         const bool menu3 = lcd_has("home") || lcd_has("Number");
         tlog("  B3 스크립트 S×60(1.2초): reset=%u type=%c 첫 loop r=%d 메뉴화면=%u\n", (unsigned)reset3, deviceOption.GetType(), r2, (unsigned)menu3);
         CHECK(reset3 && deviceOption.GetType() == 'D' && !menu3,
-              "B3(16차·17차 표본 3초) 저장 누름이 리셋 시점을 넘겨 이어져도 떼기 대기(최대 2초)가 기다려 재시작 뒤 메뉴로 다시 들어가지 않는다");
+              "B3(16차 · 표본 = 저장 뒤 SELECT 60회 읽힘 ≈1.2초) 저장 누름이 리셋 시점을 넘겨 이어져도 떼기 대기(최대 2초)가 기다려 재시작 뒤 메뉴로 다시 들어가지 않는다");
 
         // B4: 저장 누름 뒤 SELECT 가 **붙은 채**(스크립트로 'S' 를 500회 더 읽힘 = 10초) — 떼기 대기는 100회×20ms 상한이라 2초 뒤 리셋.
         //  기준(dtBase) 은 같은 조작을 붙지 않은 채로 잰 시간. 상한이 없으면 +10초 · 대기 자체가 없으면 +0 → 둘 다 빨강.

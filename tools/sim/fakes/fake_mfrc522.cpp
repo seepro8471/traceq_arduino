@@ -66,9 +66,18 @@ static bool can_answer(SimCard *c, SimCardState st, bool wupa)
     return c != nullptr && (st == CARD_IDLE || (wupa && st == CARD_HALT));
 }
 
+// ── 리더 칩 모형(18차) ── 실물 MFRC522: 전원 재인가·소프트 리셋 뒤 TxControlReg = 0x80(안테나 OFF) → 카드는 응답하지 못한다.
+//  PCD_AntennaOn 이 TxControlReg 를 읽어 하위 두 비트가 꺼져 있으면 켠다. 죽은 버스(g_versionReg 0x00/0xFF)는 쓰기를 못 듣고
+//  읽으면 그 값이 나온다. 종전 가짜는 안테나가 없어 "살아난 뒤 초기화가 없다" 를 볼 수 없었다(VI-A·VI-E·VI-J).
+static uint8_t s_txControl = 0x80;
+static uint8_t s_txAsk;       // TxASKReg — 리셋값 0x00. 제품 Initialize 가 0x40(100% ASK)을 써야 카드와 통신이 된다
+static bool reader_dead() { return g_versionReg == 0x00 || g_versionReg == 0xFF; }
+// 카드가 응답하려면 안테나가 켜져 있고 **초기화 설정도** 들어가 있어야 한다 — 안테나 비트만으로는 부족하다
+static bool antenna_on() { return !reader_dead() && (s_txControl & 0x03) == 0x03 && (s_txAsk & 0x40) != 0; }
+
 static bool card_op()   // 인증·읽기·쓰기 1회. false = 카드가 이미 없다
 {
-    if (g_card == nullptr || g_powerCut) return false;
+    if (g_card == nullptr || g_powerCut || !antenna_on()) return false;
     ++g_card->opCount;
     if (g_card->removeAfterOps && g_card->opCount > (uint16_t)g_card->removeAfterOps)
     {
@@ -82,6 +91,22 @@ static void card_idle() { if (g_card) g_cardState = CARD_IDLE; s_authSector = -1
 MFRC522::MFRC522(byte, byte) {}
 // 죽은 리더 흉내(0x00/0xFF) → 제품이 Reinitialize() 를 탄다.
 uint8_t g_versionReg = 0x92;
+// 죽은 loop 의 재초기화가 살아나는 순간에 걸쳐 **끝자락(안테나 켜기)만 닿은** 칩 — 안테나 비트는 켜졌는데 나머지 설정은 리셋값.
+//  설정 비트 검사(TxControl)로는 못 잡고, "살아난 첫 loop 에 다시 초기화" 만이 고친다(18차 · sim_reader_half_init).
+void sim_reader_half_init()
+{
+    s_txControl = 0x83;
+    s_txAsk = 0;
+    sim_field_drop();
+}
+// VersionReg 읽기를 차례로 지정한다(다 쓰면 g_versionReg) — 한 loop 안의 두 읽기가 갈리는 떨림을 만든다(18차 · sim_version_seq).
+static uint8_t s_versionSeq[4];
+static uint8_t s_versionSeqN, s_versionSeqAt;
+uint16_t g_versionReads;
+void sim_version_seq(uint8_t a, uint8_t b)
+{
+    s_versionSeq[0] = a; s_versionSeq[1] = b; s_versionSeqN = 2; s_versionSeqAt = 0;
+}
 // RC522 소프트 리셋은 TxControlReg 를 초기값(안테나 OFF)으로 되돌린다 → 올려 둔 카드가 전원을 잃고
 // 정지(HALT)가 풀린다. 실물 데이터시트 근거(4차 B 갈래). 횟수는 g_fieldDrop.
 uint16_t g_fieldDrop;
@@ -93,25 +118,46 @@ void sim_field_drop()
     g_readerCrypto = false;
     s_authSector = -1;
 }
+// 모듈 전원이 나갔다 들어왔다 — 칩 설정이 리셋값으로(안테나 OFF). VersionReg 는 g_versionReg 그대로(호출자가 죽음 표본을 따로 준다).
+void sim_reader_power_cycle()
+{
+    s_txControl = 0x80;
+    s_txAsk = 0;
+    sim_field_drop();
+}
 void MFRC522::PCD_WriteRegister(byte reg, byte val)
 {
     SIM_SP();
-    if (reg == CommandReg && val == PCD_SoftReset) sim_field_drop();
+    if (reader_dead()) return;                       // 죽은 버스 — 쓰기가 닿지 않는다
+    if (reg == CommandReg && val == PCD_SoftReset) { s_txControl = 0x80; s_txAsk = 0; sim_field_drop(); }
+    else if (reg == TxControlReg) s_txControl = val;
+    else if (reg == TxASKReg) s_txAsk = val;
 }
 byte MFRC522::PCD_ReadRegister(byte reg)
 {
     SIM_SP();
-    if (reg == VersionReg) return g_versionReg;
+    if (reg == VersionReg)
+    {
+        ++g_versionReads;
+        if (s_versionSeqAt < s_versionSeqN) return s_versionSeq[s_versionSeqAt++];
+        return g_versionReg;
+    }
+    if (reg == TxControlReg) return reader_dead() ? g_versionReg : s_txControl;
     return 0x00;   // CommandReg: PowerDown 해제 = soft reset 완료
 }
-void MFRC522::PCD_AntennaOn() { SIM_SP(); }
+void MFRC522::PCD_AntennaOn()   // 실물 라이브러리와 같은 읽고-쓰기(lib/MFRC522/MFRC522.cpp PCD_AntennaOn)
+{
+    SIM_SP();
+    const byte value = PCD_ReadRegister(TxControlReg);
+    if ((value & 0x03) != 0x03) PCD_WriteRegister(TxControlReg, value | 0x03);
+}
 void MFRC522::PCD_StopCrypto1() { SIM_SP(); g_readerCrypto = false; }
 
 // REQA/WUPA 는 같은 규칙 — WUPA 만 HALT 카드도 깨운다(ISO14443-3 6.3).
 //  카드가 둘이면 둘 다 응답(충돌)이고 anticollision 이 한 장을 고른다. 못 고른 카드는 IDLE 로 돌아간다.
 static MFRC522::StatusCode reqa_common(bool wupa, byte *atqa, byte *size)
 {
-    if ((g_card == nullptr && g_cardB == nullptr) || g_powerCut) return MFRC522::STATUS_TIMEOUT;
+    if ((g_card == nullptr && g_cardB == nullptr) || g_powerCut || !antenna_on()) return MFRC522::STATUS_TIMEOUT;
     if (g_readerCrypto) { card_idle(); other_idle(); return MFRC522::STATUS_TIMEOUT; }
     const bool aOk = can_answer(g_card, g_cardState, wupa);
     const bool bOk = can_answer(g_cardB, g_cardStateB, wupa);

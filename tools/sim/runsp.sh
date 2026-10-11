@@ -22,7 +22,7 @@ out=$(timeout "$LIMIT" "$TC/avr-gdb.exe" -batch -ex "file $EW" -ex "target sim" 
       -ex "break main" -ex "run" -ex "restore $EW.data.bin binary $VMA" \
       -ex "restore $PW binary $(printf '0x%x' $PSTART)" \
       -ex 'printf "SPMAIN=%u\n", $sp' \
-      -ex "delete" -ex "break done" -ex "continue" \
+      -ex "delete" -ex "break sim_done_stop" -ex "continue" \
       -ex "dump binary memory $DW $(printf '0x%x' $PSTART) $(printf '0x%x' $PEND)" \
       -ex 'printf "SPTOP=%u SPMINALL=%u SPDEPTH=%u MINSP=%u\n", g_spTopMax, g_spMinAll, g_spDepthMax, g_minSP' \
       -ex 'printf "==> pass=%d fail=%d\n", g_pass, g_fail' 2>&1)
