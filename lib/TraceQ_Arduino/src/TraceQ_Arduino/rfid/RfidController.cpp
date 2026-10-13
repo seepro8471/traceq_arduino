@@ -60,8 +60,8 @@ void RfidController::Reinitialize()
     mInitialized = false;
     // [5차 판정 · 재론 금지] 태그가 3회 miss 로 Disconnected 된 **뒤에** 리더가 재초기화되면(안테나 OFF → 정지 풀림)
     //  같은 태그가 Connected 로 다시 잡힌다 — "뗐다 다시 댐" 과 물리적으로 구별할 수 없다(W1 ④). 창 안은 아래가 막는다.
-    //  ★[사장님 확인 09-27] 이 경우는 **현장에서 생기지 않는다** — 태그를 올려 두지 않고 접촉하고 바로 떼므로,
-    //   Disconnected 된 뒤에는 태그가 이미 리더 위에 없다. 재초기화가 다시 잡을 대상이 없다.
+    //  19차 사실: Disconnected 는 처리 뒤 무응답 3회(0.1초쯤)라 **태그를 아직 들고 있어도** 난다 — 그 뒤의 재초기화는 같은 접촉을
+    //  또 처리한다(재시작 · `Sm!` 두 번 · Not W and D · 2초 넘게 들면 종료 기록). 그래서 호출자는 읽기 하나로 부르지 않는다(main loop).
     // ★present/prev/missCount 를 지우면 안 된다 — 칩 리셋은 안테나를 끄므로 올려 둔 카드가 전원을 잃고
     //  정지가 풀린다. 거기에 표시까지 지우면 같은 태그가 '새 태그' 가 되어, 재시작 창(2초)이 지난 태그면 세척·소독이
     //  곧바로 종료로 기록된다(더블터치 창 밖). EndSession 주석이 말하는 그 실기 확인 사례 그대로다.
@@ -71,7 +71,8 @@ void RfidController::Reinitialize()
 void RfidController::ReportVersionToSerial(uint8_t version)
 {
     // 글자는 MFRC522::PCD_DumpVersionToSerial() 의 것 — 올눈·델파이는 ':' 로 갈라 앞 `Firmware Version` · 뒤 ` 0x0 = (unknown)` 을 보고,
-    //  SeePro·세척관리는 0x0/0xFF 줄과 WARNING 줄을 본다(전부 '\n' 종단).
+    //  세척관리는 줄('\n') 단위로 0x0/0xFF 줄과 WARNING 줄을 본다. 올눈·델파이는 줄이 아니라 묵음 타이머 뒤의 덩이로 읽는다
+    //  (그래서 호출자가 접촉 직후에는 이 줄을 내지 않는다 — main loop 의 kReaderQuietMs).
     if (!IsAliveVersion(version))
     {
         // 죽음은 값과 무관하게 `0x0` — 0xFF 로 내면 올눈·델파이가 음성을 못 낸다(정확 일치만 본다 · 18차).
@@ -105,7 +106,7 @@ void RfidController::pcdSoftReset()
         }
         delayMicroseconds(200);
     }
-    // 타임아웃 시에도 진행: 다음 레지스터 쓰기에서 실패하면 상위에서 IsAlive로 감지.
+    // 타임아웃 시에도 진행: 칩이 죽었으면 호출자(main loop)가 VersionReg 로 안다.
 }
 
 RfidController::TagStatus RfidController::Poll(bool wakeHalted)

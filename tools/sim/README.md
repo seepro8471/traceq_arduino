@@ -8,14 +8,17 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
 - `fakes/fake_hw.cpp` — DS3231(시계 조작), LCD(출력 기록), EEPROM(RAM), Serial(입출력 기록), 부저(펄스 길이), 버튼 스크립트,
   `util_soft_reset` 가로채기(시험으로 복귀).
 - 사용 (Git Bash): `bash tools/sim/runall.sh "D:/traceq_arduino 2.0" <출력 폴더>`
-  — 등록 시험(`runall.sh` 의 `T`·`T2` — 10-12 기준 77종) 요약 · 끝에 `tests/t_*.cpp` 중 미등록을 `!! 미등록:` 으로 찍는다.
+  — 등록 시험(`runall.sh` 의 `T`·`T2` — 10-13 기준 80종) 요약 · 끝에 `tests/t_*.cpp` 중 미등록을 `!! 미등록:` 으로 찍는다.
   출력 폴더는 **공백 없는 새 경로**로 — 이미 있고 비어 있지 않으면 우리가 남긴 표식(`.simout`)이 있어야 지우고 다시 쓴다(18차 · 엉뚱한 폴더를 지우지 않게).
   한 개만: `build.sh <루트> <출력> tests/t_x.cpp` 후 `run.sh <출력>/t_x.elf`.
   `build.sh` 는 요청된 시험의 옛 elf 를 먼저 지운다(빌드 실패면 elf 없음) · `run.sh` 종료코드 0 은 done() 도달·요약 있음·pass>0·fail=0 일 때뿐.
+  `runall.sh` 의 빨강 수는 요약의 `fail=` 이다(19차 — FAIL 줄 수로 세면 1건이 2로, 줄 없는 실패는 0 으로 셌다). `main` 이 다시 들어오면
+  (리셋 벡터로 튐) `run.sh` 가 `!! main re-entered` 를 찍고 끝낸다 — 요약이 없어 빨강이다. `runallsp.sh`·`runsp.sh` 에도 같은 인자·표식 가드가 있다.
 - 필요: PlatformIO 로 한 번 빌드해 둔 `.pio\libdeps\megaatmega2560`(ArduinoJson·RTClib·BusIO·LCD 헤더).
 
 주의 (겪은 것)
 - gdb 시뮬레이터는 `.data` 초기값을 RAM 에 넣지 못한다 → `run.sh` 가 `main` 진입 때 ELF 의 .data 를 복원한다(그 전엔 전역이 0).
+  전역 생성자는 그 전에 돈다 — 생성자가 `.data` 를 읽는 전역이 생기면 첫 부팅만 실물과 달라진다(지금 제품 전역 16개는 차이 0 · 19차 실측).
 - LTO 를 끄면 메뉴 재귀가 꼬리호출로 바뀌어 재현되지 않는다 → 제품과 같이 LTO(`LTO=0` 으로 끌 수 있음).
 - gdb 명령 안의 경로는 `cygpath -m` 으로 넘긴다(`/c/...` 면 파일을 못 열고 멈춘다).
 - 음성대조는 결과 줄(`==>`)이 있는지부터 본다 — 없으면 "잡힘/놓침"이 아니라 실행 실패다. TIMEOUT 이면 `g_log` 도 없다.
@@ -55,12 +58,24 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
     (`FAIL saturated log asked` · 18차 — 17차의 경고 줄은 실행당 한 번·runall 에 안 보임·g_log 가 차면 유실이었다). `logs_clear`/`buzz_clear` 가 표지를 내린다.
     `g_serialOut`·`g_lcdLog` 를 직접 읽는 판정은 이 관문 밖이다.
   - 시험 로그(`g_log` 4096B)가 차면 gdb 가 `log_flush` 중단점에서 지금까지를 찍고 버퍼를 다시 쓴다(18차) — 긴 시험도 실측 줄이 전부 보인다. 한 줄이 640B 를
-    넘어 잘리면 `!! tlog line cut` 이 요약 앞에 찍힌다. 하네스 문자열은 .data 라 `t_a4` 의 RAM 관문(28000B) 여유를 먹는다 — 짧게.
+    넘어 잘리면 `!! tlog line cut` 이 요약 앞에 찍힌다(정확히는 **남은 자리**보다 길 때 — 자리는 640~4095B). 하네스 문자열은 .data 라 `t_a4` 의
+    RAM 관문(28000B) 여유를 먹는다 — 짧게(19차 뒤 여유 48B).
+  - 조용한 잘림은 **빨강**이다(19차): 버튼 스크립트 256자 · `serial_inject` 600B · `serial_queue` 8조각 · dwell 8칸을 넘으면 `FAIL input cut` ·
+    `run_loops` 의 loop 가 버튼 대기 한도에 끊기면 `FAIL loop cut`(다 쓴 스크립트는 `buttons_script("")` 로 비울 것). LCD·시리얼 로그에 쓰인 NUL 은
+    0x7F 로 적는다(그 뒤가 안 보이던 것). `buttons_at` 은 한 칸이다(다시 부르면 앞 것을 갈아 끼운다). 표지는 `t_sat` 이(dwell 잘림은 빼고 — 그 빌드가 아니다), 관문 넷이 요약에
+    닿는 것은 `selfcheck/t_guard.cpp` 가 잠근다. 관문 밖(세지 않는다): 시험이 제 손으로 돌리는 `GUARDED(loop())`·사설 pump · 안 읽힌 입력 위에 다시 부른
+    `serial_inject` · 로그 버퍼 직접 읽기.
   - 가짜 리더 칩(18차): `sim_version_seq(a, b)` = 다음 두 번의 VersionReg 읽기 값(콘넥터 떨림) · `sim_reader_power_cycle()` = 모듈 전원 재인가(설정이 리셋값 —
     안테나 OFF 라 다시 초기화하기 전엔 카드가 응답하지 않는다) · `sim_reader_half_init()` = 재초기화가 반만 닿은 칩(안테나 비트만 켜짐) ·
-    `g_versionReads` = VersionReg 읽기 횟수. 죽은 버스(0x00·0xFF)는 쓰기를 무시한다. 카드는 안테나 + 초기화 설정(TxASK)이 둘 다 있어야 응답한다.
-  - `hard_reset` 은 `main.cpp` 의 리더 상태 static 셋(`sReaderAlive`·`sReaderReported`·`sReaderDeadReportMs`)을 되살리지 않지만 `setup()` 이 셋 다 다시 놓는다.
-  - 요약을 찍는 중단점은 `done()` 의 **끝**(`sim_done_stop`)이다 — `done()` 안의 관문 둘(전원 차단이 켜진 채 끝남 · 포화된 로그에 물음)이 결과에 닿는다.
+    `g_versionReads` = VersionReg 읽기 횟수. 죽은 버스(0x00·0xFF)는 쓰기를 무시하고 어느 레지스터를 읽어도 그 값이다.
+    19차: 카드는 **제품 Initialize 가 쓰는 레지스터 전부**(TMode·TPrescaler·TReload·TxASK·Mode·안테나)가 들어가 있어야 응답한다(값이 다르면 무응답 —
+    그 줄을 고치면 가짜도 같이 고친다) · 리셋 직후엔 쓰기를 못 듣는다(소프트 리셋 = CommandReg 의 PowerDown 이 내려갈 때까지 · RST↑ = 38ms) ·
+    RST 핀(`g_rc522RstHigh` — `boot()`/`hard_reset()` 은 전원을 켠 직후라 LOW 에서 시작해 하드 리셋 갈래를 탄다) ·
+    `sim_reader_lose_first_write()`(첫 쓰기만 빠진 칩) · `g_cfgUnreadable`(설정이 되읽히지 않는 칩) · `g_softResets`(소프트 리셋 시도 수).
+    실물과 다른 것: HaltA 는 안테나·버스와 무관하게 듣는다 · 시리얼 송신 시간 0 · 수신 버퍼 600B(실물 511B)·넘침 없음.
+  - `hard_reset` 은 `main.cpp` 의 리더 감시 static 여섯(`sReaderDeadStreak` 등)을 되살리지 않지만 `setup()` 이 전부 다시 놓는다.
+  - 요약을 찍는 중단점은 `done()` 의 **끝**(`sim_done_stop`)이다 — `done()` 안의 관문 넷(전원 차단이 켜진 채 끝남 · 포화된 로그에 물음 · 입력 잘림 · loop 끊김)이 결과에 닿는다.
     종전 `break done` 은 함수 첫머리라 그 관문이 한 번도 닿지 않았다(18차 · 음성대조 탐침으로 발견). 중단점 함수끼리(`log_flush`·`sim_done_stop`)는
     몸이 달라야 한다 — 같으면 LTO 가 한 주소로 접어 gdb 가 한쪽 명령만 돌린다(요약이 안 찍히고 전량 TIMEOUT).
-    `runall.sh` 가 끝에 `selfcheck/t_guard.cpp`(일부러 두 관문에 걸리는 시험 — **빨강이어야** 한다)를 돌려 이것을 지킨다.
+    `runall.sh` 가 끝에 `selfcheck/t_guard.cpp`(일부러 네 관문에 걸리는 시험 — **빨강이어야** 한다)를 돌려 이것을 지킨다.
+    포화 표지의 모서리(LCD·시리얼·부저 각각)는 `t_sat` 이 초록 시험으로 잠근다(19차).

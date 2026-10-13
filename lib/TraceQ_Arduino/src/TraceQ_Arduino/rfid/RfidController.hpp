@@ -56,7 +56,7 @@ public:
 
     RfidController();
 
-    /// 한 번만 호출. (1.0은 loop마다 호출했지만 불필요.)
+    /// 부팅 때 한 번 + Reinitialize 가 부른다. (1.0은 loop마다 호출했지만 불필요.)
     void Initialize();
 
     /// VersionReg 를 **한 번** 읽는다 — 살아있음 판정·화면·PC 알림이 이 한 값을 같이 쓴다. 따로 읽으면 콘넥터가 떨릴 때 보낸 줄과
@@ -64,11 +64,21 @@ public:
     uint8_t ReadVersion() { return mMfrc522.PCD_ReadRegister(MFRC522::VersionReg); }
     /// 0x00·0xFF = SPI 가 죽었다(모듈 빠짐·전원 없음).
     static bool IsAliveVersion(uint8_t version) { return version != 0x00 && version != 0xFF; }
-    /// 칩 설정이 살아 있나(안테나 구동 비트). 모듈 전원이 나갔다 오면 VersionReg 는 읽히는데 설정은 리셋값(안테나 OFF)이라
-    /// 태그를 못 읽는다 — 살아 있는데 이것이 거짓이면 다시 초기화한다(18차).
-    bool IsConfigured() { return (mMfrc522.PCD_ReadRegister(MFRC522::TxControlReg) & 0x03) == 0x03; }
+    /// 칩 설정이 Initialize 가 쓴 그대로인가 — 그 함수가 쓰는 레지스터 일곱을 되읽는다(TxModeReg 는 Poll 이 매 loop 덮으므로 뺀다 ·
+    /// ModeReg 는 정의된 비트만). 모듈 전원이 나갔다 오면 전부 리셋값이고, 콘넥터 순단으로 그 중 하나만 빠져도 태그를 못 읽는다.
+    /// 살아 있는데 이것이 거짓이면 호출자가 다시 초기화한다(18차 안테나 비트 · 19차 전부 — 끝자락만 닿은 초기화를 못 봤다).
+    bool IsConfigured()
+    {
+        return mMfrc522.PCD_ReadRegister(MFRC522::TModeReg) == 0x80 &&
+               mMfrc522.PCD_ReadRegister(MFRC522::TPrescalerReg) == 0xA9 &&
+               mMfrc522.PCD_ReadRegister(MFRC522::TReloadRegH) == 0x03 &&
+               mMfrc522.PCD_ReadRegister(MFRC522::TReloadRegL) == 0xE8 &&
+               (mMfrc522.PCD_ReadRegister(MFRC522::TxASKReg) & 0x40) != 0 &&
+               (mMfrc522.PCD_ReadRegister(MFRC522::ModeReg) & 0xAB) == 0x29 &&
+               (mMfrc522.PCD_ReadRegister(MFRC522::TxControlReg) & 0x03) == 0x03;
+    }
 
-    /// 칩을 다시 초기화한다. 호출자(main loop): 죽은 동안 매 loop · 살아난 첫 loop · 설정이 날아간 때.
+    /// 칩을 다시 초기화한다. 호출자(main loop): 죽음이 이어지는 동안 · 확인된 죽음 뒤 살아난 첫 loop · 설정이 날아가 보이는 것이 이어질 때.
     /// 죽은 칩은 쓰기를 못 들으므로 죽은 동안의 호출만으로는 복구되지 않는다(2.0~2.2.35 는 그것만 했다).
     void Reinitialize();
 

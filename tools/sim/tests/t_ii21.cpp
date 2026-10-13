@@ -77,6 +77,29 @@ int main()
         CHECK(out_has_frame('D'), "④ 부팅 중에 온 설정 읽기도 부팅이 끝나면 답한다(업로더의 준비 신호)");
     }
 
+    // ④b(19차) 설정기(ArduinoConfigurator · json.dumps 기본 구분자 = 빈칸이 든 `": "`·`", "`)의 꼴도 같은 계약 —
+    //  업로더는 빈칸 없는 꼴만 보낸다. 설정기 쪽 바이트는 ArduinoConfigurator/test_config.py 가 같은 글자로 잠근다.
+    {
+        power_restore(); deviceOption.SetType('W');
+        rtc_set(rel_date(9, 0, 0));
+        hard_reset(false, 2);
+        static const char GET2[] = "\x02{\"cmd\": \"cfg_get_config\"}\x03";
+        logs_clear();
+        serial_inject(GET2, sizeof(GET2) - 1);
+        GUARDED(serialEvent());
+        const bool framed = out_has_frame('W');
+        char frame[110];
+        snprintf(frame, sizeof(frame), "\x02{\"cmd\": \"cfg_set_date_time\", \"device_date_time\": \"%04u-%02u-%02u 15:04:05\"}\x03",
+                 (unsigned)TRACEQ_RELEASE_YEAR, (unsigned)TRACEQ_RELEASE_MONTH, (unsigned)TRACEQ_RELEASE_DAY);
+        logs_clear(); buzz_clear();
+        serial_inject(frame, strlen(frame));
+        GUARDED(serialEvent());
+        const DateTime now = rtc.GetCurrentDateTime();
+        tlog("  설정기 꼴: 읽기 응답=%d 시각 %02u:%02u:%02u updated=%d\n", framed, now.hour(), now.minute(), now.second(), lcd_has("updated"));
+        CHECK(framed && now.hour() == 15 && now.minute() == 4 && now.second() >= 5 && now.second() <= 9 && lcd_has("updated"),
+              "④b(19차) 설정기 꼴(구분자에 빈칸)의 설정 읽기·시각 맞춤도 같은 계약으로 받는다");
+    }
+
     // ⑤ 한 버퍼에 시각+설정 읽기가 붙어 오면 둘째는 버린다 — 업로더가 둘 사이를 2.5초 띄우는 이유(이 규칙이 바뀌면 그 대기도 다시 본다)
     {
         power_restore(); deviceOption.SetType('W'); hard_reset(false, 2);

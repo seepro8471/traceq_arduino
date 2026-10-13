@@ -50,7 +50,7 @@ void DisinfectionProcessor::DisinfectionProcess(
         }
         if (again)
         {
-            shorten_write_error(mCachedTag.Number);   // 표지로 온 재확인이면 2초만 더(튐) · 섹터6 로 온 것이면 표지가 없어 아무 일도 없다
+            shorten_write_error(mCachedTag.Number);   // 표지로 온 재확인이면 2초만 더(튐) · 섹터6 로 온 것이면 이 스코프의 표지가 없어 아무 일도 없다
             // 찢긴 이동이 못 한 뒷정리 — 자기 슬롯 비움 + 알람 해제(이동 갈래와 같은 줄)
             if (is_guest(mCachedTag.Number)) mGuestScopeNumber = kNoScope;
             else if (is_host(mCachedTag.Number)) { mHostScopeNumber = kNoScope; mStartTime = DateTime{}; }
@@ -170,6 +170,13 @@ void DisinfectionProcessor::DisinfectionProcess(
     }
     else
     {
+        // 새 시작이면 이 스코프의 슬롯은 묵은 것(종료 접촉 없이 회수한 지난 주기 · 재확인 없이 넘긴 찢긴 이동) — 먼저 버린다(19차).
+        //  안 버리면 자기 시간창의 guest 가 되거나(그룹2 · 횟수 +0), 이 시작이 찢긴 뒤의 재시작이 횟수 보정을 건너뛰었다.
+        if (!isRestart)
+        {
+            if (is_guest(mCachedTag.Number)) mGuestScopeNumber = kNoScope;
+            if (is_host(mCachedTag.Number)) { mHostScopeNumber = kNoScope; mStartTime = DateTime{}; }
+        }
         if (simultaneously)
         {
             const auto deadline = DefaultRtc::AddTimeSpan(
@@ -329,7 +336,8 @@ bool DisinfectionProcessor::disinfection_start(
     //    **최대 120분**까지 둘 수 있어(DisinfectionOption 의 constrain) 20분을 넘겨 둔 현장이면 정상 배치 둘도
     //    같은 패턴을 낸다.
     // [11차 판정 · 재론 금지] 슬롯 판정은 **스코프 번호**로만 한다(`is_host(mCachedTag.Number)`) — 번호가 같은
-    //  카드가 두 장 돌면(재발급 뒤 옛 카드 잔존·번호 중복 발급) 배치 셋째가 host 가 되어 횟수가 하나 더 오른다
+    //  카드가 두 장 돌면(재발급 뒤 옛 카드 잔존·번호 중복 발급) 둘째 카드가 곧 host 가 되어 횟수가 하나 더 오른다
+    //  (19차 — 새 시작이 같은 번호의 슬롯을 버리므로 · 종전엔 셋째)
     //  (과다 계수 = 액교환이 일러지는 안전한 방향 · FF2 P3-1). 번호 대신 UID 로 바꾸면 재발급한 카드가 남의
     //  슬롯을 못 물려받아 정상 이동·재발급 흐름이 깨진다 → 그대로 둔다. 근본 대책은 **번호 중복 발급을 막는 것**.
     if (!isGuest && !isRestart) disinfectionOption.IncrementCount();

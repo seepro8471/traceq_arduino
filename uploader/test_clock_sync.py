@@ -101,8 +101,11 @@ class FakeReader:
         self.gets = 0
         self.sets = 0
         self.set_frames = 0
+        self.set_writes = 0          # 업로더가 써 보낸 시각 프레임 수(리더기가 버린 것도 센다)
         self.writes = 0
         self.write_fail_at = 0       # n번째 write 에서 예외(0 = 없음)
+        self.clock_junk = None       # 시계 칩 고장 - device_date_time 칸에 이 글자를 싣는다
+        self.junk_left = -1          # 깨진 값을 실을 남은 응답 수(-1 = 늘)
         self.resp_at = []
         self.closed = False
 
@@ -114,7 +117,11 @@ class FakeReader:
                 b'"manager_key":"ND01\x03456","manager_name":"' + KOREAN_NAME + b'","df_cnt":12,"df_max_cnt":30,'
                 b'"df_sim_delay":3,"df_sim_slot":1,"df_clear_cnt":2,"df_clear_date_time":"2026-10-01 09:00:00",'
                 b'"patient_check":true')
-        if self.clock_key:
+        if self.clock_junk is not None and self.junk_left != 0 and self.gets >= 2:
+            if self.junk_left > 0:
+                self.junk_left -= 1
+            body += b',"device_date_time":"' + self.clock_junk + b'"'
+        elif self.clock_key:
             body += b',"device_date_time":"' + self.reader_now().strftime('%Y-%m-%d %H:%M:%S').encode('ascii') + b'"'
         return bytes([up.STX]) + body + b'}' + bytes([up.ETX])
 
@@ -161,6 +168,8 @@ class FakeReader:
         self.writes += 1
         if self.write_fail_at and self.writes == self.write_fail_at:
             raise OSError('Write timeout')
+        if b'cfg_set_date_time' in data:
+            self.set_writes += 1
         if self.clk.t >= self.drop_until:      # 그 전은 부트로더가 삼킨다
             self.rx += data
             self.last_rx = self.clk.t
@@ -307,9 +316,10 @@ def main():
             clk = Clock()
             r = FakeReader(clk, ready_at=k / 100.0, read_timeout=timeout, dtype=dtype)
             res, _ = run(r, clk)
-            if not (res == 'ok' and clock_ok(r)):
-                bad.append((dtype, k / 100.0, res, r.sets))
-    check(not bad, '[11] 준비 시각 24.0~27.6초(재시도 경계) 180판 전부 ok 이고 리더기 시계가 실제로 맞다' + (' ' + repr(bad[:3]) if bad else ''))
+            if not (res == 'ok' and clock_ok(r) and r.set_writes == 1):
+                bad.append((dtype, k / 100.0, res, r.sets, r.set_writes))
+    check(not bad, '[11] 준비 시각 24.0~27.6초(재시도 경계) 180판 전부 ok 이고 리더기 시계가 실제로 맞다 - 시각 명령은 한 번에(재전송 없이)' +
+          (' ' + repr(bad[:3]) if bad else ''))
 
     # [12] 첫 시각 프레임이 반영되지 않으면(버려짐) 되읽기가 알아채고 한 번 더 보낸다
     clk = Clock()
@@ -317,6 +327,14 @@ def main():
     res, out = run(r, clk)
     check(res == 'ok' and r.set_frames == 2 and r.sets == 1 and clock_ok(r) and '한 번 더' in out,
           '[12] 첫 시각 명령이 반영되지 않으면 되읽기로 알아채고 다시 보내 ok')
+    sent = datetime.strptime(r.rtc_text, '%Y-%m-%d %H:%M:%S') if r.rtc_text else None
+    lag = (clk.base + timedelta(seconds=r.rtc_set_at) - sent).total_seconds() if sent else 99
+    check(0 <= lag <= 1.5, '[12] 다시 보낼 때는 그때의 PC 시각을 새로 읽는다(첫 전송 때의 묵은 시각이 아니다)')
+    clk = Clock()
+    r = FakeReader(clk, drop_sets=1)
+    r.rtc_offset = timedelta(seconds=-8)       # 허용 차(5초) 바로 위 - 맞았다고 넘기면 안 된다
+    res, _ = run(r, clk)
+    check(res == 'ok' and r.set_frames == 2 and clock_ok(r), '[12] 리더기 시계가 8초 다르면(허용 5초 밖) 맞았다고 하지 않고 한 번 더 보낸다')
 
     # [13] 끝내 반영되지 않으면 "맞췄습니다" 가 아니라 mismatch
     clk = Clock()
@@ -329,7 +347,23 @@ def main():
     clk = Clock()
     r = FakeReader(clk, clock_key=False)
     res, out = run(r, clk)
-    check(res == 'sent' and r.sets == 1 and '맞췄습니다' not in out, '[14] device_date_time 이 없는 판이면 sent(되읽어 확인했다고 말하지 않는다)')
+    check(res == 'sent' and r.sets == 1 and '맞췄습니다' not in out and '되읽어 주지 않습니다' in out,
+          '[14] device_date_time 이 없는 판이면 sent(되읽어 확인했다고 말하지 않는다)')
+    clk = Clock()
+    r = FakeReader(clk)
+    r.clock_junk = b'2165-25-45 25:61:85'      # 시계 칩 고장 - 칸은 있는데 날짜 꼴이 아니다
+    res, out = run(r, clk)
+    check(res == 'bad_clock' and '되읽어 주지 않습니다' not in out and '맞췄습니다' not in out and '시계 부품' in out,
+          '[14] 칸은 있는데 날짜 꼴이 아니면 옛 펌웨어라고 하지 않고 시계 부품 점검을 알린다(bad_clock)')
+    check(r.set_writes == 2 and '한 번 더' in out and "'2165-25-45 25:61:85'" in out and '보냈습니다' in out,
+          '[14] 그 전에 한 번 더 보내 보고, 끝내 깨져 있으면 돌려받은 값을 그대로 보여 준다')
+    clk = Clock()
+    r = FakeReader(clk)
+    r.clock_junk = b'2165-25-45 25:61:85'
+    r.junk_left = 1                            # 되읽기 한 번만 깨짐 - 다시 보내 확인하면 맞는다
+    res, out = run(r, clk)
+    check(res == 'ok' and r.set_writes == 2 and clock_ok(r) and '시계 부품' not in out,
+          '[14] 되읽기가 한 번만 깨졌으면 다시 보내 확인하고 ok(부품 고장이라고 하지 않는다)')
 
     # [15] 느린 부팅(버튼 조작 + 재리셋 · 게이트웨이 14.5초)도 준비 대기 안
     clk = Clock()
@@ -402,7 +436,7 @@ def main():
         up.subprocess.call = lambda cmd: calls.append(('avrdude', cmd[cmd.index('-P') + 1])) or 0
         with contextlib.redirect_stdout(io.StringIO()):
             code_ok = up.main()
-        order_ok = [c[0] for c in calls]
+        order_ok = list(calls)
         calls.clear()
         up.subprocess.call = lambda cmd: calls.append(('avrdude', cmd[cmd.index('-P') + 1])) or 1
         with contextlib.redirect_stdout(io.StringIO()):
@@ -410,10 +444,31 @@ def main():
         order_fail = [c[0] for c in calls]
     finally:
         (up.pick_port, up.pre_reset, up.subprocess.call, up.sync_clock, up.os.path.isfile, up.time.sleep) = saved
-    check(code_ok == 0 and order_ok == ['reset', 'avrdude', 'clock'],
+    check(code_ok == 0 and order_ok == [('reset', 'COM77'), ('avrdude', 'COM77'), ('clock', 'COM77')],
           '[19] 업로드 성공 -> 그 포트로 시계 맞춤 1회 · 시계가 안 맞아도 종료코드 0')
     check(code_fail == 1 and order_fail == ['reset', 'avrdude'] * 3,
           '[19] 업로드 실패(3회) -> 시계 맞춤을 부르지 않는다(옛 펌웨어에 시각을 보내지 않는다) · 종료코드 = avrdude 의 것')
+
+    # [19b] main 은 첫 줄에서 출력을 안전하게 만든다 - cp949 로 돌린 출력에 못 쓰는 글자가 찍혀도 업로드가 [오류] 로 끝나지 않는다
+    saved = (up.pick_port, up.pre_reset, up.subprocess.call, up.sync_clock, up.os.path.isfile, up.time.sleep)
+    keep = sys.stdout
+    died, code_cp = False, None
+    try:
+        up.pick_port = lambda: (print(chr(0x2014) + ' COM77'), 'COM77')[1]
+        up.pre_reset = lambda port: None
+        up.os.path.isfile = lambda p: True
+        up.time.sleep = lambda d: None
+        up.sync_clock = lambda port: 'ok'
+        up.subprocess.call = lambda cmd: 0
+        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='cp949')
+        try:
+            code_cp = up.main()
+        except UnicodeEncodeError:
+            died = True
+    finally:
+        sys.stdout = keep
+        (up.pick_port, up.pre_reset, up.subprocess.call, up.sync_clock, up.os.path.isfile, up.time.sleep) = saved
+    check(not died and code_cp == 0, '[19b] cp949 출력에 못 쓰는 글자가 찍혀도 main 이 죽지 않는다(main 첫 줄의 _safe_stdout)')
 
     # [20] gen_version - firmware.hex 안에 version.hpp 의 버전 문자열이 없으면(옛 빌드) 멈추고 fw_version.txt 를 안 쓴다
     import gen_version as gv

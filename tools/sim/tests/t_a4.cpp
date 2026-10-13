@@ -34,22 +34,24 @@ int main()
     touch(mgr);
 
     // ── ① 리더 재초기화가 올려 둔 태그를 다시 처리하지 않는다(B P2-1) ──
-    //    죽은 리더 → Reinitialize → 소프트 리셋으로 카드 전원 상실(정지 풀림). 그래도 present 표시가 남아
-    //    같은 태그는 KeepAlive 다. 옛 코드는 표시를 지워 '새 태그' 로 보고 3초 뒤 종료로 기록했다.
+    //    확인된 죽음(2 loop · 19차) → 살아난 loop 의 Reinitialize → 소프트 리셋으로 카드 전원 상실(정지 풀림). 그래도 present 표시가
+    //    남아 무응답 창 안의 같은 태그는 KeepAlive 다. 옛 코드는 표시를 지워 '새 태그' 로 보고 종료로 기록했다.
+    //    (죽음 1 loop 에는 재초기화 자체가 없다 — t_ii20 ㉑)
     {
         fresh_scope(a, 0x21, 21);
         card_place(&a);
         run_loops(1);                                    // 세척 시작(태그를 계속 올려 둔 상태)
         CHECK(get_process(a).Rewrite == 1 && rtc.HasAlarm(1), "①전제: 세척 시작 + 알람");
         sim_advance_ms(12000);                           // 12초 — 더블터치 창(2초 · 10-09) 밖에 넉넉히
-        g_versionReg = 0x00;                             // 리더 죽음 → 다음 루프 Reinitialize
-        run_loops(1);
+        const uint16_t drop0 = g_fieldDrop;
+        g_versionReg = 0x00;                             // 리더 죽음 2 loop → 살아난 loop 에 Reinitialize
+        run_loops(2);
         g_versionReg = 0x92;
         run_loops(30);                                   // 카드는 계속 올려 둔 채 여러 루프
         card_remove(); run_loops(4);
         tlog("  ①재초기화: fieldDrop=%u RW=%u 세척시간=%lds alarm=%d\n", g_fieldDrop, get_process(a).Rewrite,
              (long)dur_s(a, SECTOR2_WASHING_START, SECTOR3_WASHING_END), rtc.HasAlarm(1));
-        CHECK(g_fieldDrop >= 1, "①전제: 리셋으로 카드가 전원을 잃었다");
+        CHECK(g_fieldDrop > drop0, "①전제: 리셋으로 카드가 전원을 잃었다");
         const int32_t wd = dur_s(a, SECTOR2_WASHING_START, SECTOR3_WASHING_END);
         CHECK(wd >= 4L * 60 && wd < 5L * 60 && rtc.HasAlarm(1),
               "①재초기화 뒤에도 올려 둔 태그를 12초짜리 종료로 재처리하지 않는다(자동종료 4분 유지)");

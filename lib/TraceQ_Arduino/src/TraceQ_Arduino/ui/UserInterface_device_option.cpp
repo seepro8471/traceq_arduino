@@ -31,6 +31,8 @@ UserInterface::MenuFunction UserInterface::SetDeviceDate(DefaultRtc &rtc)
     // create line
     char dateBuffer[8]{};
     auto line = Line{0, 2, rtc.ToInternalString(dateBuffer, DefaultRtc::Format::Date)};
+    char entryText[8]{};
+    strncpy(entryText, line.GetContent(), sizeof(entryText) - 1);
     switch (edit_number(line, F("Date")))
     {
     case MenuFunction::Exit:
@@ -46,6 +48,9 @@ UserInterface::MenuFunction UserInterface::SetDeviceDate(DefaultRtc &rtc)
             //  (13차 HH2 P3-4: 펄스는 40ms 로 형제 실패음 100ms 보다 짧다 — 리듬 4회만 같다. 잠금 t_hh2lock L14·L15)
             return MenuFunction::Exit;
         }
+        // 안 고친 채 저장은 시계를 건드리지 않는다(19차) — 자정 직전에 열어 자정 뒤에 저장하면 "어제 날짜 + 지금 시각" 이 들어가
+        //  시계가 24시간 뒤로 갔다(시간 메뉴에는 그 보정이 있고 날짜 갈래만 없었다).
+        if (strcmp(line.GetContent(), entryText) == 0) return MenuFunction::Save;
         // set
         rtc.FromInternalString(line.GetContent(), dateTime, DefaultRtc::Format::Date);
         return MenuFunction::Save;
@@ -63,6 +68,8 @@ UserInterface::MenuFunction UserInterface::SetDeviceTime(DefaultRtc &rtc)
     // create line
     char timeBuffer[8]{};
     auto line = Line{0, 2, rtc.ToInternalString(timeBuffer, DefaultRtc::Format::Time)};
+    char entryText[8]{};
+    strncpy(entryText, line.GetContent(), sizeof(entryText) - 1);
     switch (edit_number(line, F("Time")))
     {
     case MenuFunction::Exit:
@@ -77,6 +84,9 @@ UserInterface::MenuFunction UserInterface::SetDeviceTime(DefaultRtc &rtc)
             Warning(0, 2, F("Invalid Time"));   // 위 `Invalid Date` 와 같은 소리·같은 판정(형제)
             return MenuFunction::Exit;
         }
+        // 안 고친 채 저장은 시계를 건드리지 않는다(19차 · 날짜 메뉴의 형제) — 그대로 저장하면 메뉴에 머문 만큼 시계가 뒤로 갔다.
+        //  [19차 판정] 고쳤다가 같은 글자로 되돌린 저장도 '안 고침' 이다(판정은 글자 — 그 초로 되돌리고 싶으면 다른 값을 거쳐 다시 들어온다).
+        if (strcmp(line.GetContent(), entryText) == 0) return MenuFunction::Save;
         // set
         rtc.FromInternalString(line.GetContent(), dateTime, DefaultRtc::Format::Time);
         return MenuFunction::Save;

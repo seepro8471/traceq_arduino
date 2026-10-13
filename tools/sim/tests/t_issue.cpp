@@ -72,12 +72,17 @@ int main()
     {
         static SimCard tq2;
         make_tag(tq2, 0x45, SCOPE_TYPE_TAG, 45, "SC0045", "S0045");
+        for (uint8_t blk = 1; blk < 64; ++blk)                // 데이터 블록 전부에 표지(종전엔 두 블록만 봤다 · 19차 VII-J)
+            if (blk % 4 != 3 && tq2.data[blk][15] == 0) tq2.data[blk][15] = 0x5A;
         card_place(&tq2);
         logs_clear();
         json("{\"cmd\":\"cfg_new_tag\",\"type_id\":2}");
         bool allFactory = true;
         for (uint8_t s = 0; s < 16; ++s)
             if (tq2.keyBAuth[s] || tq2.keyB[s][0] != 0xFF || tq2.data[s * 4 + 3][6] != 0xFF || tq2.data[s * 4 + 3][7] != 0x07) allFactory = false;
+        for (uint8_t blk = 1; blk < 64; ++blk)
+            for (uint8_t i = 0; i < 16 && blk % 4 != 3; ++i)
+                if (tq2.data[blk][i] != 0) allFactory = false;
         Company c2{};
         memcpy(&c2, tq2.data[SECTOR0_COMPANY], sizeof(c2));
         tlog("  type2: lcd=[%.40s] 공장트레일러=%d company=%lu\n", g_lcdLog, allFactory, (unsigned long)c2.CompanyCode);
@@ -122,9 +127,15 @@ int main()
     //  종전: 누락 = 0(키 설치·소거) · 모르는 값 = 1(소거)로 돌아 올려 둔 태그의 기록이 지워졌다.
     {
         static SimCard keep;
-        const char *bad[] = {"{\"cmd\":\"cfg_new_tag\"}", "{\"cmd\":\"cfg_new_tag\",\"type_id\":7}", "{\"cmd\":\"cfg_new_tag\",\"type_id\":-1}"};
+        //  19차: 숫자가 아닌 값도 — `as<int>()` 는 null·"x"·70000·0.4 를 0(키 설치·소거)으로, true·1.9 를 1 로, "2" 를 2 로 읽어 관문을 지났다.
+        const char *bad[] = {"{\"cmd\":\"cfg_new_tag\"}", "{\"cmd\":\"cfg_new_tag\",\"type_id\":7}", "{\"cmd\":\"cfg_new_tag\",\"type_id\":-1}",
+                             "{\"cmd\":\"cfg_new_tag\",\"type_id\":3}",
+                             "{\"cmd\":\"cfg_new_tag\",\"type_id\":null}", "{\"cmd\":\"cfg_new_tag\",\"type_id\":\"x\"}",
+                             "{\"cmd\":\"cfg_new_tag\",\"type_id\":70000}", "{\"cmd\":\"cfg_new_tag\",\"type_id\":0.4}",
+                             "{\"cmd\":\"cfg_new_tag\",\"type_id\":1.9}", "{\"cmd\":\"cfg_new_tag\",\"type_id\":true}",
+                             "{\"cmd\":\"cfg_new_tag\",\"type_id\":\"2\"}"};
         bool allKept = true;
-        for (uint8_t i = 0; i < 3; ++i)
+        for (uint8_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i)
         {
             make_tag(keep, 0x47 + i, SCOPE_TYPE_TAG, 47, "SC0047", "S0047");
             set_process(keep, Process{1, 0, 1, 0, 1, false, 0, 1});
@@ -143,7 +154,7 @@ int main()
             card_remove();
             run_loops(4);
         }
-        CHECK(allKept, "18차: type_id 누락·7·-1 → 태그에 쓰기 0 · 실패음 100×4 `timeout or error` · 4초를 기다리지 않는다");
+        CHECK(allKept, "18·19차: type_id 누락·범위 밖·숫자 아님(null·글자·소수·true) → 태그에 쓰기 0 · 실패음 100×4 · 4초를 기다리지 않는다");
     }
     tlog("  resets=%u\n", g_resetCount);
     done();

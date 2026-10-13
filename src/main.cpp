@@ -1,7 +1,7 @@
 // TraceQ Arduino 2.x — 메인.
 //
 // 1.0(=1.4.1) main.cpp의 동작 흐름을 유지하되, 다음 변경 사항을 반영:
-//   * 매 루프 Rc522Initialize() 재호출 제거 → 죽은 동안·살아난 첫 loop·설정이 날아간 때만 Reinitialize()(18차).
+//   * 매 루프 Rc522Initialize() 재호출 제거 → 죽음이 이어지는 동안·살아난 첫 loop·설정이 날아간 때만 Reinitialize()(18·19차).
 //   * serialEvent는 1.0과 동일하게 raw 수신(readBytes)을 유지한다 — 현장 PC
 //     (SeePro/TraceQ_Python/구 TraceQ Desktop)는 'Z'/'G1..G5'/C·M·S를 STX 없이
 //     raw cp949로 보내기 때문. 단 511바이트 상한으로 NUL 종료를 보장해
@@ -158,14 +158,27 @@ static bool __attribute__((noinline)) ask_erase_settings()
     return false;                // 무응답 = 유지
 }
 
-// 리더 모듈(MFRC522) 상태(사장님 수락 10-07 · 18차 재설계 · t_ii20).
-//  sReaderAlive    = 직전 loop 의 판정 — 살아난 첫 loop 를 알아 그때 칩을 다시 초기화한다.
-//  sReaderReported = PC 에 마지막으로 **보낸** 상태 — 지금 상태와 다르면 알린다(보낸 줄이 늘 지금 상태로 수렴한다).
-//  죽음 줄은 kReaderDeadReportGapMs 에 한 번까지 — 콘넥터가 떨려도 올눈이 줄마다 음성·알림창을 쌓지 않게. 복구 줄은 바로.
-static bool sReaderAlive = true;
+// 리더 모듈(MFRC522) 감시(사장님 수락 10-07 · 18차 재설계 · 19차 "읽기 하나를 믿지 않는다" · t_ii20).
+//  DeadStreak·DeadSinceMs  = 죽음을 연속으로 읽은 loop 수와 그 시작 — 2 loop 부터 '죽었다'(재초기화) · 700ms 를 넘겨야 PC 죽음 줄.
+//  Reported·DeadReportMs   = PC 에 마지막으로 **보낸** 상태와 마지막 죽음 줄 시각 — 지금과 다르면 알린다 · 죽음 줄은 5초에 한 번.
+//  Touched·QuietSinceMs    = 직전 loop 가 태그를 처리했나와 그 끝 시각 — 상태 줄은 접촉 뒤 700ms 안에는 내지 않는다(델파이·올눈은 묵음
+//    타이머 333/500ms 안 덩이의 **마지막 줄**이 `Ok!`/`Sm!` 일 때만 저장한다 — 줄이 그 뒤에 붙으면 그 접촉의 기록을 버린다).
+//  CfgStreak·CfgSeen·CfgBudget = 살아 있는데 설정이 틀리게 읽힌 loop 수(맞게 읽히면 0) · 이 부팅에서 맞게 읽힌 적이 있나 · 그 전에 고쳐 본 횟수.
+//    맞게 읽힌 적이 있으면 되읽기가 되는 칩이라 틀린 것은 진짜다(제한 없이 고친다). 한 번도 없으면 세 번까지만(되읽기가 안 되는 칩일 수 있다).
+static uint8_t sReaderDeadStreak = 0;
+static unsigned long sReaderDeadSinceMs = 0;
 static bool sReaderReported = true;
 static unsigned long sReaderDeadReportMs = 0;
+static bool sReaderTouched = false;
+static unsigned long sReaderQuietSinceMs = 0;
+static uint8_t sReaderCfgStreak = 0;
+static uint8_t sReaderCfgBudget = 0;
+static bool sReaderCfgSeen = false;
+static constexpr uint8_t kReaderConfirmLoops = 2;
+static constexpr unsigned long kReaderDeadConfirmMs = 700UL;
+static constexpr unsigned long kReaderQuietMs = 700UL;
 static constexpr unsigned long kReaderDeadReportGapMs = 5000UL;
+static constexpr uint8_t kReaderCfgBudgetMax = 3;
 
 void setup()
 {
@@ -186,10 +199,16 @@ void setup()
     // 부팅 1회: 리더 모듈 상태를 PC 에 알린다 — 죽어 있으면 `Firmware Version: 0x0 = (unknown)` + WARNING 줄로 올눈·SeePro·세척관리가
     //  "리더기 연결 콘넥터 확인" 을 안내한다(SeePro 세션 요청 · 사장님 수락 10-07). 판정한 값을 그대로 보낸다(다시 읽지 않는다).
     {
-        const uint8_t bootVersion = rfid.ReadVersion();
-        sReaderAlive = sReaderReported = RfidController::IsAliveVersion(bootVersion);
-        // 살아서 부팅했으면 첫 죽음 줄은 기다리지 않고 나가게(간격은 죽음 줄 **사이**에만 둔다)
-        sReaderDeadReportMs = sReaderAlive ? millis() - kReaderDeadReportGapMs : millis();
+        uint8_t bootVersion = rfid.ReadVersion();
+        if (!RfidController::IsAliveVersion(bootVersion)) bootVersion = rfid.ReadVersion();   // 죽음이면 한 번 더 — 튄 읽기 하나로 부팅 죽음 줄을 내지 않는다
+        const bool bootAlive = RfidController::IsAliveVersion(bootVersion);
+        sReaderReported = bootAlive;
+        sReaderDeadStreak = bootAlive ? 0 : kReaderConfirmLoops;   // 죽은 채 부팅 = 확정된 죽음(살아나는 loop 에 다시 초기화한다)
+        // 살아서 부팅했으면 첫 죽음 줄은 간격을 기다리지 않게(간격은 죽음 줄 **사이**에만 둔다)
+        sReaderDeadReportMs = bootAlive ? millis() - kReaderDeadReportGapMs : millis();
+        sReaderCfgStreak = sReaderCfgBudget = 0;
+        sReaderCfgSeen = sReaderTouched = false;
+        sReaderQuietSinceMs = millis() - kReaderQuietMs;
         rfid.ReportVersionToSerial(bootVersion);
     }
 
@@ -302,23 +321,46 @@ void loop()
     //  틀리지 않고 무음이라 사람이 다시 댄다 · CC2 P3-1). 없애려면 폴링을 인터럽트로 옮겨야 해서 두지 않는다.
     //  18차 사실: 막힘이 끝나기 전에 **같은 태그**를 다시 대고 그대로 들고 있으면 뗄 때까지 무반응이다 — 막힌 동안 Poll 이 안 돌아
     //  리더가 '떠난 것' 을 못 봤기 때문(prev && 같은 UID = KeepAlive · 창 ≈ 실패음 시작 뒤 1초). 뗐다 다시 대면 처리된다 · 그대로 둔다.
-    // [사장님 판정 09-27 · 재론 금지] 리더 표시가 꺼졌다 켜지는 일(= 이 갈래가 도는 일)은 **전원 불안정 외에는
-    //  없다**. 그래서 빈도를 세는 표시도 넣지 않는다(사장님 확정). 재초기화 뒤 태그가 다시 잡히는 경우도
-    //  현장에선 안 생긴다 — 태그를 올려 두지 않고 접촉하고 바로 뗀다(RfidController::Reinitialize 주석).
+    // [사장님 판정 09-27 · 재론 금지] 리더 표시가 꺼졌다 켜지는 일은 **전원 불안정 외에는 없다**. 그래서 빈도를 세는
+    //  표시도 넣지 않는다(사장님 확정). 19차 사실: 재초기화는 들고 있는 태그를 새 접촉으로 또 처리하게 만든다 — **확인된**
+    //  죽음·설정 유실에만 한다(RfidController::Reinitialize 주석).
     // 리더 살아있음: VersionReg 를 **한 번** 읽어 화면·재초기화·PC 알림에 같이 쓴다(18차 — 종전엔 판정과 보고가 따로 읽어, 콘넥터가
     //  떨리면 "살아났는데 PC 는 죽음 줄만 받은 채" 로 굳었다).
+    if (sReaderTouched) { sReaderTouched = false; sReaderQuietSinceMs = millis(); }   // 직전 loop 가 태그를 처리했다 — 그 끝(지금)부터 잰다
     const uint8_t readerVersion = rfid.ReadVersion();
     const bool readerAlive = RfidController::IsAliveVersion(readerVersion);
     ui.InfoReader(readerAlive);
-    // 재초기화 — ① 죽은 동안 매 loop(칩이 못 들어도, 살아나는 순간에 걸치면 그 한 번이 닿는다) ② **살아난 첫 loop**(전원을 잃었다 온
-    //  칩은 설정이 리셋값 = 안테나 OFF 다. 1.x 는 여기서 다시 초기화했는데 2.0~2.2.35 는 죽은 동안만 해서 `R-O` 인데 재부팅 전까지
-    //  태그를 못 읽었다 — PC 가 "콘넥터를 확인하십시요" 라고 안내하니 사람이 켠 채로 다시 꽂는 것이 바로 이 길이다 · 18차)
-    //  ③ 죽음을 못 본 순단(메뉴·알림음·수신 대기 사이에 칩만 리셋됨 — 설정 비트로 안다 · PC 알림 없음).
-    if (!readerAlive || !sReaderAlive || !rfid.IsConfigured()) rfid.Reinitialize();
-    sReaderAlive = readerAlive;
-    // PC 알림(사장님 수락 10-07): 마지막으로 **보낸** 상태와 다를 때만, 판정에 쓴 그 값으로. loop 머리라 PSOk·블록 전송 중간에 끼지 않는다.
-    if (readerAlive != sReaderReported &&
-        (readerAlive || millis() - sReaderDeadReportMs >= kReaderDeadReportGapMs))
+    // 재초기화 — ① 죽음이 이어지는 동안(둘째 loop 부터) ② **확인된 죽음 뒤 살아난 첫 loop**(전원을 잃었다 온 칩은 안테나 OFF 다 —
+    //  2.0~2.2.35 는 죽은 동안만 해서 켠 채 콘넥터를 다시 꽂으면 `R-O` 인데 태그를 못 읽었다 · 18차) ③ 살아 있는데 설정이 날아가
+    //  보이는 것이 두 loop 이어질 때(못 본 순단 · 반만 닿은 초기화 · PC 알림 없음). 읽기 하나로는 아무것도 하지 않는다(19차).
+    //  [19차 판정] 긴 막힘(메뉴·알람음·수신 대기)을 사이에 둔 튄 읽기 둘은 '이어진 둘' 로 센다(죽음 줄 1 + 복구 줄 1 + 재초기화 2) — 두 번 다 튀어야 하는 겹침이라 둔다.
+    bool reinitialize = false;
+    if (!readerAlive)
+    {
+        if (sReaderDeadStreak == 0) sReaderDeadSinceMs = millis();
+        if (sReaderDeadStreak < 255) ++sReaderDeadStreak;
+        reinitialize = sReaderDeadStreak >= kReaderConfirmLoops;
+    }
+    else
+    {
+        const bool wasDead = sReaderDeadStreak >= kReaderConfirmLoops;
+        sReaderDeadStreak = 0;
+        if (wasDead) reinitialize = true;
+        else if (rfid.IsConfigured()) { sReaderCfgStreak = 0; sReaderCfgSeen = true; }
+        else if ((sReaderCfgSeen || sReaderCfgBudget < kReaderCfgBudgetMax) && ++sReaderCfgStreak >= kReaderConfirmLoops)
+        {
+            reinitialize = true;
+            sReaderCfgStreak = 0;
+            if (sReaderCfgBudget < kReaderCfgBudgetMax) ++sReaderCfgBudget;
+        }
+    }
+    if (reinitialize) rfid.Reinitialize();
+    // PC 알림(사장님 수락 10-07): 마지막으로 **보낸** 상태와 다를 때만, 판정에 쓴 그 값으로. 죽음 줄은 죽은 채 kReaderDeadConfirmMs 를
+    //  넘기고 앞 죽음 줄에서 kReaderDeadReportGapMs 가 지났을 때 · 둘 다 접촉 뒤 kReaderQuietMs 안에는 미룬다. loop 머리라 블록 전송 중간에 끼지 않는다.
+    const bool quiet = millis() - sReaderQuietSinceMs >= kReaderQuietMs;
+    if (quiet && (readerAlive ? !sReaderReported
+                              : (sReaderReported && millis() - sReaderDeadSinceMs >= kReaderDeadConfirmMs &&
+                                 millis() - sReaderDeadReportMs >= kReaderDeadReportGapMs)))
     {
         sReaderReported = readerAlive;
         if (!readerAlive) sReaderDeadReportMs = millis();
@@ -377,6 +419,7 @@ void loop()
 
     // 태그 폴링 — 새 태그만 처리.
     if (rfid.Poll() != RfidController::TagStatus::Connected) return;
+    sReaderTouched = true;   // 이 loop 가 끝난 뒤 한동안은 리더 상태 줄을 내지 않는다(loop 머리)
 
     // Company 검사 (회사 코드 일치 여부).
     Company company{};
@@ -420,7 +463,7 @@ void loop()
         else
         {
             // 번호를 안 읽는 **태그 접촉** 알림은 3행의 앞 건 스코프 번호를 지운다 — print_tag_number 의 형제(15차 III-F · main 7 +
-            //  발급 5(SerialProcessor · 16차)). PC 명령 알림(`updated`·`Invalid JSON` 등 11자리)은 접촉이 아니라 번호를 두는 것이 맞다(17차 정정).
+            //  발급 알림(SerialProcessor · 16차)). PC 명령 알림(`updated`·`Invalid JSON` 등 11자리)은 접촉이 아니라 번호를 두는 것이 맞다(17차 정정).
             ui.Info_cstr(0, 3, "     ");
             ui.RejectDebug(0, 2, F("Invalid Tag Type"));   // 여기서 처리할 수 없는 태그 = 거부음
         }
@@ -496,7 +539,7 @@ void loop()
 __attribute__((unused)) void serialEvent()
 {
 #ifndef READER_MODE
-    // 1.0과 동일한 raw 수신: 512B가 차거나 바이트 간 타임아웃(게이트웨이 1초·그 외 150ms, setup)까지
+    // 1.0과 동일한 raw 수신: 511바이트가 차거나 바이트 간 타임아웃(게이트웨이 1초·그 외 150ms, setup)까지
     // 블로킹. 마지막 1바이트를 남겨(511) 항상 NUL 종료를 보장한다.
     char buffer[BUFFER_SIZE]{};
     size_t len = Serial.readBytes(buffer, BUFFER_SIZE - 1);
@@ -587,9 +630,8 @@ __attribute__((unused)) void serialEvent()
     //  전문은 G1(델파이 TraceQ·세척관리) 또는 G2(올눈 ALLNuN — G1 을 안 보낸다)로 시작한다.
     // (레거시 시각 동기 'T' 는 '{' 가 없어 어차피 NotJson 으로 오므로 여기 넣지 않는다)
     // [14차 판정 · 재론 금지] 위 "JSON 은 겹치지 않는다" 는 W/D/G 한정이다 — 서버는 `buffer[0]=='Z'` 항 때문에 'Z' 가
-    //  앞에 붙은 JSON 을 버린다(II-A P3-3). 세척관리는 JSON 을 안 보내고, 설정기는 PSOk 에 'Z' 로 답하지만 JSON 과
-    //  한 버퍼에 겹치는 것은 PSOk 직후 JSON 이 우연히 붙을 때뿐이다(연결 직후 자동 읽기 등 — 그 명령만 무응답,
-    //  다시 누르면 된다).
+    //  앞에 붙은 JSON 을 버린다(II-A P3-3). 세척관리는 JSON 을 안 보내고, 설정기는 19차부터 'Z' 를 보내지 않는다
+    //  (그 전 설정기는 PSOk 에 'Z' 로 답해, PSOk 직후 JSON 이 우연히 붙으면 그 명령만 무응답이었다).
     //  그 항을 지우면 같은 버퍼의 'Z' 인증이 빠지므로 그대로 둔다.
     const bool rawHead =
         gatewayFrame ||

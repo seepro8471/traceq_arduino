@@ -113,13 +113,14 @@ int main()
     // V3 P3-2: 자정을 끼고 시간 메뉴 저장 → 날짜가 하루 어긋나지 않는다
     {
         rtc_set(DateTime(2026, 9, 26, 23, 59, 50));
-        buttons_script("L");                             // 저장 위치
+        buttons_script("RRRRR" "SRS" "RR");              // 초의 일의 자리 +1(23:59:51) · 저장 위치 — 안 고친 채 저장은 시계를 안 건드린다(19차 · t_ii22 A)
         const unsigned long t0 = millis();
-        buttons_at('S', t0 + 20000UL);                   // 20초 뒤(00:00:10) 저장 — 입력값은 진입 때 23:59:50
+        buttons_at('S', t0 + 20000UL);                   // 20초 뒤(00:00:10) 저장 — 입력값은 진입한 날의 23:59:51
         GUARDED(ui.SetDeviceTime(rtc));
         const DateTime now = rtc.GetCurrentDateTime();
-        tlog("  V3 자정 시간 저장: %u-%u-%u %02u:%02u\n", now.year(), now.month(), now.day(), now.hour(), now.minute());
-        CHECK(now.day() == 26 && now.hour() == 23, "V3 P3-2 자정을 낀 시간 저장이 +24h 되지 않는다(전날 23:59)");
+        tlog("  V3 자정 시간 저장: %u-%u-%u %02u:%02u:%02u\n", now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
+        CHECK(now.day() == 26 && now.hour() == 23 && now.minute() == 59 && now.second() >= 51,
+              "V3 P3-2 자정을 낀 시간 저장(고친 값)이 +24h 되지 않는다(전날 23:59:51)");
         rtc_set(rel_date(10, 0, 0));
     }
 

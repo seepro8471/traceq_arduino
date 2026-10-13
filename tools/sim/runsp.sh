@@ -3,6 +3,8 @@
 # run.sh 와 같이 돌리되 (1) main 진입 때 미사용 RAM 을 4바이트 무늬로 칠하고
 # (2) done 에서 남은 무늬의 최저점(=스택 최대 침투)과 g_sp* 계측값을 출력한다.
 ELF="$1"; LIMIT="${2:-600}"
+[ -f "$ELF" ] || { echo "!! elf 없음: $ELF"; exit 1; }
+case "$ELF" in *" "*) echo "!! elf 경로에 공백 — gdb 가 못 연다: $ELF"; exit 1 ;; esac
 TC="/c/Users/alu5/.platformio/packages/toolchain-atmelavr/bin"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 VMA=$("$TC/avr-objdump" -h "$ELF" | awk '$2==".data"{print $4}')

@@ -38,6 +38,13 @@ extern uint16_t g_versionReads;    // VersionReg 를 읽은 횟수(판정과 보
 void sim_version_seq(uint8_t first, uint8_t second);   // 다음 두 번의 VersionReg 읽기 값(그 뒤는 g_versionReg) — 콘넥터 떨림
 void sim_reader_power_cycle();     // 모듈 전원이 나갔다 들어옴 — 칩 설정이 리셋값(안테나 OFF · 다시 초기화해야 카드가 응답)
 void sim_reader_half_init();       // 재초기화가 반만 닿은 칩 — 안테나 비트만 켜짐(다시 초기화해야 카드가 응답)
+void sim_reader_lose_first_write();// 초기화의 첫 쓰기(TMode)만 빠진 칩 — 카드는 응답하지만 설정 판정은 거짓
+void sim_reader_drop_cfg(uint8_t which);   // Initialize 의 쓰기 하나만 빠진 칩(1 TxASK · 2 안테나 · 3 TMode · 4 TPrescaler · 5 TReloadH · 6 TReloadL · 7 Mode · 8 TMode 값 틀림)
+extern bool g_cfgUnreadable;       // 설정 레지스터가 되읽히지 않는 칩(동작은 한다)
+extern uint16_t g_softResets;      // 소프트 리셋을 시도한 횟수(죽은 버스에 쓴 것 포함)
+extern bool g_rc522RstHigh;        // RC522 RST 핀 — LOW 면 칩이 리셋에 잡혀 있다(전원 켠 직후)
+void sim_chip_reset_released();    // RST LOW → HIGH (fake_hw 가 부른다)
+void sim_power_on_pins();          // 전원을 켠 직후의 핀 상태(RST LOW) — boot()/hard_reset() 이 부른다. util_soft_reset(jmp 0)은 핀을 안 바꾼다
 extern uint16_t g_fieldDrop;       // 리더 소프트 리셋으로 카드가 전원을 잃은 횟수
 void sim_field_drop();
 
@@ -67,12 +74,15 @@ extern char g_serialOut[2048];
 void logs_clear();
 extern uint8_t g_satAsk;   // 가득 찬 로그에 물은 횟수 — 0 이 아니면 done() 이 빨강(18차)
 extern uint8_t g_satLog;   // tlog 한 줄이 잘린 횟수(run.sh 가 알린다)
+extern uint8_t g_simCut;   // 시험 입력이 가짜의 칸을 넘어 잘린 횟수(buttons_script 256자 · serial_inject 600B · serial_queue 8조각 · dwell 8칸) — done() 이 빨강
+extern uint8_t g_loopCut;  // run_loops 의 loop 가 버튼 대기 한도(g_btnIdleLimit)에 끊긴 횟수 — done() 이 빨강(끊긴 loop 는 태그를 안 읽는다)
 bool lcd_has(const char *s);
 const char *lcd_row(uint8_t row);   // 20자 + NUL — 실제 화면 한 행(잔상 판정)
 bool serial_has(const char *s);
 void serial_inject(const char *s, size_t n);
 void serial_queue(const char *s, size_t n, uint32_t atMs);   // g_ms 가 atMs 가 되어야 읽히는 조각
 uint8_t buzz_count(uint16_t pulseMs);   // 길이가 pulseMs 인 부저 펄스 수
+uint8_t buzz_total();                   // 길이와 무관한 부저 펄스 수("무음" 판정)
 void buzz_clear();
 
 // ── 소리·글자 계측: 2행 알림 글자가 화면에 남아 있던 시간 ──
@@ -86,7 +96,7 @@ const char *dwell_text(uint8_t i);
 
 // ── 버튼 스크립트 (LOW=눌림) ──
 void buttons_script(const char *seq);            // 'L','S','R' = 한 번 누름 · 소문자 'l','s','r' = 그 버튼을 한 번 안 눌린 것으로 읽음
-void buttons_at(char btn, uint32_t atMs);        // g_ms 가 atMs 에 이르면 그 버튼('S','L','R')이 한 번 눌린다
+void buttons_at(char btn, uint32_t atMs);        // g_ms 가 atMs 에 이르면 그 버튼('S','L','R')이 한 번 눌린다(한 칸 — 다시 부르면 앞 것을 갈아 끼운다)
 void buttons_hold(char btn, uint32_t untilMs);   // g_ms < untilMs 동안 그 버튼이 계속 눌린 채(붙은 채 고장·길게 누름)
 extern uint32_t g_btnIdleLimit;        // 스크립트 소진 뒤 이만큼 더 읽으면 시험을 끊는다(기본 30000)
 extern uint16_t g_minSP;                // 버튼 읽는 자리에서 본 최저 SP

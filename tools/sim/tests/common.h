@@ -49,7 +49,11 @@ static inline const char *rel_json_set_time(char *buf, size_t n, uint8_t h, uint
 
 static inline void run_loops(uint8_t n)
 {
-    for (uint8_t i = 0; i < n; ++i) { GUARDED(loop()); sim_advance_ms(30); }
+    for (uint8_t i = 0; i < n; ++i)
+    {
+        if (GUARDED(loop()) == 2 && g_loopCut < 255) ++g_loopCut;   // 버튼 대기에 끊긴 loop — done() 이 빨강(19차)
+        sim_advance_ms(30);
+    }
 }
 
 // 이미 초기화된 기기(기본값 + 타입 + 현재 도장)로 한 번 부팅 — setup() 은 실기처럼 1회만.
@@ -68,6 +72,7 @@ static inline void eeprom_factory()
 
 static inline void boot(char type)
 {
+    sim_power_on_pins();
     g_rtcLostPower = false;
     alarmOption.Upload(); deviceOption.Upload(); disinfectionOption.Upload();
     managerOption.Upload(); recordOption.Upload();
@@ -81,6 +86,7 @@ static inline void boot(char type)
 // RAM 표지가 살아남아 "재시작 뒤" 결함을 못 본다(3차 감사에서 실제로 놓쳤던 것).
 static inline void hard_reset(bool rtcDead = false, uint8_t loops = 2)
 {
+    sim_power_on_pins();      // 전원을 켠 직후 — RST 가 LOW 라 Initialize 가 하드 리셋 갈래를 탄다
     g_rtcLostPower = rtcDead;
     deviceType = 0;
     new (&alarmOption) AlarmOption{};

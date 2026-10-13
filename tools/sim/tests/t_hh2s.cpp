@@ -101,7 +101,7 @@ int main()
     snd_begin(); serial_inject("Z", 1); touch(b);
     snd_show("S9 소거 실패");
     CHECK(buzz_count(150) == 1 && buzz_count(100) == 0,
-          "S9 덤프 뒤 소거 실패 = 완료음 150×1(17차 판정 · 커밋 뒤라 PC 저장됨 — 종전 '짧게 4회' 계약을 뒤집음)");
+          "S9 덤프 뒤 소거가 **접촉이 끊겨** 실패 = 완료음 150×1(17차 판정 · 커밋 뒤라 PC 저장됨 · 카드가 살아 있는 실패는 Write Error — t_ii19 ④)");
     b.failWriteAt = 0;
 
     // 엉뚱한 종류의 태그

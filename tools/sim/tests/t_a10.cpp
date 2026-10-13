@@ -204,6 +204,7 @@ int main()
               "★⑦ 메뉴에서 나온 뒤 **같은 loop** 이 태그를 처리한다 — 올려 둔 스코프가 유실되지 않는다(시한만큼 늦어진다)");
         card_remove();
         g_btnIdleLimit = 30000UL;
+        buttons_script("");                        // 다 쓴 ⑤의 스크립트를 비운다 — 안 비우면 아래 loop 넷이 버튼 대기 한도에 끊겼다(19차 `loop cut`)
         run_loops(4);
     }
 

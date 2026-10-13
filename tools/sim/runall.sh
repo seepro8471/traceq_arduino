@@ -5,7 +5,7 @@ ROOT="$1"; OUTD="$2"
 [ -n "$ROOT" ] && [ -n "$OUTD" ] || { echo "사용: runall.sh <펌웨어 루트> <출력 폴더(공백 없는 경로)>"; exit 2; }
 case "$OUTD" in *" "*) echo "!! 출력 폴더에 공백 — gdb 가 elf 를 못 연다: $OUTD"; exit 2 ;; esac
 HERE="$(cd "$(dirname "$0")" && pwd)"
-T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10 t_sp t_ops t_gwmix t_dd t_dd3s t_dd3g t_dd1 t_dd1b t_dd1c t_dd1d t_ee1a t_ee1b t_ee1c t_ee1d t_ee1e t_ee2r t_ff1a t_ff1b t_ff1c t_ff2a t_ff2m t_gg2g t_gg2s t_gg2w t_gg2m t_gg1a t_gg1b t_subj t_hh1a t_hh1b t_gnum t_ii1 t_ii2 t_ii3 t_ii4 t_ii5 t_ii6 t_ii7 t_ii8 t_ii9 t_ii10 t_ii11 t_ii12 t_ii13 t_ii14 t_ii15 t_ii16 t_ii17 t_ii18 t_ii19 t_ii20 t_ii21)
+T=(t_smoke t_disinfect t_rfid t_server t_ui t_issue t_clear t_firstboot t_gateway t_notify t_a4 t_lcd t_menu t_a5 t_a6 t_a7 t_a8 t_a9 t_a10 t_sp t_ops t_gwmix t_dd t_dd3s t_dd3g t_dd1 t_dd1b t_dd1c t_dd1d t_ee1a t_ee1b t_ee1c t_ee1d t_ee1e t_ee2r t_ff1a t_ff1b t_ff1c t_ff2a t_ff2m t_gg2g t_gg2s t_gg2w t_gg2m t_gg1a t_gg1b t_subj t_hh1a t_hh1b t_gnum t_ii1 t_ii2 t_ii3 t_ii4 t_ii5 t_ii6 t_ii7 t_ii8 t_ii9 t_ii10 t_ii11 t_ii12 t_ii13 t_ii14 t_ii15 t_ii16 t_ii17 t_ii18 t_ii19 t_ii20 t_ii21 t_ii22 t_ii23 t_sat)
 # 소리·글자 계측 시험 — `-DHH2_DWELL` 이 필요해서 **따로** 빌드한다(그 계측을 전부에 넣으면 t_a4 가 정적 RAM 관문 28000B 를 넘는다).
 T2=(t_hh2w t_hh2g t_hh2s t_hh2lock t_hh2lock2 t_hh2fix)
 # 지울 폴더가 출력 폴더인지 본다(18차) — 이미 있고 비어 있지 않으면 우리가 남긴 표식(.simout)이 있어야 지운다.
@@ -31,19 +31,22 @@ run_group() {
     [ $brc -ne 0 ] && { echo "!! build.sh 실패(rc=$brc) — 관문 위반이면 elf 가 지워진다"; }
     for t in "${names[@]}"; do
         [ -f "$outd/$t.elf" ] || { echo "$t: ==> pass=0 fail=1 (빌드 실패)  1 FAIL"; TOTAL_FAIL=$((TOTAL_FAIL+1)); continue; }   # 종료코드에도 센다(17차: 빌드 실패에 0 이 났다)
-        local res sum nf
-        res=$(bash "$HERE/run.sh" "$outd/$t.elf" 180)
-        sum=$(echo "$res" | grep '==>')
-        nf=$(echo "$res" | grep -c '^FAIL')
+        local res sum nf rrc
+        res=$(bash "$HERE/run.sh" "$outd/$t.elf" 180); rrc=$?
+        sum=$(echo "$res" | grep -o '==> pass=[0-9]* fail=[0-9]*' | tail -n 1)
         # ★거짓 초록 방지: 멈춤(TIMEOUT)·요약 없음·pass=0 은 전부 빨강으로 센다.
+        #  빨강 수는 요약의 fail= 이다(19차 — FAIL 줄 수는 1건을 2로 셌고, 줄 없이 g_fail 만 오른 실패는 0 으로 셌다). run.sh 가 빨강인데 0 이면 1.
         if echo "$res" | grep -q "!! TIMEOUT" || [ -z "$sum" ]; then
-            sum="==> pass=0 fail=1 (멈춤/요약 없음 — 무한 루프 의심)"; nf=$((nf+1))
+            sum="==> pass=0 fail=1 (멈춤/요약 없음 — 멈춤 · main 재진입 · CHECK 0개)"; nf=1
         elif echo "$sum" | grep -q "pass=0 fail=0"; then
-            sum="==> pass=0 fail=1 (CHECK 0개 — 시험이 아무것도 안 봄)"; nf=$((nf+1))   # 숫자도 fail=1 로 — awk 합산에서 사라지지 않게(16차)
+            sum="==> pass=0 fail=1 (CHECK 0개 — 시험이 아무것도 안 봄)"; nf=1   # 숫자도 fail=1 로 — awk 합산에서 사라지지 않게(16차)
+        else
+            nf=${sum##*fail=}
+            [ $rrc -ne 0 ] && [ "$nf" -eq 0 ] && nf=1
         fi
         TOTAL_FAIL=$((TOTAL_FAIL+nf))
         echo "$t: $sum $nf FAIL"
-        echo "$res" | grep '^FAIL' | sed 's/^/    /'
+        echo "$res" | grep '^FAIL' | awk '!seen[$0]++' | sed 's/^/    /'
         echo "$res" | grep '^!! ' | grep -v TIMEOUT | sed 's/^/    /'   # 하네스 경고(tlog 줄 잘림 등)도 보인다(18차)
     done
 }
@@ -51,15 +54,16 @@ run_group() {
 run_group "$OUTD" "" "${T[@]}"
 run_group "$OUTD/dwell" "-DHH2_DWELL" "${T2[@]}"
 
-# ★하네스 자기 점검 — done() 안의 관문 둘이 요약에 닿는가. selfcheck/t_guard.cpp 는 **빨강이어야** 한다(종 수에는 안 든다).
+# ★하네스 자기 점검 — done() 안의 관문 넷이 요약에 닿는가. selfcheck/t_guard.cpp 는 **빨강이어야** 한다(종 수에는 안 든다).
 #  18차: 중단점이 done() 첫머리라 "전원 차단이 켜진 채 끝남" 관문이 여러 회차 동안 결과에 닿지 않았다 — 다시 그렇게 되면 여기서 빨강.
 selfcheck() {
     local so="$OUTD/self" res
     bash "$HERE/build.sh" "$ROOT" "$so" "$HERE/selfcheck/t_guard.cpp" > /dev/null 2>&1
     [ -f "$so/t_guard.elf" ] || { echo "!! 하네스 자기 점검: 빌드 실패"; TOTAL_FAIL=$((TOTAL_FAIL+1)); return; }
     res=$(bash "$HERE/run.sh" "$so/t_guard.elf" 180)
-    if echo "$res" | grep -q "^FAIL power cut left on" && echo "$res" | grep -q "^FAIL saturated log asked"; then
-        echo "하네스 자기 점검: 관문 둘(전원 차단 · 포화된 로그)이 요약에 닿는다"
+    if echo "$res" | grep -q "^FAIL power cut left on" && echo "$res" | grep -q "^FAIL saturated log asked" &&
+       echo "$res" | grep -q "^FAIL input cut" && echo "$res" | grep -q "^FAIL loop cut" && echo "$res" | grep -q "fail=4"; then
+        echo "하네스 자기 점검: 관문 넷(전원 차단 · 포화된 로그 · 입력 잘림 · loop 끊김)이 요약에 닿는다"
     else
         echo "!! 하네스 자기 점검 실패 — done() 안의 관문이 요약에 닿지 않는다(run.sh 의 중단점 자리를 볼 것)"; TOTAL_FAIL=$((TOTAL_FAIL+1))
     fi

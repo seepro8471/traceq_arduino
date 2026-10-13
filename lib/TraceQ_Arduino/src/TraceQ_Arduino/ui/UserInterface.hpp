@@ -328,9 +328,9 @@ private:
     /**
      * \brief 현재 기기의 타입과 번호를 출력하기 위한 버퍼. Home 화면 구성에 사용된다.
      *
-     * \details row 3 의 col 15 부터 5칸(" W:01" · "W:120" · "W:999")에 표시된다.
+     * \details row 3 의 col 15 부터 5칸(`W:007` · `W:120` · `W:999` — 늘 3자리)에 표시된다.
      */
-    // 서식은 자릿수에 따라 셋 — device_number 는 JSON·G1 으로 3자리까지 온다(상한 999 = kNumberMax).
+    // 서식은 `%c:%03d` 하나(+ 도달 불가 방어) — device_number 는 0~999(kNumberMax).
     // 버퍼는 int16 최대(5자리)+NUL 까지 수용 (1.0은 [5]라 3자리부터 오버런).
     char mDeviceInfoBuffer[8]{};
 

@@ -21,8 +21,11 @@ volatile uint8_t g_stopMark;
 extern "C" __attribute__((noinline)) void log_flush() { g_stopMark = 1; asm volatile(""); }
 // 포화(17차 경고의 구멍 메움 · 18차): 가득 찬 LCD·시리얼 로그에 "없다" 가 나온 질문과 가득 찬 부저 로그의 횟수 질문은 믿을 수 없다
 // → g_satAsk 로 세어 done() 이 빨강으로 만든다(경고 줄은 실행당 한 번뿐이었고 runall 에 안 보였고 g_log 가 차면 사라졌다).
-// 표지는 logs_clear/buzz_clear 가 내린다(구간마다 다시 판정). 문구는 .data 를 먹으므로 짧게 — t_a4 가 RAM 관문 36B 앞이다.
+// 표지는 logs_clear/buzz_clear 가 내린다(구간마다 다시 판정). 문구는 .data 를 먹으므로 짧게 — t_a4 가 RAM 관문 40B 안팎 앞이다.
 uint8_t g_satAsk, g_satLog;
+// 조용히 잘린 시험 입력(버튼 스크립트·시리얼 주입·조각 수·dwell 칸)과 버튼 대기에 끊긴 loop — 0 이 아니면 done() 이 빨강(19차).
+uint8_t g_simCut, g_loopCut;
+static void sim_cut() { if (g_simCut < 255) ++g_simCut; }
 static bool s_fullLcd, s_fullSerial, s_fullBuzz;
 static const int kLogLine = 640;
 void tlog(const char *fmt, ...)
@@ -56,6 +59,8 @@ extern "C" void done()
     // 문구는 짧게(.data 를 먹는다) — 실패 목록(g_failLog)에 `FAIL …` 로 찍힌다.
     if (g_powerCut) { ++g_fail; flog("power cut left on"); }   // 전원 차단이 켜진 채 끝났다(power_restore 누락)
     if (g_satAsk) { ++g_fail; flog("saturated log asked"); }   // 가득 찬 로그에 물은 판정은 헛초록일 수 있다
+    if (g_simCut) { ++g_fail; flog("input cut"); }             // 시험이 준 입력이 가짜의 칸을 넘어 잘렸다
+    if (g_loopCut) { ++g_fail; flog("loop cut"); }             // run_loops 의 loop 가 버튼 대기 한도에 끊겼다(그 loop 는 태그를 안 읽었다)
     sim_done_stop();
 }
 
@@ -73,6 +78,11 @@ static uint8_t  s_buzzN;
 static uint32_t s_buzzOnAt;
 static bool     s_buzzOn;
 void buzz_clear() { s_buzzN = 0; s_fullBuzz = false; }
+uint8_t buzz_total()   // 길이와 무관한 펄스 수 — "무음" 판정용
+{
+    if (s_fullBuzz && g_satAsk < 255) ++g_satAsk;
+    return s_buzzN;
+}
 uint8_t buzz_count(uint16_t pulseMs)
 {
     if (s_fullBuzz && g_satAsk < 255) ++g_satAsk;   // 넘친 뒤의 횟수는 실제보다 적을 수 있다
@@ -81,9 +91,19 @@ uint8_t buzz_count(uint16_t pulseMs)
     return n;
 }
 void pinMode(uint8_t, uint8_t) { SIM_SP(); }
+// 전원을 켠 직후: 출력 래치는 전부 LOW — RC522 의 RST 도 LOW 라 제품 Initialize 가 하드 리셋 갈래(HIGH + 50ms)를 탄다.
+//  실물의 jmp 0 재시작(타입 변경 · PC 설정)은 래치가 HIGH 인 채라 소프트 리셋 갈래를 탄다 — 시험에서는 setup() 을 직접 다시 부르면 그 갈래다(t_ii20 ⑧f).
+void sim_power_on_pins() { g_rc522RstHigh = false; }
 void digitalWrite(uint8_t pin, uint8_t val)
 {
     SIM_SP();
+    if (pin == PIN_RESET)
+    {
+        const bool high = (val == HIGH);
+        if (high && !g_rc522RstHigh) { g_rc522RstHigh = true; sim_chip_reset_released(); }
+        else g_rc522RstHigh = high;
+        return;
+    }
     if (pin != PIN_BUZZER) return;
     if (val == HIGH && !s_buzzOn) { s_buzzOn = true; s_buzzOnAt = g_ms; }
     else if (val == LOW && s_buzzOn)
@@ -146,6 +166,7 @@ void buttons_hold(char btn, uint32_t untilMs) { s_btnHoldChar = btn; s_btnHoldUn
 void buttons_script(const char *seq)
 {
     const size_t n = strlen(seq);
+    if (n > sizeof(s_btn)) sim_cut();
     s_btnLen = (uint16_t)(n < sizeof(s_btn) ? n : sizeof(s_btn));
     
     memcpy(s_btn, seq, s_btnLen);
@@ -161,6 +182,7 @@ int digitalRead(uint8_t pin)
     if (pin == PIN_SELECT_BUTTON) want = 'S';
     else if (pin == PIN_LEFT_BUTTON) want = 'L';
     else if (pin == PIN_RIGHT_BUTTON) want = 'R';
+    else if (pin == PIN_RESET) return g_rc522RstHigh ? HIGH : LOW;   // 출력 핀은 마지막으로 쓴 값이 읽힌다
     else return HIGH;
     if (s_btnHead < s_btnLen && s_btn[s_btnHead] == want)
     {
@@ -215,7 +237,7 @@ static uint32_t s_chunkAt[8];
 static uint8_t  s_chunks;
 void serial_inject(const char *s, size_t n)
 {
-    if (n > sizeof(s_in)) n = sizeof(s_in);
+    if (n > sizeof(s_in)) { n = sizeof(s_in); sim_cut(); }
     memcpy(s_in, s, n);
     s_inHead = 0;
     s_inLen = (uint16_t)n;
@@ -224,7 +246,7 @@ void serial_inject(const char *s, size_t n)
 void serial_queue(const char *s, size_t n, uint32_t atMs)
 {
     if (s_inHead >= s_inLen) { s_inHead = s_inLen = 0; s_chunks = 0; }
-    if (s_chunks >= 8 || s_inLen + n > sizeof(s_in)) return;
+    if (s_chunks >= 8 || s_inLen + n > sizeof(s_in)) { sim_cut(); return; }
     memcpy(s_in + s_inLen, s, n);
     s_inLen = (uint16_t)(s_inLen + n);
     s_chunkEnd[s_chunks] = s_inLen;
@@ -247,6 +269,7 @@ void HardwareSerial::flush() { SIM_SP(); }
 size_t HardwareSerial::write(uint8_t c)
 {
     SIM_SP();
+    if (c == 0) c = 0x7F;   // NUL 을 그대로 두면 그 뒤가 serial_has 에 안 보인다
     if (s_outLen < sizeof(g_serialOut) - 1) g_serialOut[s_outLen++] = (char)c;
     else s_fullSerial = true;
     g_serialOut[s_outLen] = 0;
@@ -275,6 +298,7 @@ char g_lcdLog[1536];
 static uint16_t s_lcdLen;
 static void lcd_put(char c)
 {
+    if (c == 0) c = 0x7F;   // NUL 을 그대로 두면 그 뒤가 lcd_has 에 안 보인다
     if (s_lcdLen < sizeof(g_lcdLog) - 1) g_lcdLog[s_lcdLen++] = c;
     else s_fullLcd = true;
     g_lcdLog[s_lcdLen] = 0;
@@ -327,6 +351,7 @@ static void row2_track()
     {
         s_r2On = false;
         if (s_r2N < 8) { memcpy(s_r2Text[s_r2N], s_r2Best, 21); s_r2Dwell[s_r2N++] = g_ms - s_r2At; }
+        else sim_cut();
     }
 }
 void dwell_clear() { s_r2N = 0; s_r2On = !row2_blank(); s_r2At = g_ms; }

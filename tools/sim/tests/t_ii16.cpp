@@ -206,8 +206,8 @@ int main()
         power_restore();
         reboot_as('W');
         g_btnIdleLimit = 1000000UL;
-        static char stuck[520];
-        memcpy(stuck, "RSRRS", 5); memset(stuck + 5, 'S', 500); stuck[505] = 0;
+        static char stuck[260];                               // 가짜 버튼 스크립트는 256자까지다(넘는 것은 빨강 — 19차)
+        memcpy(stuck, "RSRRS", 5); memset(stuck + 5, 'S', 250); stuck[255] = 0;
         buttons_script(stuck);
         const uint16_t rc1 = g_resetCount;
         const unsigned long t0 = millis();
@@ -217,7 +217,7 @@ int main()
         power_restore();
         tlog("  B4 SELECT 붙은 채: reset=%u 기준=%lums 붙은채=%lums 차=%ldms\n", (unsigned)(g_resetCount != rc1), dtBase, dt, (long)(dt - dtBase));
         CHECK(g_resetCount != rc1 && (long)(dt - dtBase) >= 1500L && (long)(dt - dtBase) < 3500L,
-              "B4(16차) SELECT 가 붙은 채여도 떼기 대기는 2초 상한이라 리셋이 2초 안팎 뒤에 난다(상한 없으면 +10초 · 대기 없으면 +0)");
+              "B4(16차) SELECT 가 붙은 채여도 떼기 대기는 2초 상한이라 리셋이 2초 안팎 뒤에 난다(상한 없으면 +5초 · 대기 없으면 +0)");
         reboot_as('W');
     }
 

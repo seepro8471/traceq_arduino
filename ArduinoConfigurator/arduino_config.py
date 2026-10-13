@@ -7,6 +7,7 @@ Arduino 기기 설정 읽기 / 쓰기 / 날짜동기화 / 태그 초기화
   최신 모드(IsLatestCompat=True) : STX{json}ETX  ↔  STX{json}ETX
   레거시 모드(IsLatestCompat=False): PSOk → Z 인증 후 S/M/C 명령
   (Configurator는 JSON 모드 전용 — 레거시에서도 JSON 명령은 수신됨)
+  설정기는 `PSOk` 에 `Z` 로 답하지 않는다(19차) — 설정 읽기·저장·시각·발급은 인증 없이 된다.
 """
 from __future__ import annotations
 import base64
@@ -34,6 +35,7 @@ STX = 0x02
 ETX = 0x03
 BAUD  = 115200
 BUF_MAX = 8192
+_STX_B, _ETX_B = bytes([STX]), bytes([ETX])
 
 
 def find_arduino_port() -> Optional[str]:
@@ -88,6 +90,32 @@ def clock_to_send(manual: bool, edited: str, now: datetime) -> str:
     return edited if manual else now.strftime('%Y-%m-%d %H:%M:%S')
 
 
+class _NoWheel:
+    """휠로는 값도 초점도 바뀌지 않는 입력 칸 — 초점 없는 칸 위에서 휠 한 칸에 값이 바뀐 채 저장·전송됐다(19차).
+
+    휠은 무시해 바깥(스크롤)으로 넘긴다. 초점 정책을 StrongFocus 로 낮추지 않으면 휠이 초점을 가져가 시각 칸의 자동 갱신이 멈춘다.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def wheelEvent(self, e):   # noqa: N802
+        e.ignore()
+
+
+class _DateTimeEdit(_NoWheel, QDateTimeEdit):
+    pass
+
+
+class _SpinBox(_NoWheel, QSpinBox):
+    pass
+
+
+class _ComboBox(_NoWheel, QComboBox):
+    pass
+
+
 def clock_gap_text(reader_clock: str, now: datetime) -> str:
     """되읽은 리더기 시계(펌웨어 2.2.36 부터 응답에 실린다)와 PC 시각의 차이 글자. 꼴이 다르면 빈 글자."""
     try:
@@ -139,6 +167,7 @@ QScrollBar:vertical { background:#2b2b2b; width:10px; }
 QScrollBar::handle:vertical { background:#555; border-radius:5px; min-height:20px; }
 """
 
+_DT_MANUAL = 'color:#ffb040; border:1px solid #cc8800;'   # 사람이 고친 시각 칸(자동 갱신이 멈춘 상태)을 눈에 보이게
 _BTN_GREEN  = "QPushButton{background:#2d6a2d;color:#ddd;border:1px solid #4a9a4a;border-radius:3px;padding:5px 14px;min-height:26px;} QPushButton:hover{background:#3d8a3d;} QPushButton:disabled{background:#333;color:#666;}"
 _BTN_BLUE   = "QPushButton{background:#1e4a8a;color:#ddd;border:1px solid #3a7acc;border-radius:3px;padding:5px 14px;min-height:26px;} QPushButton:hover{background:#2a5a9a;} QPushButton:disabled{background:#333;color:#666;}"
 _BTN_ORANGE = "QPushButton{background:#7a4a00;color:#ddd;border:1px solid #cc8800;border-radius:3px;padding:5px 14px;min-height:26px;} QPushButton:hover{background:#8a5a10;} QPushButton:disabled{background:#333;color:#666;}"
@@ -241,40 +270,52 @@ class SerialWorker(QObject):
                     self.disconnect()
                 break
 
+    def _frame_at(self, start: int):
+        """start 자리의 STX 에서 시작하는 온전한 STX{json}ETX → (dict, 끝 다음 자리). 아직 없으면 None.
+
+        manager_key/name 은 RFID 바이너리라 본문에 0x03(ETX)이 들 수 있다 — ETX 후보를 차례로 시험한다.
+        """
+        pos = start
+        while True:
+            pos = self._buf.find(_ETX_B, pos + 1)
+            if pos < 0:
+                return None
+            obj = decode_reply(bytes(self._buf[start + 1:pos]))
+            if obj is not None:
+                return obj, pos + 1
+
     def _drain(self):
         while self._buf:
-            # STX...ETX JSON 프레임
             if self._buf[0] == STX:
-                # manager_key/name 은 RFID 바이너리 → 0x03(ETX) 포함 가능.
-                # ETX 후보를 하나씩 시험하면서 실제 JSON 끝인지 확인.
-                parsed = False
-                pos = 1
-                while pos < len(self._buf):
-                    if self._buf[pos] == ETX:
-                        obj = decode_reply(bytes(self._buf[1:pos]))
-                        if obj is not None:
-                            del self._buf[:pos + 1]
-                            self.json_received.emit(obj)
-                            parsed = True
-                            break
-                        # 아니면 이 ETX 는 JSON 본문 안에 있다 → 다음 ETX 탐색
-                    pos += 1
-                if not parsed:
-                    break  # ETX 아직 도착 안 함 — 더 읽기 대기
-            else:
-                # 줄 단위 텍스트
-                if b'\n' in self._buf:
-                    nl = self._buf.index(b'\n')
-                    line = bytes(self._buf[:nl]).decode('utf-8', errors='replace').strip()
-                    del self._buf[:nl + 1]
-                    if line:
-                        self.line_received.emit(line)
-                        # PSOk → 자동 인증
-                        if 'PSOk' in line:
-                            try: self._ser.write(b'Z\n')
-                            except Exception: pass
-                else:
-                    break
+                got = self._frame_at(0)
+                if got is not None:
+                    del self._buf[:got[1]]
+                    self.json_received.emit(got[0])
+                    continue
+                # 머리의 프레임이 (아직) 안 풀린다. 응답 본문에는 날 줄바꿈이 없으므로 뒤에 줄바꿈이 보이거나, 뒤쪽 STX 에서 온전한
+                #  프레임이 풀리면 이 STX 는 잘린 프레임·잡음이다 — 한 바이트 버리고 다시 본다(19차: 종전엔 여기서 막혀 그 뒤 응답이
+                #  전부 폼에 닿지 않았다 · 업로더 _parse_frame 의 형제).
+                nxt = self._buf.find(_STX_B, 1)
+                while nxt >= 0 and self._frame_at(nxt) is None:
+                    nxt = self._buf.find(_STX_B, nxt + 1)
+                if self._buf.find(b'\n') >= 0 or nxt >= 0:
+                    del self._buf[:1]
+                    continue
+                break  # 더 읽기 대기
+            # 줄 단위 텍스트. 줄바꿈보다 STX 가 먼저 오면 그 앞은 잡음이다(리더기는 줄 중간에 응답을 끼우지 않는다) — 버린다.
+            nl = self._buf.find(b'\n')
+            stx = self._buf.find(_STX_B)
+            if stx >= 0 and (nl < 0 or stx < nl):
+                del self._buf[:stx]
+                continue
+            if nl < 0:
+                break
+            line = bytes(self._buf[:nl]).decode('utf-8', errors='replace').strip()
+            del self._buf[:nl + 1]
+            if line:
+                # [19차 판정 · 사장님이 뒤집을 수 있음] `PSOk` 에 `Z` 로 답하지 않는다 — 답하면 서버 리더기가 설정기를 PC 프로그램으로 알아,
+                #  그동안 댄 완료 태그의 기록을 설정기 로그로만 내보내고 태그에서 지웠다(세척관리엔 안 남는다).
+                self.line_received.emit(line)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -293,7 +334,7 @@ class ArduinoConfigurator(QMainWindow):
         self._worker.connected.connect(self._on_connected)
         self._worker.disconnected.connect(self._on_disconnected)
 
-        self._dt_manual = False     # 사람이 시각 칸을 고쳤나 — 고쳤으면 그 값을 보내고 자동 갱신을 멈춘다([PC 시간으로] 가 되돌린다)
+        self._dt_manual = False     # 사람이 시각 칸을 고쳤나 — 그 값은 [날짜/시간 전송] 한 번에만 쓰이고 자동 갱신으로 돌아간다([PC 시간으로] 도 되돌린다)
         self._dt_auto = False       # 지금의 칸 변경은 프로그램이 한 것(사람이 고친 것으로 치지 않는다)
         self._have_config = False   # 이 연결에서 설정을 한 번이라도 읽었나 — 읽기 전엔 [설정 저장] 을 막는다
         self._auto_done = False     # 창이 처음 뜰 때의 자동 연결은 한 번만
@@ -307,7 +348,9 @@ class ArduinoConfigurator(QMainWindow):
         self._clock_timer.start(1000)
 
     def _tick_clock(self):
-        if not self._dt_manual and not self.dt_edit.hasFocus():
+        # 사람이 고쳤거나 · 칸에 들어가 있거나 · 달력 팝업을 열어 둔 동안에는 덮지 않는다(팝업의 달이 매초 이번 달로 돌아갔다 · 19차)
+        cal = self.dt_edit.calendarWidget()
+        if not self._dt_manual and not self.dt_edit.hasFocus() and not (cal is not None and cal.isVisible()):
             self._set_dt_now()
 
     def _set_dt_now(self):
@@ -318,10 +361,12 @@ class ArduinoConfigurator(QMainWindow):
         finally:
             self._dt_auto = False
         self._dt_manual = False
+        self.dt_edit.setStyleSheet('')
 
     def _on_dt_edited(self, _dt):
         if not self._dt_auto:
             self._dt_manual = True
+            self.dt_edit.setStyleSheet(_DT_MANUAL)
 
     def _clock_text(self) -> str:
         return clock_to_send(self._dt_manual, self.dt_edit.dateTime().toString('yyyy-MM-dd HH:mm:ss'), datetime.now())
@@ -339,7 +384,7 @@ class ArduinoConfigurator(QMainWindow):
         conn_lay = QHBoxLayout(conn_grp)
         conn_lay.setSpacing(6)
 
-        self.port_combo = QComboBox(); self.port_combo.setMinimumWidth(110)
+        self.port_combo = _ComboBox(); self.port_combo.setMinimumWidth(110)
         self.btn_refresh = QPushButton('새로고침')
         self.btn_connect = QPushButton('연 결')
         self.btn_connect.setStyleSheet(_BTN_GREEN)
@@ -370,53 +415,53 @@ class ArduinoConfigurator(QMainWindow):
         cfg_grid.setColumnStretch(3, 1)
 
         # 기기 타입
-        self.type_combo = QComboBox()
+        self.type_combo = _ComboBox()
         for code, label in DEVICE_TYPES:
             self.type_combo.addItem(label, code)
         cfg_grid.addWidget(QLabel('기기 타입:'), 0, 0)
         cfg_grid.addWidget(self.type_combo, 0, 1)
 
         # 기기 번호 — [사장님 10-11] 세척기·소독기 번호는 3자리(0~999 · 리더 상한 kNumberMax 와 같다). 14차의 "99 그대로" 는 이 지시가 덮었다.
-        self.num_spin = QSpinBox(); self.num_spin.setRange(0, 999)
+        self.num_spin = _SpinBox(); self.num_spin.setRange(0, 999)
         cfg_grid.addWidget(QLabel('기기 번호:'), 0, 2)
         cfg_grid.addWidget(self.num_spin, 0, 3)
 
         # 세척 알람
-        self.washing_spin = QSpinBox()
+        self.washing_spin = _SpinBox()
         self.washing_spin.setRange(1, 120); self.washing_spin.setSuffix(' 분')
         self.washing_spin.setValue(4)
         cfg_grid.addWidget(QLabel('세척 알람:'), 1, 0)
         cfg_grid.addWidget(self.washing_spin, 1, 1)
 
         # 소독 알람
-        self.df_spin = QSpinBox()
+        self.df_spin = _SpinBox()
         self.df_spin.setRange(1, 120); self.df_spin.setSuffix(' 분')
         self.df_spin.setValue(18)
         cfg_grid.addWidget(QLabel('소독 알람:'), 1, 2)
         cfg_grid.addWidget(self.df_spin, 1, 3)
 
         # 최대 소독 횟수
-        self.df_max_spin = QSpinBox()
+        self.df_max_spin = _SpinBox()
         self.df_max_spin.setRange(0, 999)   # [15차 사장님 C5] 리더는 999 초과를 0(제한 없음)으로 저장한다 — 칸도 같은 범위로(16차)
         self.df_max_spin.setValue(100)
         cfg_grid.addWidget(QLabel('최대 소독횟수:'), 2, 0)
         cfg_grid.addWidget(self.df_max_spin, 2, 1)
 
         # 동시소독 딜레이
-        self.df_delay_spin = QSpinBox()
+        self.df_delay_spin = _SpinBox()
         self.df_delay_spin.setRange(0, 120)   # 리더는 0~120 으로 자른다(DisinfectionOption constrain) — 칸도 같은 범위로(17차 · MaxCount 칸의 형제)
         cfg_grid.addWidget(QLabel('동시소독 딜레이:'), 2, 2)
         cfg_grid.addWidget(self.df_delay_spin, 2, 3)
 
         # 동시소독 슬롯
-        self.df_slot_spin = QSpinBox()
+        self.df_slot_spin = _SpinBox()
         self.df_slot_spin.setRange(0, 2)   # 리더는 0~2 로 자른다(동시소독 슬롯) — 칸도 같은 범위로(17차)
         self.df_slot_spin.setValue(1)
         cfg_grid.addWidget(QLabel('동시소독 슬롯:'), 3, 0)
         cfg_grid.addWidget(self.df_slot_spin, 3, 1)
 
         # 클리어 카운트
-        self.df_clear_spin = QSpinBox()
+        self.df_clear_spin = _SpinBox()
         self.df_clear_spin.setRange(0, 9999)
         cfg_grid.addWidget(QLabel('클리어 카운트:'), 3, 2)
         cfg_grid.addWidget(self.df_clear_spin, 3, 3)
@@ -452,7 +497,7 @@ class ArduinoConfigurator(QMainWindow):
         dt_grp = QGroupBox('날짜 / 시간')
         dt_lay = QHBoxLayout(dt_grp)
 
-        self.dt_edit = QDateTimeEdit(QDateTime.currentDateTime())
+        self.dt_edit = _DateTimeEdit(QDateTime.currentDateTime())
         self.dt_edit.setDisplayFormat('yyyy-MM-dd  HH:mm:ss')
         self.dt_edit.setCalendarPopup(True)
         self.dt_edit.setMinimumWidth(210)
@@ -490,6 +535,7 @@ class ArduinoConfigurator(QMainWindow):
         root.addLayout(cfg_btn_lay)
 
         self.btn_read.clicked.connect(self._do_read_config)
+        self.btn_write.setToolTip('설정과 함께 리더기 시계를 이 PC 의 지금 시각으로 맞춥니다(고친 시각은 [날짜/시간 전송] 으로).')
         self.btn_write.clicked.connect(self._do_write_config)
         self.btn_defaults.clicked.connect(self._do_reset_defaults)
 
@@ -594,13 +640,15 @@ class ArduinoConfigurator(QMainWindow):
 
     # ── 수신 처리 ─────────────────────────────────────────
     def _on_json(self, obj: dict):
+        if not self._worker.is_open:
+            return   # 해제 뒤에 배달된 응답 — 폼과 [설정 저장] 을 건드리지 않는다(다음 연결이 읽기 전에 저장을 켜게 됐다 · 19차)
         keys = list(obj.keys())
         self._log(f'◀ JSON 수신 ({len(keys)}개 키): {keys}')
         self._fill_form(obj)
         self._log('   → 폼 업데이트 완료')
         if 'device_type' in obj:
             self._have_config = True
-            self.btn_write.setEnabled(self._worker.is_open)
+            self.btn_write.setEnabled(True)   # 여기는 연결 중일 때만 온다(위 관문)
         reader_clock = str(obj.get('device_date_time', '') or '')
         if reader_clock:
             self._log(f'   리더기 시계: {reader_clock}{clock_gap_text(reader_clock, datetime.now())}')
@@ -687,7 +735,8 @@ class ArduinoConfigurator(QMainWindow):
     # ── 설정 저장 ─────────────────────────────────────────
     def _do_write_config(self):
         dtype_code = self.type_combo.currentData() or 'S'
-        now_str = self._clock_text()
+        # [설정 저장] 은 늘 누르는 순간의 PC 시각을 싣는다 — 고친 채 굳은 시각 칸이 저장마다 다시 나가지 않게(19차). 고친 시각은 [날짜/시간 전송] 으로.
+        now_str = clock_to_send(False, '', datetime.now())
         payload = {
             'cmd':               'cfg_set_config',
             'device_type':       dtype_code,
@@ -751,10 +800,13 @@ class ArduinoConfigurator(QMainWindow):
 
     # ── 날짜/시간 전송 ────────────────────────────────────
     def _do_send_datetime(self):
+        manual = self._dt_manual
         dt_str = self._clock_text()
         ok = self._worker.send_json({'cmd': 'cfg_set_date_time', 'device_date_time': dt_str})
         if ok:
-            self._log(f'▶ cfg_set_date_time 전송: {dt_str}')
+            self._log(f'▶ cfg_set_date_time 전송: {dt_str}' + ('  (직접 고친 시각 — 칸은 다시 PC 시각을 따라갑니다)' if manual else ''))
+            if manual:
+                self._set_dt_now()   # 고친 시각은 한 번만 쓰인다(19차)
 
     # ── 태그 초기화 ───────────────────────────────────────
     def _do_new_tag(self, type_id: int):

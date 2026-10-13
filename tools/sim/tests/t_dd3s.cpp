@@ -1,6 +1,6 @@
 // DD3 — v2.2.24 의 "읽기 실패면 Ok! 를 안 낸다" 가 와이어에 실제로 무엇을 내보내는가(서버 S).
 //  (A) 절단된 덤프의 줄 집합 · 종결자 유무 · Read Error 가 시리얼에 나가는가
-//  (C) 레거시 T 시각 동기 — 세척관리·올눈이 실제로 만드는 문자열 그대로
+//  (C) 레거시 T 시각 동기 — 세척관리·델파이 TraceQ 가 실제로 만드는 문자열 그대로(올눈은 T 를 보내지 않는다)
 #include "common.h"
 
 // 출시일 기준 시각 — 절대 날짜를 쓰면 출시일이 움직일 때 뜻이 조용히 바뀐다(IsUnsynced 비교 기준이 출시일).
@@ -148,7 +148,7 @@ int main()
         CHECK(cutHas7 && !cutOk && nextOk && !nextAny7 && !nextAny8,
               "A4 앞 덤프의 2차 소독 블록은 다음(DC=1) 덤프의 어느 줄로도 덮이지 않는다(PC 가 비워야 한다)");
     }
-    // ── C 레거시 T — 세척관리·올눈이 실제로 만드는 문자열 그대로 ──
+    // ── C 레거시 T — 세척관리·델파이 TraceQ 가 실제로 만드는 문자열 그대로 ──
     {
         sim_advance_ms(60UL * 1000);
         // 세척관리: rfid_serial.py:1499-1503 — f'T{y};{m};{d};{dow};{H};{M};{S};' (자리수 채움 없음 · dow 0=일)
@@ -165,14 +165,14 @@ int main()
               "C1 세척관리 실제 형식(무패딩·4자리연도·dow 0=일)이 그대로 반영된다");
         CHECK(!serial_has("updated"), "C1 'updated' 는 시리얼로 안 나간다(PC 는 성공 여부를 모른다)");
 
-        // 올눈: MainFormSo.pas:15892-15895 — 'T'+IntToStr(Year)+';'…+IntToStr(Sec)+';' (Week=DayOfWeek 1=일)
+        // 델파이 TraceQ: MainFormSo.pas:15892-15895 — 'T'+IntToStr(Year)+';'…+IntToStr(Sec)+';' (Week=DayOfWeek 1=일)
         logs_clear();
         serial_inject("T2026;9;27;1;16;45;5;", 21);
         GUARDED(serialEvent());
         run_loops(1);
         const DateTime b = rtc.GetCurrentDateTime();
-        tlog("  C2 올눈 T(요일 1=일) → %02u:%02u:%02u\n", b.hour(), b.minute(), b.second());
-        CHECK(b.hour() == 16 && b.minute() == 45, "C2 올눈 실제 형식(요일 1~7)도 그대로 반영된다 — 요일 칸은 버린다");
+        tlog("  C2 델파이 TraceQ T(요일 1=일) → %02u:%02u:%02u\n", b.hour(), b.minute(), b.second());
+        CHECK(b.hour() == 16 && b.minute() == 45, "C2 델파이 TraceQ 실제 형식(요일 1~7)도 그대로 반영된다 — 요일 칸은 버린다");
 
         // 연도 2자리를 보내면(옛 C 펌웨어 형식) 거부된다 — 두 PC 모두 4자리라 도달하지 않는 갈래
         logs_clear();

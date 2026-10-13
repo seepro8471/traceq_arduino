@@ -3,6 +3,7 @@
 //  커밋 뒤 소거 중 **이탈** = 완료음(17차 판정 — PC 는 저장·태그는 완료 · 종전엔 Write Error 가 나서 다시 대면 Not W and D 가 반복됐다).
 //  남은 칸(블록 5·8·9·60·61·62)은 다음 접촉이 지운다: 세척기가 먼저면 잔재 판정·선행 소거, 게이트웨이가 먼저면 새 검사가 덮는다.
 //  커밋 뒤 소거 실패인데 **카드는 살아 있는** 것(상한 블록)은 Write Error(18차 — 그 칸은 어느 접촉도 못 지운다).
+//  단 살아 있으면 한 번 더 지워 본 뒤에 판정한다(19차 — 확인 읽기만 잠깐 깨진 멀쩡한 태그).
 #include "common.h"
 
 static SimCard sc;
@@ -167,9 +168,9 @@ int main()
 
     // ── ④(18차) 상한 블록: 카드는 살아 있는데 그 블록만 영영 안 써진다 → Write Error(완료음 아님) — 접촉이 끊긴 것과 가른다 ──
     {
-        static const uint8_t bad[] = {SECTOR1_GATEWAY, SECTOR15_EXAMINATION_SUBJECT2};
+        static const uint8_t bad[] = {SECTOR1_GATEWAY, SECTOR15_EXAMINATION_SUBJECT2, SECTOR2_PATIENT_KEY, SECTOR2_PATIENT_NAME};
         uint8_t werrN = 0, doneN = 0;
-        for (uint8_t i = 0; i < 2; ++i)
+        for (uint8_t i = 0; i < 4; ++i)
         {
             to_type('S');
             sim_advance_ms(60UL * 1000);
@@ -183,8 +184,50 @@ int main()
             if (buzz_count(150) != 0) ++doneN;
             sc.nackBlock = -1;
         }
-        CHECK(werrN == 2 && doneN == 0,
-              "④(18차) 커밋 뒤 소거가 실패했는데 카드가 살아 있으면(상한 블록) Write Error 100×4 — 완료음으로 넘기지 않는다");
+        CHECK(werrN == 4 && doneN == 0,
+              "④(18차) 커밋 뒤 소거가 실패했는데 카드가 살아 있으면(상한 블록 — 검사·환자 칸 어느 것이든) Write Error 100×4 — 완료음으로 넘기지 않는다");
+    }
+    // ── ⑤(19차) 블록이 멀쩡한 태그: 소거의 **확인 읽기만** 세 번 연달아 깨져도(리더 쪽 수신 오류) 한 번 더 지워 완료음 ──
+    //  18차 ④ 만으로는 이것도 "카드는 살아 있고 소거 실패" 라 Write Error 였다 → 재접촉은 Not W and D(17차가 없애려던 반복).
+    {
+        static const uint8_t blk[] = {SECTOR15_EXAMINATION_SUBJECT, SECTOR1_GATEWAY, SECTOR2_PATIENT_KEY};
+        uint8_t okN = 0;
+        for (uint8_t i = 0; i < 3; ++i)
+        {
+            to_type('S');
+            sim_advance_ms(60UL * 1000);
+            done_scope(sc, (uint8_t)(0x78 + i), 78 + i);
+            sc.readErrBlock = blk[i]; sc.readErrSkip = 1; sc.readErrTimes = 3;   // 덤프의 읽기 1회는 통과 · 그 뒤 확인 읽기 3회 오류
+            touch_server(sc);
+            const uint8_t leftErr = sc.readErrTimes;
+            sc.readErrBlock = -1; sc.readErrTimes = 0; sc.readErrSkip = 0;
+            tlog("  ⑤ 블록 %u 확인 읽기 오류 3회(남은 %u): Ok!=%d WErr=%d 완료음=%u 남은칸=%02X\n", blk[i], leftErr, serial_has("Ok!"),
+                 lcd_has("Write Error"), (unsigned)buzz_count(150), rmask(sc));
+            if (leftErr == 0 && serial_has("Ok!") && !lcd_has("Write Error") && buzz_count(150) == 1 && buzz_count(100) == 0 && rmask(sc) == 0) ++okN;
+        }
+        CHECK(okN == 3, "⑤(19차) 멀쩡한 태그의 확인 읽기 3연속 오류는 한 번 더 지워 완료음 · 여섯 칸 소거(Write Error 아님)");
+    }
+    // ── ⑥(19차) 그 태그가 **다시 지우는 도중에** 떠나면 완료음이다(끊긴 접촉 · 17차 판정) — 둘째 소거 뒤에도 카드가 살아 있을 때만 Write Error ──
+    {
+        uint8_t cuts = 0, werr = 0, whole = 0;
+        for (int16_t n = firstC; n < 200; ++n)
+        {
+            sim_advance_ms(60UL * 1000);
+            done_scope(sc, (uint8_t)(0xC0 + (n & 0x3F)), 90);
+            sc.readErrBlock = SECTOR15_EXAMINATION_SUBJECT; sc.readErrSkip = 1; sc.readErrTimes = 3;
+            sc.removeAfterOps = n;
+            touch_server(sc);
+            const bool cut = sc.opCount > (uint16_t)n;
+            sc.removeAfterOps = 0; sc.readErrBlock = -1; sc.readErrTimes = 0; sc.readErrSkip = 0;
+            const Process p = get_process(sc);
+            if (!serial_has("Ok!") || p.WashingStatus != 0) continue;       // 커밋 전
+            if (!cut) { whole = (buzz_count(150) == 1 && !lcd_has("Write Error") && rmask(sc) == 0); break; }
+            ++cuts;
+            if (lcd_has("Write Error") || buzz_count(150) != 1) { ++werr; tlog("  ⑥ n=%d Write Error 또는 완료음 없음\n", n); }
+        }
+        tlog("  ⑥ 확인 읽기 오류 + 이탈: 커밋 뒤 절단 %u자리 중 Write Error=%u · 끝까지 대면 완료=%d\n", cuts, werr, whole);
+        CHECK(cuts > 20 && werr <= 1 && whole,
+              "⑥(19차) 다시 지우는 도중에 떠난 태그는 완료음(커밋 확인 절단 1자리만 예외) — 끝까지 대면 여섯 칸 소거·완료음");
     }
     done();
     for (;;) {}

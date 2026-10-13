@@ -38,7 +38,7 @@ int main()
     rtc_set(DateTime(2026, 9, 23, 9, 0, 0));
     boot('G');
 
-    // ── 올눈 실물: G1·G2·G3·G4·G5 를 따로, 250ms 간격(MainFormSo.pas:15207~15230 UserInfoReaderSet) ──
+    // ── 델파이 TraceQ 실물: G1·G2·G3·G4·G5 를 따로, 250ms 간격(델파이 TraceQ 의 MainFormSo.pas:15207~15230 UserInfoReaderSet — 올눈은 G1 을 안 보낸다) ──
     {
         const uint32_t t0 = g_ms + 50;
         const char p1[] = "G10000;";
@@ -56,9 +56,9 @@ int main()
         logs_clear();
         touch(c);
         const LocalDateTime d = get_ldt(c, SECTOR1_GATEWAY);
-        tlog_ldt("올눈 실물(G1 포함) 태그 검사일시", d);
+        tlog_ldt("델파이 TraceQ 실물(G1 포함) 태그 검사일시", d);
         CHECK(ldt_eq(d, 2026, 9, 23, 11, 15, 0) && memcmp(c.data[SECTOR2_PATIENT_KEY], "67890", 6) == 0,
-              "올눈 실물 5조각(G1 포함) → 검사일시·환자 키");
+              "델파이 TraceQ 실물 5조각(G1 포함) → 검사일시·환자 키");
         sim_advance_ms(60UL * 1000);
     }
 

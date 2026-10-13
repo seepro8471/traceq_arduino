@@ -205,7 +205,7 @@ def sync_clock(port, opener=_open_port, now=datetime.now, sleep=time.sleep, cloc
     리더기는 한 번에 읽힌 버퍼의 둘째 JSON 을 버리므로 명령 사이를 수신 대기(게이트웨이 1초)보다 길게 띄운다.
 
     돌려주는 값: 'ok'(되읽어 확인) · 'sent'(보냈으나 되읽기 없는 판) · 'mismatch'(되읽은 시계가 다름) ·
-                 'pc_clock'(PC 날짜가 틀려 안 보냄) · 'port' · 'no_reply' · 'unconfirmed'.
+                 'bad_clock'(되읽은 값이 날짜 꼴이 아님 - 시계 부품) · 'pc_clock'(PC 날짜가 틀려 안 보냄) · 'port' · 'no_reply' · 'unconfirmed'.
     """
     t = now()
     if (t.year, t.month, t.day) < CLOCK_FLOOR:
@@ -250,7 +250,15 @@ def sync_clock(port, opener=_open_port, now=datetime.now, sleep=time.sleep, cloc
                 return 'unconfirmed'
             seen = _reader_clock(back)
             if seen is None:
+                if 'device_date_time' in back and attempt == 1:
+                    print('  되읽은 리더기 시계 값이 날짜 꼴이 아닙니다 - 한 번 더 보냅니다...')
+                    continue
                 print(f'리더기에 이 PC 시각({text})을 보냈습니다.')
+                if 'device_date_time' in back:
+                    # 두 번 다 날짜 꼴이 아니다 = 옛 펌웨어가 아니라 리더기의 시계 부품(RTC)이 이상한 값을 낸다(19차)
+                    print(f"  [주의] 리더기가 돌려준 시계 값({back.get('device_date_time')!r})이 날짜 꼴이 아닙니다.")
+                    print('         리더기의 시계 부품(RTC)을 점검하십시오 · 화면의 시각을 확인하십시오')
+                    return 'bad_clock'
                 print('  (이 펌웨어는 시계를 되읽어 주지 않습니다 - 긴 삐 소리 1회와 화면 `updated` · 화면의 시각을 확인하십시오)')
                 return 'sent'
             diff = abs((seen - now()).total_seconds())

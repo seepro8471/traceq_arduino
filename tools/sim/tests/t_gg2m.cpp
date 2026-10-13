@@ -234,7 +234,7 @@ int main()
             const Process p2 = get_process(a);
             tlog_p("⑫a 되넣음", a);
             CHECK(p2.Rewrite == 2 && p2.DisinfectionCount == 2 && p2.MachineNumber == 2 && disinfectionOption.GetCount() == 1,
-                  "⑫a 재확인 뒤 되넣기 접촉은 2차 시작(새 액 횟수 1) — 실패 표지는 한 번만 쓰인다");
+                  "⑫a 재확인 3초 뒤 되넣기 접촉은 2차 시작(새 액 횟수 1) — 표지는 재확인 뒤 2초만 더 산다(⑫o)");
         }
     }
     // ⑫b 성공한 이동 뒤 빠른 되넣기(3초)는 2차 시작 — 재확인이 삼키지 않는다(A→A 정상 · 실패 표지 없음 · 섹터6 2초 밖) · ⑫c 0.5초 튐은 재확인
@@ -408,7 +408,7 @@ int main()
         logs_clear(); buzz_clear(); touch(a);                               // a 재접촉 11초 뒤 — 창 밖 → 2차 시작
         const Process pa11 = get_process(a);
         tlog_p("⑫j a 11초 뒤", a);
-        CHECK(pa11.Rewrite == 2 && pa11.DisinfectionCount == 2, "⑫j 찢긴 이동 11초 뒤 재접촉은 표지 창 밖 → 2차 시작(10초 창)");
+        CHECK(pa11.Rewrite == 2 && pa11.DisinfectionCount == 2, "⑫j 찢긴 이동 12초 남짓 뒤 재접촉은 표지 창 밖 → 2차 시작(10초 창 · 경계는 t_ii23)");
     }
     // ── ⑫k (17차 V-C L1 · V-H U2) 동시소독(slot 2)에서 재확인의 뒷정리(host 슬롯·시간창 비움) — 없으면 되넣기 2차가 자기 guest(그룹2·횟수 0) ──
     {
@@ -432,7 +432,7 @@ int main()
         tlog("  ⑫k slot2 되넣기: RW=%u DC=%u 그룹2=%d 횟수=%d\n", get_process(a).Rewrite, get_process(a).DisinfectionCount,
              d2.GroupNumber, disinfectionOption.GetCount());
         CHECK(get_process(a).Rewrite == 2 && d2.GroupNumber == 1 && disinfectionOption.GetCount() == 1,
-              "⑫k(17차) 재확인이 host 슬롯·시간창을 비워 되넣기 2차가 그룹1·횟수 1 — 안 비우면 자기 창 안의 guest(그룹2·횟수 0)");
+              "⑫k(17차) 재확인 뒤 되넣기 2차는 그룹1·횟수 1(19차부터는 새 시작의 슬롯 버림으로도 된다 — 뒷정리 자체는 t_ii22 B5 가 잠근다)");
         disinfectionOption.SetSimultaneousDisinfectionSlot(0);
     }
     // ── ⑫l (17차 V-H U3) 재확인의 꼬리는 이동과 같다 — 환자정보 확인 ON 이고 환자 없으면 성공음이 아니라 400×2 경고 ──
@@ -547,6 +547,35 @@ int main()
              disinfectionOption.GetCount());
         CHECK(werr && pw.Rewrite == 2 && pw.DisinfectionCount == 2 && disinfectionOption.GetCount() == 1,
               "⑫p(18차) 만료된 표지는 접촉 때 지워진다 — millis 한 바퀴 뒤 같은 띠의 되넣기는 재확인이 아니라 2차 시작");
+    }
+
+    // ── ⑫q (19차) 재확인이 표지를 줄이는 것도 **그 스코프**만 — a 찢김 → b 이동 → b 튐(섹터6 길 재확인) → a 재접촉(6초 뒤)은 재확인 ──
+    //  조건 없이 줄이면 b 의 튐이 a 의 표지를 2초로 줄여 a 재접촉이 2차 시작이 된다(18차 고침이 안 잠겨 있었다 · 세 갈래 독립 발견).
+    {
+        hard_reset(false, 2); deviceOption.SetNumber(2); managerOption.SetData(mk, mn);
+        disinfectionOption.SetSimultaneousDisinfectionSlot(0); disinfectionOption.SetCount(9);
+        started_at2(a, 0x99, 86); started_at2(b, 0x9A, 87);
+        rtc_set(rel_date(22, 40, 0)); touch(clr);
+        sim_advance_ms(3000);
+        a.readErrBlock = SECTOR1_PROCESS; a.readErrSkip = 1; a.readErrTimes = 30;
+        logs_clear(); buzz_clear(); touch(a, 1, 4);                         // a 이동 커밋 뒤 확인 실패 → 표지(a)
+        const bool werr = lcd_has("Write Error");
+        a.readErrBlock = -1; a.readErrTimes = 0; a.readErrSkip = 0;
+        const uint32_t t0 = g_ms;
+        sim_advance_ms(300); logs_clear(); buzz_clear(); touch(b);          // b 이동(성공)
+        const bool bMoved = get_process(b).MovementNeeded && get_process(b).Rewrite == 0 && buzz_count(50) == 1;
+        sim_advance_ms(300); logs_clear(); buzz_clear(); touch(b);          // b 튐 = 재확인(섹터6 2초)
+        const Process pbb = get_process(b);
+        const bool bBounce = pbb.MovementNeeded && pbb.Rewrite == 0 && pbb.DisinfectionCount == 1 && buzz_count(50) == 1;
+        if (g_ms - t0 < 6000UL) sim_advance_ms(6000UL - (g_ms - t0));       // a 실패로부터 6초(표지 10초 안 · b 튐에서 2초 밖)
+        const uint32_t gap = g_ms - t0;
+        logs_clear(); buzz_clear(); touch(a);
+        const Process pr = get_process(a);
+        tlog("  ⑫q WE=%d b이동=%d b튐재확인=%d a재접촉 %lums 뒤: MV=%u RW=%u DC=%u 성공음=%u\n", werr, bMoved, bBounce, (unsigned long)gap,
+             pr.MovementNeeded, pr.Rewrite, pr.DisinfectionCount, (unsigned)buzz_count(50));
+        CHECK(werr && bMoved && bBounce && gap < 10000UL, "⑫q 전제: a 찢김 · b 이동 성공 · b 튐은 재확인 · a 재접촉은 표지 창(10초) 안");
+        CHECK(pr.MovementNeeded && pr.Rewrite == 0 && pr.DisinfectionCount == 1 && buzz_count(50) == 1,
+              "⑫q(19차) 다른 스코프(b)의 튐 재확인은 a 의 표지를 줄이지 않는다 — a 재접촉은 재확인(태그 불변·성공음)");
     }
 
     // ── ⑬ (16차 · 18차 다시 잠금) 1차 시작 **1초 뒤(재시작 창 2초 안)** 다른 기기에 대면 재시작이 아니라 Other Machine ──

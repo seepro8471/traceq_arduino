@@ -332,8 +332,8 @@ UserInterface::MenuFunction UserInterface::select(Line &line, const __FlashStrin
     return select_impl(line, p1, p2, p3, p4, start);
 }
 
-// [5차 판정 · 재론 금지] 숫자 메뉴는 범위 밖 값을 말없이 세터 규칙대로 저장(대개 잘라서 · MaxCount 는 999 초과면 0 —
-//  15차 C5)(날짜는 경고+폐기 — 형제 규칙 다름, 1.0 동일) · 편집 화면이
+// [5차 판정 · 재론 금지] 숫자 메뉴는 범위 밖 값을 말없이 세터 규칙대로 저장(대개 잘라서 · 메뉴는 보여 준 자릿수만 고쳐 999 를
+//  못 넘는다 — MaxCount "999 초과면 0"(15차 C5)은 JSON 길에서만 닿는다)(날짜는 경고+폐기 — 형제 규칙 다름, 1.0 동일) · 편집 화면이
 //  'Edit' 4자를 매 루프 다시 씀(메뉴 안이라 태그와 무관) · select_impl 둘의 default 가 다름(둘 다 도달 불가) ·
 //  EEPROM 타입 손상 기기는 같은 타입을 골라도 복구 기록 안 됨(다음 판 첫 부팅에 소거 — 이론상).
 UserInterface::MenuFunction UserInterface::edit_number_impl(Line &line)

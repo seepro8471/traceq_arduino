@@ -18,7 +18,7 @@ void ReaderUserInterface::DisplayHome(DefaultRtc &rtc, const int deviceNumber)
     mLcd.print(TRACEQ_ARDUINO_VERSION);
 
     // device
-    sprintf(mDeviceInfoBuffer, "%c:%02d", mType, deviceNumber);
+    snprintf(mDeviceInfoBuffer, sizeof(mDeviceInfoBuffer), "%c:%02d", mType, deviceNumber);   // 버퍼 [5] — 번호 100 이상이면 잘린다(넘치지 않게)
     mLcd.setCursor(16, 3);
     mLcd.print(mDeviceInfoBuffer);
 }

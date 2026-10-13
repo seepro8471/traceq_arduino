@@ -71,9 +71,40 @@ static bool can_answer(SimCard *c, SimCardState st, bool wupa)
 //  읽으면 그 값이 나온다. 종전 가짜는 안테나가 없어 "살아난 뒤 초기화가 없다" 를 볼 수 없었다(VI-A·VI-E·VI-J).
 static uint8_t s_txControl = 0x80;
 static uint8_t s_txAsk;       // TxASKReg — 리셋값 0x00. 제품 Initialize 가 0x40(100% ASK)을 써야 카드와 통신이 된다
-static bool reader_dead() { return g_versionReg == 0x00 || g_versionReg == 0xFF; }
-// 카드가 응답하려면 안테나가 켜져 있고 **초기화 설정도** 들어가 있어야 한다 — 안테나 비트만으로는 부족하다
-static bool antenna_on() { return !reader_dead() && (s_txControl & 0x03) == 0x03 && (s_txAsk & 0x40) != 0; }
+static uint8_t s_tMode;       // TModeReg — 리셋값 0x00. 제품 Initialize 의 **첫 쓰기**(TAuto 0x80)
+// 타이머(TPrescaler·TReloadH/L)와 ModeReg(CRC 초기값)도 제품 Initialize 가 쓴 값이어야 통신이 된다(19차 — 안 보면 그 줄들을 지워도 초록이었다).
+static uint8_t s_tPrescaler, s_tReloadH, s_tReloadL;
+static uint8_t s_mode = 0x3F;
+static void chip_reset_values()
+{
+    s_txControl = 0x80; s_txAsk = 0; s_tMode = 0;
+    s_tPrescaler = s_tReloadH = s_tReloadL = 0; s_mode = 0x3F;
+}
+// 리셋 직후의 칩은 쓰기를 못 듣는다(19차) — 소프트 리셋은 CommandReg 의 PowerDown 비트가 내려갈 때까지(제품 pcdSoftReset 이 기다린다),
+//  하드 리셋(RST↑)은 발진이 설 때까지(38ms · 제품은 delay(50)). 그 대기를 빼면 초기화 쓰기가 버려져 카드를 못 읽는다.
+static uint8_t  s_softBusy;   // PowerDown 이 서 있는 것으로 읽힐 남은 CommandReg 읽기 수
+static bool     s_hardBusy;
+static uint32_t s_hardAt;
+static bool chip_busy()
+{
+    if (s_hardBusy && (uint32_t)(g_ms - s_hardAt) >= 38) s_hardBusy = false;
+    return s_hardBusy || s_softBusy != 0;
+}
+// RST 핀이 LOW 면 칩은 리셋에 잡혀 있다(SPI 무응답) — 전원을 켠 직후의 상태. 제품 Initialize 가 HIGH 로 올려야 살아난다(19차).
+bool g_rc522RstHigh;
+static bool reader_dead() { return !g_rc522RstHigh || g_versionReg == 0x00 || g_versionReg == 0xFF; }
+static uint8_t dead_value() { return g_rc522RstHigh ? g_versionReg : 0x00; }
+// 설정 레지스터가 되읽히지 않는 칩(쓰기는 닿아 동작은 한다) — 제품의 설정 판정이 이런 칩에서 매 loop 재초기화가 되지 않는지 본다(19차).
+bool g_cfgUnreadable;
+// 소프트 리셋을 **시도한** 횟수(죽은 버스에 쓴 것도 센다 — 죽은 동안의 재초기화를 본다)
+uint16_t g_softResets;
+// 카드가 응답하려면 안테나가 켜져 있고 **초기화 설정도** 들어가 있어야 한다 — 안테나 비트만으로는 부족하다.
+//  TAuto 가 꺼져 있으면 타이머 값은 안 쓰인다(무응답이 느릴 뿐 통신은 된다 — sim_reader_lose_first_write 의 칩).
+static bool timer_ok() { return (s_tMode & 0x80) == 0 || (s_tMode == 0x80 && s_tPrescaler == 0xA9 && s_tReloadH == 0x03 && s_tReloadL == 0xE8); }
+static bool antenna_on()
+{
+    return !reader_dead() && (s_txControl & 0x03) == 0x03 && (s_txAsk & 0x40) != 0 && s_mode == 0x3D && timer_ok();
+}
 
 static bool card_op()   // 인증·읽기·쓰기 1회. false = 카드가 이미 없다
 {
@@ -95,11 +126,39 @@ uint8_t g_versionReg = 0x92;
 //  설정 비트 검사(TxControl)로는 못 잡고, "살아난 첫 loop 에 다시 초기화" 만이 고친다(18차 · sim_reader_half_init).
 void sim_reader_half_init()
 {
+    chip_reset_values();
     s_txControl = 0x83;
-    s_txAsk = 0;
     sim_field_drop();
 }
-// VersionReg 읽기를 차례로 지정한다(다 쓰면 g_versionReg) — 한 loop 안의 두 읽기가 갈리는 떨림을 만든다(18차 · sim_version_seq).
+// 초기화의 앞쪽만 빠진 칩 — TxASK·안테나는 들어갔는데 첫 쓰기(TMode)가 안 닿았다(카드는 응답한다 · 설정 판정만 거짓)
+void sim_reader_lose_first_write() { s_tMode = 0; }
+// Initialize 의 쓰기 하나만 빠진 칩(1 TxASK · 2 안테나 · 3 TMode · 4 TPrescaler · 5 TReloadH · 6 TReloadL · 7 Mode) — 카드가 응답하지 않는다
+void sim_reader_drop_cfg(uint8_t which)
+{
+    switch (which)
+    {
+    case 1: s_txAsk = 0; break;
+    case 3: s_tMode = 0; break;
+    case 4: s_tPrescaler = 0; break;
+    case 5: s_tReloadH = 0; break;
+    case 6: s_tReloadL = 0; break;
+    case 7: s_mode = 0x3F; break;
+    case 8: s_tMode = 0x8D; break;   // TAuto 는 켜졌는데 프리스케일러 상위 비트가 틀린 값 — 비트만 보면 못 가른다
+    default: s_txControl = 0x80; break;
+    }
+    sim_field_drop();
+}
+// RST 핀이 LOW → HIGH: 칩이 리셋에서 풀려난다(레지스터는 리셋값). fake_hw 의 digitalWrite 가 부른다.
+void sim_chip_reset_released()
+{
+    chip_reset_values();
+    s_softBusy = 0; s_hardBusy = true; s_hardAt = g_ms;
+    if (g_card != nullptr) g_cardState = CARD_IDLE;
+    if (g_cardB != nullptr) g_cardStateB = CARD_IDLE;
+    g_readerCrypto = false;
+    s_authSector = -1;
+}
+// VersionReg 읽기를 차례로 지정한다(다 쓰면 g_versionReg) — 제품은 loop 당 한 번 읽으므로 두 loop 에 걸친 떨림이 된다(부팅은 죽음이면 두 번 읽는다).
 static uint8_t s_versionSeq[4];
 static uint8_t s_versionSeqN, s_versionSeqAt;
 uint16_t g_versionReads;
@@ -121,17 +180,23 @@ void sim_field_drop()
 // 모듈 전원이 나갔다 들어왔다 — 칩 설정이 리셋값으로(안테나 OFF). VersionReg 는 g_versionReg 그대로(호출자가 죽음 표본을 따로 준다).
 void sim_reader_power_cycle()
 {
-    s_txControl = 0x80;
-    s_txAsk = 0;
+    chip_reset_values();
     sim_field_drop();
 }
 void MFRC522::PCD_WriteRegister(byte reg, byte val)
 {
     SIM_SP();
+    if (reg == CommandReg && val == PCD_SoftReset && g_softResets < 0xFFFF) ++g_softResets;
     if (reader_dead()) return;                       // 죽은 버스 — 쓰기가 닿지 않는다
-    if (reg == CommandReg && val == PCD_SoftReset) { s_txControl = 0x80; s_txAsk = 0; sim_field_drop(); }
-    else if (reg == TxControlReg) s_txControl = val;
+    if (reg == CommandReg && val == PCD_SoftReset) { chip_reset_values(); s_softBusy = 3; sim_field_drop(); return; }
+    if (chip_busy()) return;                         // 리셋이 끝나기 전의 쓰기는 닿지 않는다
+    if (reg == TxControlReg) s_txControl = val;
     else if (reg == TxASKReg) s_txAsk = val;
+    else if (reg == TModeReg) s_tMode = val;
+    else if (reg == TPrescalerReg) s_tPrescaler = val;
+    else if (reg == TReloadRegH) s_tReloadH = val;
+    else if (reg == TReloadRegL) s_tReloadL = val;
+    else if (reg == ModeReg) s_mode = val;
 }
 byte MFRC522::PCD_ReadRegister(byte reg)
 {
@@ -139,10 +204,21 @@ byte MFRC522::PCD_ReadRegister(byte reg)
     if (reg == VersionReg)
     {
         ++g_versionReads;
+        if (!g_rc522RstHigh) return 0x00;
         if (s_versionSeqAt < s_versionSeqN) return s_versionSeq[s_versionSeqAt++];
         return g_versionReg;
     }
-    if (reg == TxControlReg) return reader_dead() ? g_versionReg : s_txControl;
+    // 죽은 버스는 어느 레지스터를 읽어도 그 값이다 — 0xFF 죽음이면 CommandReg 의 PowerDown 비트도 서 있어
+    //  제품 pcdSoftReset 이 제한 시간(150ms)을 다 쓰고 나온다(19차 — 종전 가짜는 늘 0x00 이라 그 탈출을 아무도 안 탔다).
+    if (reader_dead()) return dead_value();
+    if (reg == TxControlReg) return g_cfgUnreadable ? 0x80 : s_txControl;
+    if (reg == TxASKReg) return g_cfgUnreadable ? 0x00 : s_txAsk;
+    if (reg == TModeReg) return g_cfgUnreadable ? 0x00 : s_tMode;
+    if (reg == TPrescalerReg) return g_cfgUnreadable ? 0x00 : s_tPrescaler;
+    if (reg == TReloadRegH) return g_cfgUnreadable ? 0x00 : s_tReloadH;
+    if (reg == TReloadRegL) return g_cfgUnreadable ? 0x00 : s_tReloadL;
+    if (reg == ModeReg) return g_cfgUnreadable ? 0x3F : s_mode;
+    if (reg == CommandReg && s_softBusy) { --s_softBusy; return 0x10; }   // 소프트 리셋 중 — PowerDown 비트가 서 있다
     return 0x00;   // CommandReg: PowerDown 해제 = soft reset 완료
 }
 void MFRC522::PCD_AntennaOn()   // 실물 라이브러리와 같은 읽고-쓰기(lib/MFRC522/MFRC522.cpp PCD_AntennaOn)

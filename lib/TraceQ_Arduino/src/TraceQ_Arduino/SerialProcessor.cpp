@@ -14,7 +14,6 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     // 덤프 일부가 0 으로 나갔으면 태그를 지우지 않는다 — 재스캔으로 온전한 덤프를 다시 받게.
     if (mLegacyReadFailures != 0) return;
 
-    // 초기화가 실패했는데 완료음을 내면, 이전 환자 정보가 남은 태그가 그대로 다음 검사로 나간다.
     // ★순서: **완료 커밋을 먼저**, 소거를 전부 그 뒤에 (사장님 09-25 판정 — PC 기록을 지키는 쪽).
     //  커밋 전에는 아무것도 안 지워졌으므로, 커밋이 실패해 재접촉하면 2차 덤프가 1차와 **완전히 같다**
     //  → PC 는 중복으로 걸러낸다. 소거를 커밋 앞에 두면 일부만 지워진 상태로 2차 덤프가 나가
@@ -41,7 +40,10 @@ void SerialProcessor::LoopProcess(LcdPrinter &printer)
     //  ★[18차] 단 **카드는 살아 있는데 쓰기만 거부**되는 것은 Write Error 다 — 블록이 상한 태그는 어느 접촉도 그 칸을 못 지워 지난
     //  검사일시·본체번호가 환자 없는 행으로 매 주기 실린다. 17차는 그것까지 완료음으로 만들어 아무도 알리지 않게 됐다.
     //  접촉이 끊긴 것과는 "공정 블록이 다시 읽히나" 로 가른다(가정 ③ 이 IDLE 쪽이면 실물은 못 가르고 완료음 — 17차와 같다).
-    if (!(clear_gateway_and_subject() && clear_patient()) && read_process())
+    //  19차: 카드가 살아 있으면 **한 번 더** 지워 본 뒤에 판정한다 — 확인 읽기만 잠깐 깨진 멀쩡한 태그가 상한 태그로 판정돼
+    //  Write Error → 재접촉 `Not W and D` 가 났다(18차 고침의 구멍).
+    if (!(clear_gateway_and_subject() && clear_patient()) &&
+        read_process() && !(clear_gateway_and_subject() && clear_patient()) && read_process())
     {
         printer.CustomWarning(0, 2, 100, 4, F("Write Error"));
         return;
@@ -122,9 +124,9 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
     bool isHandled = false;
 
     const int typeId = mDocument["type_id"].as<int>();
-    // 발급 종류는 0·1·2 뿐 — 칸이 없거나 모르는 값이면 어떤 태그도 건드리지 않고 실패로 알린다(종전엔 누락 = 0(키 설치) ·
-    //  모르는 값 = 1(소거)로 돌았다 · 설정기는 늘 0~2 를 보낸다 · 18차).
-    const bool knownType = mDocument.containsKey("type_id") && typeId >= 0 && typeId <= 2;
+    // 발급 종류는 **정수** 0·1·2 뿐 — 칸이 없거나 그 밖의 값이면 어떤 태그도 건드리지 않고 실패로 알린다(18차).
+    //  `is<int>()` 여야 한다(19차): `as<int>()` 는 `null`·`"x"`·`0.4`·`70000` 을 0 으로, `"2"` 를 2 로 만들어 관문을 지났다.
+    const bool knownType = mDocument["type_id"].is<int>() && typeId >= 0 && typeId <= 2;
 
     mScanner.ForgetTag();   // 설정 프로그램 안내대로 먼저 올려 둔 태그도 잡는다
     while (knownType && millis() - timeout < 4000)
@@ -141,6 +143,7 @@ void SerialProcessor::NewTag(DefaultRtc &rtc, LcdPrinter &printer)
             // [18차 판정 · 사장님이 뒤집을 수 있음] 공장 복원(type 2)이 도중에 끊긴 태그(앞 섹터는 공장 키 · 뒤는 TraceQ 키)는 type 2 나
             //  type 1 을 다시 해도 첫 섹터 인증에서 막힌다 — **type 0(신규 태그) 뒤 type 2** 로 회복한다(키 설치가 멱등 · t_issue).
             //  type 2 가 키 설치를 먼저 지나게 하면 한 번에 되지만, 온전한 태그의 복원이 "KEY_A 인증 뒤 트레일러 읽기"(실물 미확인)에 기대게 돼 두지 않는다.
+            //  그 회복 절차도 같은 읽기에 기댄다(시뮬로만 확인) — 실물에서 안 되면 못 살리는 것은 끊긴 그 태그 한 장이다.
             if (typeId == 0 && mScanner.InstallTraceQKeys() != RfidResult::Ok) break;
 
             if (mScanner.ClearTag() != RfidResult::Ok) break;
@@ -501,7 +504,7 @@ bool SerialProcessor::legacy_loop_process(LcdPrinter &printer)
     //  0 으로 나간 블록이 섞인 덤프에도 `Ok!` 를 붙이면 세척관리가 그것을 **저장**하고(저장 방아쇠가 `Ok!` 다),
     //  세척/소독 시작 시각만 온전하면 검증을 통과해 **세척 종료가 빈 행**이 대장에 남았다. 게다가 검증을
     //  통과한 스캔은 5초 중복 차단이 걸려 **곧바로 다시 댄 온전한 스캔이 버려졌다**(CC2 P1-1).
-    //  현장에서 태그는 1초 미만으로 댔다 떼므로(사장님 확인) 덤프(카드 동작 65회 + 'Z' 대기)가 중간에
+    //  현장에서 태그는 1초 미만으로 댔다 떼므로(사장님 확인) 덤프(`Ok!` 까지 카드 동작 49~57회 + 'Z' 대기)가 중간에
     //  끊기는 것은 드문 일이 아니다. `Ok!` 를 안 내면 두 PC 모두 저장하지 않고, 태그는 그대로 남아
     //  다시 대면 온전한 덤프가 나간다(아래 LoopProcess 의 보존 규칙과 짝을 이룬다).
     //  ★짝이 되는 PC 쪽 조건: **이미 나간 블록은 PC 버퍼에 남는다.** 세척관리는 `PSOk`(덤프 시작 신호)마다
@@ -597,7 +600,7 @@ void SerialProcessor::legacy_create_tag(const char *buffer, LcdPrinter &printer)
 //  'Z' 를 보내는 주기를 견디려는 값이다(여유 217ms) — 350ms 밑으로 줄이면 델파이 현장의 서버 덤프가 전부 죽는다.
 bool SerialProcessor::legacy_is_connected()
 {
-    // PC 는 PSOk 에 'Z' 한 바이트로 답한다(델파이·세척관리·SeePro 셋 다 줄바꿈 없음 · 설정기는 `Z\n` — 인증은 버퍼 안의 'Z' 만 본다).
+    // PC 는 PSOk 에 'Z' 한 바이트로 답한다(델파이·세척관리·SeePro 셋 다 줄바꿈 없음 · 설정기는 19차부터 답하지 않는다 — 인증은 버퍼 안의 'Z' 만 본다).
     // ★읽지 않고 들여다본다(peek) — 종전엔 10ms 마다 1바이트씩 **소비**해서, 줄 서 있던 PC 명령
     //  (설정 JSON·발급 명령)을 먹어 버리고, 55바이트를 넘으면 정상 연결인데 'Not Connected' 가 됐다.
     //  'Z' 가 아닌 바이트가 앞에 있으면 그 뒤의 'Z' 에 닿을 수 없으니 곧장 실패로 — 다음 loop 의
