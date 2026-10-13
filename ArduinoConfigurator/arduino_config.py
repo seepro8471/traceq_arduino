@@ -3,6 +3,9 @@ TraceQ Arduino Configurator
 ============================
 Arduino 기기 설정 읽기 / 쓰기 / 날짜동기화 / 태그 초기화
 
+★출하물이 아니다(사장님 10-13) — 발급·시각은 세척관리가, 설정은 리더기 메뉴가 한다. 저장소에만 두고 배포하지 않는다.
+  액교환 횟수·교환일을 숫자로 고치거나 MaxCount·딜레이에 100 이상을 넣는 드문 보정에만 꺼내 쓴다(그때 `test_config.py` 를 먼저 돌린다).
+
 프로토콜:
   최신 모드(IsLatestCompat=True) : STX{json}ETX  ↔  STX{json}ETX
   레거시 모드(IsLatestCompat=False): PSOk → Z 인증 후 S/M/C 명령

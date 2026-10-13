@@ -24,7 +24,8 @@
 6. **업로더 exe** — `uploader/build_uploader.bat`(PowerShell 에서는 `& "…\uploader\build_uploader.bat"`)
    - 배치가 스스로 멈추는 관문 둘(18차): `gen_version.py` 가 **hex 안에 version.hpp 의 버전 문자열**이 없으면 멈춘다(펌웨어를 다시 안 빌드한 것) ·
      `test_clock_sync.py`(업로더 시험 · 포트 안 엶)가 빨강이면 exe 를 만들지 않는다.
-   - `py ArduinoConfigurator\test_config.py` 도 **매 출하** 돌린다(화면 없이 · 포트 안 엶 — 19차: 어느 관문에도 안 걸려 있어 손으로만 돌았다).
+   - 설정기(`ArduinoConfigurator/`)는 **출하물이 아니다**(사장님 10-13) — 발급·시각은 세척관리가, 설정은 리더기 메뉴가 한다. 저장소에만 두고 배포하지 않으며
+     관문에도 두지 않는다(드문 보정용으로 꺼내 쓸 때만 `py ArduinoConfigurator\test_config.py` 를 돌린다).
 7. **출하물 대조(필수)** — exe 안의 hex 가 **이번 빌드의 hex** 인지 sha 로 확인한다. 파일명만 보면 안 된다
    (배치가 hex 복사에 실패해도 이름은 새 버전이 된다):
    - `.pio/build/megaatmega2560/firmware.hex` · `uploader/firmware.hex` · **exe 내장 PYZ/CArchive 의 firmware.hex** 세 sha 가 같아야 한다.
