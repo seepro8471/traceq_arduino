@@ -5,7 +5,7 @@
 
 ## 순서 (이 순서를 바꾸지 말 것)
 
-1. **회귀 전량** — `bash tools/sim/runall.sh "D:/TraceQ_maga" <출력폴더>`
+1. **회귀 전량** — `bash tools/sim/runall.sh "D:/TraceQ_Mega" <출력폴더>`
    - 판정은 `==> pass=N fail=M` **만**. `pass=0 fail=0`·TIMEOUT 은 **초록이 아니다**.
    - 합계를 **손으로 더하지 말고** 출력에서 계산한다(이 프로젝트에서 손계산이 네 번 틀렸다):
      `awk 'match($0,/pass=[0-9]+/){p+=substr($0,RSTART+5,RLENGTH-5)} match($0,/fail=[0-9]+/){f+=substr($0,RSTART+5,RLENGTH-5)} /==>/{n++} END{printf "종=%d pass=%d fail=%d\n",n,p,f}' <로그>`

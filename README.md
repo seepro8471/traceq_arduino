@@ -60,7 +60,7 @@ Old(레거시 블록 덤프)였다. 2.2.0 은 Latest 를 통째로 삭제했다:
 ## 디렉터리 구조
 
 ```
-TraceQ_maga/
+TraceQ_Mega/
 ├── platformio.ini
 ├── README.md
 ├── src/main.cpp
@@ -87,7 +87,7 @@ TraceQ_maga/
 ## 빌드
 
 ```
-cd "D:\TraceQ_maga"
+cd "D:\TraceQ_Mega"
 pio run
 pio run -t upload
 ```

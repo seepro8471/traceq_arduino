@@ -7,7 +7,7 @@ avr-gdb 내장 AVR 시뮬레이터에서 `setup()`/`loop()`/`serialEvent()` 를 
   nested 인증 규칙, 인증·쓰기 실패·필드 이탈·리더 쪽 읽기 오류·HaltA 유실 주입).
 - `fakes/fake_hw.cpp` — DS3231(시계 조작), LCD(출력 기록), EEPROM(RAM), Serial(입출력 기록), 부저(펄스 길이), 버튼 스크립트,
   `util_soft_reset` 가로채기(시험으로 복귀).
-- 사용 (Git Bash): `bash tools/sim/runall.sh "D:/TraceQ_maga" <출력 폴더>`
+- 사용 (Git Bash): `bash tools/sim/runall.sh "D:/TraceQ_Mega" <출력 폴더>`
   — 등록 시험(`runall.sh` 의 `T`·`T2` — 10-13 기준 80종) 요약 · 끝에 `tests/t_*.cpp` 중 미등록을 `!! 미등록:` 으로 찍는다.
   출력 폴더는 **공백 없는 새 경로**로 — 이미 있고 비어 있지 않으면 우리가 남긴 표식(`.simout`)이 있어야 지우고 다시 쓴다(18차 · 엉뚱한 폴더를 지우지 않게).
   한 개만: `build.sh <루트> <출력> tests/t_x.cpp` 후 `run.sh <출력>/t_x.elf`.

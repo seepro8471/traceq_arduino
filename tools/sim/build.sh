@@ -9,7 +9,7 @@ for t in "$@"; do name=$(basename "$t" .cpp); rm -f "$OUTD/$name.elf" "$OUTD/$na
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TC="/c/Users/alu5/.platformio/packages/toolchain-atmelavr/bin"
 FW="/c/Users/alu5/.platformio/packages/framework-arduino-avr"
-LD="/d/TraceQ_maga/.pio/libdeps/megaatmega2560"
+LD="/d/TraceQ_Mega/.pio/libdeps/megaatmega2560"
 OBJ="$OUTD/obj"; rm -rf "$OBJ"; mkdir -p "$OBJ"
 
 DEFS="-DARDUINO=10808 -DARDUINO_AVR_MEGA2560 -DARDUINO_ARCH_AVR -DF_CPU=16000000L
